@@ -28,12 +28,15 @@ module Octo
         attr_accessor :row
         attr_reader :cursor_position, :line_index, :files, :tips_message, :tips_type
 
+        HISTORY_FILE = File.expand_path("~/.octo/cmd_history.json").freeze
+        MAX_HISTORY = 100
+
         def initialize(row: 0)
           @row = row
           @lines = [""]
           @line_index = 0
           @cursor_position = 0
-          @history = []
+          @history = load_history
           @history_index = -1
           @pastel = Pastel.new
           @width = TTY::Screen.width
@@ -982,8 +985,23 @@ module Octo
         end
 
         def add_to_history(entry)
+          return if @history.last == entry
           @history << entry
-          @history = @history.last(100) if @history.size > 100
+          @history = @history.last(MAX_HISTORY) if @history.size > MAX_HISTORY
+          save_history
+        end
+
+        def load_history
+          return [] unless File.exist?(HISTORY_FILE)
+          JSON.parse(File.read(HISTORY_FILE))
+        rescue JSON::ParserError
+          []
+        end
+
+        def save_history
+          File.write(HISTORY_FILE, JSON.pretty_generate(@history))
+        rescue => e
+          # Silently fail if we can't write history
         end
 
         def paste_from_clipboard
