@@ -382,7 +382,7 @@ module Octo
         {}
       end
 
-      # Shred a directory containing decrypted brand skill scripts.
+      # Shred a directory containing decrypted skill scripts.
       # Overwrites each file with zeros before deletion to hinder recovery.
       # @param dir [String] Absolute path to the directory
       def shred_directory(dir)

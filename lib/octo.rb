@@ -91,7 +91,6 @@ require_relative "octo/ui2/progress_indicator"
 
 # Utils
 require_relative "octo/utils/logger"
-require_relative "octo/platform_http_client"
 require_relative "octo/utils/encoding"
 require_relative "octo/utils/environment_detector"
 require_relative "octo/utils/browser_detector"
@@ -123,7 +122,6 @@ require_relative "octo/tools/redo_task"
 require_relative "octo/tools/list_tasks"
 require_relative "octo/tools/browser"
 require_relative "octo/tools/terminal"
-require_relative "octo/telemetry"
 require_relative "octo/agent"
 
 require_relative "octo/server/session_registry"

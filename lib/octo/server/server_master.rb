@@ -30,7 +30,7 @@ module Octo
         @host   = host
         @port   = port
         @argv   = argv          # kept for backward compat but no longer used
-        @extra_flags = extra_flags  # e.g. ["--brand-test"]
+        @extra_flags = extra_flags
 
         @socket     = nil
         @worker_pid = nil

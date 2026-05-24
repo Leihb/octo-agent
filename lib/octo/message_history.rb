@@ -197,8 +197,8 @@ module Octo
     end
 
     # Return a shallow copy of the message list, excluding transient messages.
-    # Transient messages (e.g. brand skill instructions) are valid during the
-    # current session but must not be persisted to session.json.
+    # Transient messages are valid during the current session but must not be
+    # persisted to session.json.
     # For serialization, compression, and cloning.
     def to_a
       @messages.reject { |m| m[:transient] }.dup

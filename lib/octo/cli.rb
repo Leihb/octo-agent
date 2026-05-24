@@ -65,10 +65,6 @@ module Octo
         return
       end
 
-      # ── Telemetry (anonymous, opt-out via OCTO_TELEMETRY=0) ──────────
-      # Fire-and-forget background thread; never blocks startup.
-      Octo::Telemetry.startup!
-
       # ── Sibling server discovery ───────────────────────────────────────
       # Bare-CLI mode does NOT boot an HTTP server, so skills that call
       # back into /api/* (channels, browser, scheduler) normally can't work.
@@ -335,8 +331,6 @@ module Octo
         end
       end
 
-      # ── Brand license check (CLI mode) ──────────────────────────────────────
-      #
       CLI_DEFAULT_SESSION_NAME = "CLI Session"
 
       # Format a number with thousand separators for display
@@ -966,9 +960,6 @@ module Octo
         extra_flags << "--no-skill-evolution" if options[:no_skill_evolution]
 
         Octo::Logger.console = true
-
-        # ── Telemetry (anonymous, opt-out via OCTO_TELEMETRY=0) ──────────
-        Octo::Telemetry.startup!
 
         Octo::Server::Master.new(
           host:        options[:host],

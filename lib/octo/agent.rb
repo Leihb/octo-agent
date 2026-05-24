@@ -598,10 +598,6 @@ module Octo
         # raised between a progress slot's active/done pair.
         @ui&.show_progress(phase: "done")
 
-        # Fire-and-forget telemetry after every agent run.
-        # Tracks daily active users (distinct devices per day) and task volume.
-        Octo::Telemetry.task!
-
         # Reap stale completed background tasks so the registry doesn't grow
         # unboundedly across a long session.
         begin

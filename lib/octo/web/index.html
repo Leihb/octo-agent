@@ -34,12 +34,6 @@
         <img class="header-logo-img" id="header-logo-img" src="" alt="" style="display:none">
         <span class="header-logo-divider"></span>
         <span class="header-logo" id="header-logo">Octo</span>
-        <!-- Owner badge: visible only for creator-tier licenses (user_licensed=true).
-             Clicking navigates to Creator Hub. stopPropagation prevents the parent
-             #header-brand onclick (which would navigate to chat). -->
-        <button id="header-owner-badge" class="header-owner-badge" style="display:none"
-                onclick="event.stopPropagation(); Router.navigate('creator')"
-                title="Creator / Owner" data-i18n-title="header.owner.tooltip">OWNER</button>
       </div>
     </div>
     <div id="header-right">
@@ -221,24 +215,6 @@
         </div>
       </div>
 
-      <!-- Creator Group — only shown when user_licensed -->
-      <div id="creator-section" style="display:none">
-        <div class="sidebar-divider"><span data-i18n="sidebar.creatorSection">Creator</span></div>
-        <div id="creator-nav-items">
-          <div id="creator-sidebar-item" class="task-item task-item-summary">
-            <div class="task-row">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
-                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                <path d="M2 17l10 5 10-5"/>
-                <path d="M2 12l10 5 10-5"/>
-              </svg>
-              <div class="task-info">
-                <span class="task-name" id="creator-sidebar-label" data-i18n="sidebar.creator">Creator Hub</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Bottom Settings -->
@@ -394,67 +370,6 @@
       </div>
     </div>
 
-    <!-- ── CREATOR PANEL ─────────────────────────────────────────────── -->
-    <div id="creator-panel" style="display:none">
-      <div id="creator-body">
-        <div class="skills-page-header">
-          <h2 class="skills-page-title" data-i18n="creator.title">Creator Hub</h2>
-          <p class="skills-page-subtitle" data-i18n="creator.subtitle">Manage and publish your skills to the platform</p>
-        </div>
-
-        <!-- Promo banner: shown only to non-licensed users -->
-        <div id="creator-promo-banner" style="display:none">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-          </svg>
-          <span data-i18n="creator.promo.text">Publish your skills &amp; build your own brand on Octo.</span>
-          <a href="https://www.octo.com/creators" target="_blank" data-i18n="creator.promo.link">Learn more →</a>
-        </div>
-
-        <!-- Section 1: Cloud skills (published) -->
-        <div class="creator-section-block" id="creator-cloud-block">
-          <div class="creator-section-header">
-            <span class="creator-section-label" data-i18n="creator.section.cloud">Cloud Skills</span>
-            <span class="creator-section-hint" data-i18n="creator.section.cloudHint">Published to the platform</span>
-          </div>
-          <div id="creator-cloud-list" class="creator-list"></div>
-          <!-- Lock overlay: shown only to non-licensed users -->
-          <div id="creator-cloud-lock" style="display:none">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            </svg>
-            <span data-i18n="creator.cloud.locked">Brand license required to publish cloud skills.</span>
-          </div>
-        </div>
-
-        <!-- Section 2: Local skills (ready to publish) -->
-        <div class="creator-section-block" id="creator-local-block">
-          <div class="creator-section-header">
-            <span class="creator-section-label" data-i18n="creator.section.local">Local Skills</span>
-            <span class="creator-section-hint" data-i18n="creator.section.localHint">Ready to publish</span>
-          </div>
-          <div id="creator-local-list" class="creator-list"></div>
-        </div>
-
-        <!-- Section 3: Create new skill -->
-        <div class="creator-section-block" id="creator-new-block">
-          <div class="creator-section-header">
-            <span class="creator-section-label" data-i18n="creator.section.new">Create New Skill</span>
-          </div>
-          <div id="creator-new-entry" class="creator-new-card">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M12 8v8"/><path d="M8 12h8"/>
-            </svg>
-            <span data-i18n="creator.newSkill.label">Create a new skill with /skill-creator</span>
-            <svg class="creator-new-arrow" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 12h14"/><path d="M12 5l7 7-7 7"/>
-            </svg>
-          </div>
-        </div>
-
-      </div>
-    </div>
-
     <!-- ── SKILLS PANEL ───────────────────────────────────────────────── -->
     <div id="skills-panel" style="display:none">
       <div id="skills-body">
@@ -485,61 +400,42 @@
         <div id="skills-tabs">
           <div class="skills-tabs-left">
             <button class="skills-tab active" data-tab="my-skills" id="tab-my-skills" data-i18n="skills.tab.my">My Skills</button>
-            <button class="skills-tab" data-tab="brand-skills" id="tab-brand-skills" data-i18n="skills.tab.brand">Brand Skills</button>
           </div>
           <div class="skills-tabs-controls">
-            <!-- Show system skills toggle (only visible in My Skills tab) -->
+            <!-- Show system skills toggle -->
             <label class="skills-filter-toggle" id="label-show-system">
               <input type="checkbox" id="chk-show-system-skills">
               <span class="skills-filter-toggle-track"></span>
               <span class="skills-filter-label" data-i18n="skills.filter.showSystem">Show system skills</span>
             </label>
-            <!-- Refresh brand skills button (only visible in Brand Skills tab) -->
-            <button id="btn-refresh-brand-skills" class="btn-brand-skills-refresh" title="Refresh from cloud" style="display:none">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
-                <path d="M21 2v6h-6"/>
-                <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
-                <path d="M3 22v-6h6"/>
-                <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
-              </svg> <span data-i18n="skills.btn.refresh">Refresh</span>
-            </button>
           </div>
         </div>
 
-        <!-- Tab: My Skills -->
-        <div id="skills-tab-my" class="skills-tab-content">
-          <!-- Inline import bar (toggled by Import button) -->
-          <div id="skill-import-bar" class="skill-import-bar" style="display:none">
-            <div class="skill-import-bar-inner">
-              <!-- Link icon -->
-              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="skill-import-link-icon">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        <!-- Inline import bar (toggled by Import button) -->
+        <div id="skill-import-bar" class="skill-import-bar" style="display:none">
+          <div class="skill-import-bar-inner">
+            <!-- Link icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="skill-import-link-icon">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            <input id="skill-import-input" class="skill-import-input" type="text"
+                   placeholder="Paste ZIP or GitHub URL…" data-i18n-placeholder="skills.import.placeholder" />
+            <!-- Hidden file input for local ZIP selection -->
+            <input id="skill-import-file" type="file" accept=".zip" style="display:none" />
+            <!-- Browse local file button -->
+            <button id="btn-skill-import-browse" class="btn-skill-import-browse" title="Choose local ZIP file">
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
               </svg>
-              <input id="skill-import-input" class="skill-import-input" type="text"
-                     placeholder="Paste ZIP or GitHub URL…" data-i18n-placeholder="skills.import.placeholder" />
-              <!-- Hidden file input for local ZIP selection -->
-              <input id="skill-import-file" type="file" accept=".zip" style="display:none" />
-              <!-- Browse local file button -->
-              <button id="btn-skill-import-browse" class="btn-skill-import-browse" title="Choose local ZIP file">
-                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                </svg>
-              </button>
-              <button id="btn-skill-import-confirm" class="btn-skill-import-confirm">
-                <span data-i18n="skills.import.install">Install</span>
-              </button>
-              <button id="btn-skill-import-cancel" class="btn-skill-import-cancel" title="Cancel">✕</button>
-            </div>
+            </button>
+            <button id="btn-skill-import-confirm" class="btn-skill-import-confirm">
+              <span data-i18n="skills.import.install">Install</span>
+            </button>
+            <button id="btn-skill-import-cancel" class="btn-skill-import-cancel" title="Cancel">✕</button>
           </div>
-          <div id="skills-list"></div>
         </div>
-
-        <!-- Tab: Brand Skills (only visible when license is activated) -->
-        <div id="skills-tab-brand" class="skills-tab-content" style="display:none">
-          <div id="brand-skills-warning" class="brand-skills-warning" style="display:none"></div>
-          <div id="brand-skills-list"></div>
-        </div>
+        <div id="skills-list"></div>
       </div>
     </div>
 
@@ -760,92 +656,7 @@
           </div>
         </section>
 
-        <!-- Brand & License section -->
-        <section class="settings-section" id="brand-license-section">
-          <div class="settings-section-title">
-            <span data-i18n="settings.brand.title">Brand &amp; License</span>
-          </div>
 
-          <!-- Current brand status (shown when already activated) -->
-          <div id="brand-status-card" class="brand-status-card" style="display:none">
-            <div class="brand-status-main">
-              <div class="brand-status-fields">
-                <div class="brand-status-row">
-                  <span class="brand-status-label" data-i18n="settings.brand.label.brand">Brand</span>
-                  <span class="brand-status-value" id="brand-status-name">—</span>
-                </div>
-                <div class="brand-status-row">
-                  <span class="brand-status-label" data-i18n="settings.brand.label.status">Status</span>
-                  <span class="brand-status-value" id="brand-status-badge">—</span>
-                </div>
-                <div class="brand-status-row">
-                  <span class="brand-status-label" data-i18n="settings.brand.label.expires">Expires</span>
-                  <span class="brand-status-value" id="brand-status-expires">—</span>
-                </div>
-                <div class="brand-status-row" id="brand-status-homepage-row" style="display:none">
-                  <span class="brand-status-label" data-i18n="settings.brand.label.homepage">Homepage</span>
-                  <a id="brand-status-homepage" class="brand-status-value brand-status-link" href="#" target="_blank" rel="noopener noreferrer">—</a>
-                </div>
-                <div class="brand-status-actions">
-                  <button id="btn-rebind-license" class="btn-settings-action" data-i18n="settings.brand.btn.change">Change Serial Number</button>
-                  <button id="btn-unbind-license" class="btn-settings-action btn-settings-action-danger" data-i18n="settings.brand.btn.unbind">Unbind License</button>
-                </div>
-              </div>
-              <!-- Support contact (shown when support_contact is available) -->
-              <div id="brand-support-contact" class="brand-support-contact" style="display:none">
-                <span class="brand-support-contact-label" data-i18n="settings.brand.label.supportContact">Support</span>
-                <a id="brand-support-contact-link" class="brand-support-contact-value" href="#" target="_blank" rel="noopener noreferrer"></a>
-              </div>
-
-              <!-- Support QR code (shown when support_qr_url is available) -->
-              <div id="brand-support-qr" class="brand-support-qr" style="display:none">
-                <button class="brand-support-qr-btn" id="brand-support-qr-btn" title="Click to enlarge" aria-label="View QR code larger">
-                  <img id="brand-support-qr-img" src="" alt="Support QR Code" class="brand-support-qr-img">
-                  <span class="brand-support-qr-zoom-hint">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-                    Click to enlarge
-                  </span>
-                </button>
-                <span class="brand-support-qr-label" data-i18n="settings.brand.label.supportQr">Tech Support</span>
-              </div>
-
-              <!-- QR code lightbox modal -->
-              <div id="qr-lightbox" class="qr-lightbox" style="display:none" role="dialog" aria-modal="true" aria-label="QR Code enlarged view">
-                <div class="qr-lightbox-backdrop" id="qr-lightbox-backdrop"></div>
-                <div class="qr-lightbox-content">
-                  <img id="qr-lightbox-img" src="" alt="Support QR Code" class="qr-lightbox-img">
-                  <p class="qr-lightbox-label" id="qr-lightbox-label">Tech Support</p>
-                  <p class="qr-lightbox-hint" data-i18n="settings.brand.label.qrHint">Scan with your phone camera</p>
-                  <button class="qr-lightbox-close" id="qr-lightbox-close" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Activation form (shown when not yet activated) -->
-          <div id="brand-activate-form" class="brand-activate-form">
-            <p class="brand-activate-desc" data-i18n="settings.brand.desc">
-              Have a serial number from a brand partner? Enter it below to activate branded mode.
-            </p>
-            <div class="brand-activate-fields">
-              <input id="settings-license-key" type="text" class="field-input"
-                     placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
-                     autocomplete="off" spellcheck="false">
-              <button id="btn-settings-activate" class="btn-primary" data-i18n="settings.brand.btn.activate">Activate</button>
-            </div>
-            <div id="settings-activate-result" class="model-test-result"></div>
-            <!-- "Get a serial number" helper row — only rendered when the
-                 brand has a homepage_url configured (set via Brand.refreshGetSerialLink).
-                 Hidden by default so unbranded / no-homepage installs don't see a dead link. -->
-            <div id="brand-get-serial" class="brand-get-serial" style="display:none">
-              <span class="brand-get-serial-hint" data-i18n="settings.brand.getSerial.hint">Don't have one yet?</span>
-              <button type="button" id="btn-get-serial" class="btn-link-inline" data-i18n="settings.brand.btn.getSerial">Get a Serial Number</button>
-            </div>
-          </div>
-
-        </section>
 
       </div>
     </div>
@@ -1073,8 +884,6 @@
 <script src="/settings.js"></script>
 <script src="/billing.js"></script>
 <script src="/onboard.js"></script>
-<script src="/brand.js"></script>
-<script src="/creator.js"></script>
 <script src="/trash.js"></script>
 <script src="/profile.js"></script>
 <script src="/version.js"></script>

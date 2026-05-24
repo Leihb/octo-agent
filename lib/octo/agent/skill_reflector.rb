@@ -26,10 +26,10 @@ module Octo
         # platform-management skills invoked incidentally should not be reflected on.
         return unless @skill_execution_context[:slash_command]
 
-        # Skip default and brand skills — they are system-owned and should not be
+        # Skip default skills — they are system-owned and should not be
         # auto-improved by the evolution system.
         source = @skill_execution_context[:source]
-        return if source == :default || source == :brand
+        return if source == :default
 
         skill_name = @skill_execution_context[:skill_name]
         start_iteration = @skill_execution_context[:start_iteration]

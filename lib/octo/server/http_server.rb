@@ -543,7 +543,7 @@ module Octo
       # Strategy: load the most recent sessions from ~/.octo/sessions/ for the
       # current working directory and restore them into @registry so their IDs are
       # stable across restarts (frontend hash stays valid). If no persisted sessions
-      # exist, fall back to creating a brand-new default session.
+      # exist, fall back to creating a new default session.
       def create_default_session
         return unless @agent_config.models_configured?
 
@@ -1574,7 +1574,6 @@ module Octo
       end
 
       # POST /api/my-skills/:name/publish
-      # GET /api/creator/skills
 
 
       # GET /api/trash[?project=<path>]
@@ -2092,7 +2091,7 @@ module Octo
         base_url = body["base_url"].to_s.strip
         api_key  = body["api_key"].to_s
         # Masked placeholders are never a valid api_key on creation —
-        # a brand-new model MUST come with a real key.
+        # a new model MUST come with a real key.
         if api_key.empty? || api_key.include?("****")
           return json_response(res, 422, { error: "api_key is required" })
         end
