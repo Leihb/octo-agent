@@ -715,7 +715,7 @@ module Octo
 
         case status
         when "running"
-          "Handle is still running #{time_str}: #{cmd}. You will be notified when it completes."
+          "Handle is still running #{time_str}: #{cmd}. You will be notified when it completes. DO NOT query this handle again — just wait for the notification."
         when "completed"
           result = task[:result] || {}
           exit_code = result[:exit_code]
