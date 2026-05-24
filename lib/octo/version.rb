@@ -1,5 +1,5 @@
 # frozen_string_literal: true
 
 module Octo
-  VERSION = "1.1.7"
+  VERSION = "0.11.0"
 end
