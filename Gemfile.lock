@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    openclacky (1.1.6)
+    octo (1.1.6)
       artii (~> 2.1)
       base64 (>= 0.1.0)
       chunky_png (~> 1.4)
@@ -128,7 +128,7 @@ DEPENDENCIES
   climate_control
   debug
   irb
-  openclacky!
+  octo!
   rake (~> 13.0)
   rspec (~> 3.0)
   rubocop (~> 1.21)
