@@ -6137,6 +6137,55 @@ body {
     gap: 0.375rem;
   }
 
+  /* ── Profile / My Data page ── */
+  #profile-body            { padding: 1rem 0.875rem; }
+  .profile-tab             { padding: 0.5625rem 0.75rem; font-size: 0.75rem; }
+  .profile-section-head    { flex-wrap: wrap; }
+  .profile-path            { max-width: 100%; }
+  .memory-card-head        { flex-wrap: wrap; }
+  .memory-card-actions     { margin-top: 0.375rem; flex-wrap: wrap; }
+  .btn-memory-curate span,
+  .btn-memory-delete span  { display: none; }  /* icon-only on narrow screens */
+
+  /* ── File Recall page ── */
+  .trash-toolbar {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .trash-summary {
+    width: 100%;
+  }
+  .trash-actions {
+    flex-wrap: wrap;
+    margin-left: 0;
+    gap: 0.375rem;
+  }
+  .btn-trash-action {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Latency signal popup (tap to show on mobile, replaces native title tooltip) */
+  .sib-signal-popup {
+    position: fixed;
+    z-index: 500;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--color-text-primary);
+    white-space: pre-line;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    max-width: 80vw;
+    pointer-events: none;
+  }
+  /* Make signal icon look tappable on mobile */
+  .sib-signal-clickable {
+    cursor: pointer;
+  }
+}
+
 
 
 /* ═════════════════════════════════════════════════════════════════════════
