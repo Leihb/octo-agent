@@ -1,8 +1,8 @@
 # Octo Project Rules (.octorules)
 
 ## Project Overview
-This is the `octo` Ruby gem - a command-line interface for interacting with AI models (Claude, OpenAI, etc.).
-It provides chat functionality and autonomous AI agent capabilities with tool use.
+This is the `octo` Ruby gem - an AI agent with three equal interfaces (CLI, Web UI, IM bridges) for interacting with AI models (Claude, OpenAI, DeepSeek, Bedrock, etc.).
+It speaks three native API protocols — Anthropic Messages, OpenAI (Chat Completions + Responses), and AWS Bedrock — dispatched per-model in `lib/octo/providers.rb`. It provides chat functionality and autonomous AI agent capabilities with tool use.
 
 ## Project Structure
 - `lib/octo/` - Main gem source code
@@ -85,7 +85,7 @@ Skills are the preferred way to add new high-level capabilities. A skill is a Ma
 - diffy (~> 3.4) - Text diffs
 
 ## Important Notes
-- This gem is designed to work with OpenAI-compatible APIs
+- This gem speaks Anthropic Messages, OpenAI (Chat Completions + Responses), and AWS Bedrock natively; provider-to-protocol mapping lives in `lib/octo/providers.rb` and message-format adapters in `lib/octo/message_format/`
 - Security features include safe shell execution and path validation
 - Agent includes cost control and message compression features
 - Built-in tools cover file operations, web search, code execution, and project management

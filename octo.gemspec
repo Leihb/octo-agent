@@ -32,8 +32,8 @@ Gem::Specification.new do |spec|
   spec.authors = ["windy"]
   spec.email = ["yafei@dao42.com"]
 
-  spec.summary = "A command-line interface for AI models (Claude, OpenAI, etc.)"
-  spec.description = "Octo is a Ruby CLI tool for interacting with AI models via OpenAI-compatible APIs. It provides chat functionality and autonomous AI agent capabilities with tool use."
+  spec.summary = "A functionality-first AI agent with three equal faces (CLI, Web, IM)"
+  spec.description = "Octo is a Ruby AI agent with three equal first-class interfaces: terminal CLI, web UI, and IM bridges (Feishu/WeCom/WeChat/Discord/Telegram). It speaks Anthropic Messages, OpenAI (Chat Completions + Responses), and AWS Bedrock natively, and provides autonomous tool use plus a Claude-Code-compatible skill format."
   spec.homepage = "https://github.com/yafeilee/octo"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 2.6.0"
