@@ -13,13 +13,13 @@ if RUBY_VERSION < "2.6.0"
      Recommended: Use the one-line installer (handles Ruby automatically)
     ──────────────────────────────────────────────────────────────────────
 
-      /bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/octo-ai/octo/main/scripts/install.sh)"
+      /bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/Leihb/octo/main/scripts/install.sh)"
 
     This script will automatically install the correct Ruby version via mise
     and then install Octo — no manual Ruby upgrade needed.
 
     For more details, visit:
-      https://github.com/octo-ai/octo#installation
+      https://github.com/Leihb/octo#installation
 
   MSG
 end
@@ -27,20 +27,20 @@ end
 require_relative "lib/octo/version"
 
 Gem::Specification.new do |spec|
-  spec.name = "octo"
+  spec.name = "octo-agent"
   spec.version = Octo::VERSION
-  spec.authors = ["windy"]
-  spec.email = ["yafei@dao42.com"]
+  spec.authors = ["roy"]
+  spec.email = ["leihaibo1992@gmail.com"]
 
   spec.summary = "A functionality-first AI agent with three equal faces (CLI, Web, IM)"
   spec.description = "Octo is a Ruby AI agent with three equal first-class interfaces: terminal CLI, web UI, and IM bridges (Feishu/WeCom/WeChat/Discord/Telegram). It speaks Anthropic Messages, OpenAI (Chat Completions + Responses), and AWS Bedrock natively, and provides autonomous tool use plus a Claude-Code-compatible skill format."
-  spec.homepage = "https://github.com/yafeilee/octo"
+  spec.homepage = "https://github.com/Leihb/octo"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 2.6.0"
 
   spec.metadata["homepage_uri"] = spec.homepage
-  spec.metadata["source_code_uri"] = "https://github.com/yafeilee/octo"
-  spec.metadata["changelog_uri"] = "https://github.com/yafeilee/octo/blob/main/CHANGELOG.md"
+  spec.metadata["source_code_uri"] = "https://github.com/Leihb/octo"
+  spec.metadata["changelog_uri"] = "https://github.com/Leihb/octo/blob/main/CHANGELOG.md"
 
   # Specify which files should be added to the gem when it is released.
   # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
