@@ -15,6 +15,8 @@ Octo is being rewritten in Go. The Ruby line ended at `v0.11.2-final-ruby` (pres
 - **Go module scaffolding** — `go.mod` at module path `github.com/Leihb/octo`, `cmd/octo/main.go` entrypoint wiring up `version`/`help`, `internal/version` with `-ldflags`-overridable `Version` and `Commit` variables (PR #28).
 - **Go CI matrix** — `.github/workflows/go.yml` runs `go vet`, `gofmt -l`, `go build`, `go test -race` against Go 1.22 and 1.23 on Linux, macOS, and Windows — including the first proof that the Go tree builds and tests on native Windows.
 - **Makefile** — `make build / test / cover / vet / fmt / fmt-check / tidy / install / clean` targets. `VERSION` and `COMMIT` are injected at build time via `-ldflags`; release builds set `VERSION` explicitly (e.g. `VERSION=0.12.0 make build`).
+- **`octo chat` subcommand** — single-turn Anthropic Messages call via `internal/agent` + `internal/provider/anthropic`. Reads `ANTHROPIC_API_KEY` from env. Flags: `--model`, `--system`, `--max-tokens` (PR #30).
+- **`ANTHROPIC_BASE_URL` env var** — same name the official Anthropic SDK uses. Lets `octo chat` target any Anthropic-protocol-compatible third party (DeepSeek `https://api.deepseek.com/anthropic`, Kimi K2 `https://api.moonshot.cn/anthropic`, OpenRouter Anthropic-shim, etc.) without code changes.
 
 ### Changed
 - **Ruby implementation frozen** at `v0.11.2-final-ruby` (PR #27). README / README_CN now carry a 🚧 callout above the fold. `.octorules` instructs future contributors to keep new Ruby features off `main`.

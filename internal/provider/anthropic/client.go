@@ -15,9 +15,15 @@ import (
 	"github.com/Leihb/octo/internal/provider"
 )
 
-// DefaultEndpoint is the Anthropic Messages API endpoint. Tests override it
-// via Client.Endpoint; production should leave it as the default.
-const DefaultEndpoint = "https://api.anthropic.com/v1/messages"
+// DefaultBaseURL is Anthropic's API base. The actual Messages endpoint is
+// BaseURL + "/v1/messages". Override Client.BaseURL when pointing at an
+// Anthropic-compatible third-party (DeepSeek, Kimi, OpenRouter's Anthropic
+// shim, …) — for example DeepSeek exposes the protocol at
+// `https://api.deepseek.com/anthropic`.
+const DefaultBaseURL = "https://api.anthropic.com"
+
+// MessagesPath is the path appended to BaseURL for every send.
+const MessagesPath = "/v1/messages"
 
 // DefaultAPIVersion is the value sent as the `anthropic-version` header.
 // Pinned to the GA version used by the Messages API since 2023-06-01; bump
@@ -28,11 +34,16 @@ const DefaultAPIVersion = "2023-06-01"
 // 4096 is generous for chat-style replies and well below the model ceilings.
 const DefaultMaxTokens = 4096
 
-// Client talks to Anthropic's Messages API. Construct via New(); zero values
-// are not valid because APIKey is required.
+// Client talks to an Anthropic-compatible Messages API. Construct via New();
+// zero values are not valid because APIKey is required.
+//
+// BaseURL is the host + protocol-prefix only (no /v1/messages suffix); the
+// client appends MessagesPath itself. This makes pointing at compatible
+// endpoints painless — set `BaseURL = "https://api.deepseek.com/anthropic"`
+// and the rest works unchanged.
 type Client struct {
 	APIKey     string
-	Endpoint   string       // optional override; defaults to DefaultEndpoint
+	BaseURL    string       // optional override; defaults to DefaultBaseURL
 	APIVersion string       // optional override; defaults to DefaultAPIVersion
 	HTTPClient *http.Client // optional; defaults to http.Client with a 60s timeout
 }
@@ -46,7 +57,7 @@ func New(apiKey string) (*Client, error) {
 	}
 	return &Client{
 		APIKey:     apiKey,
-		Endpoint:   DefaultEndpoint,
+		BaseURL:    DefaultBaseURL,
 		APIVersion: DefaultAPIVersion,
 		HTTPClient: &http.Client{Timeout: 60 * time.Second},
 	}, nil
@@ -82,11 +93,7 @@ func (c *Client) Send(ctx context.Context, req provider.Request) (provider.Respo
 		return provider.Response{}, fmt.Errorf("anthropic: marshal request: %w", err)
 	}
 
-	endpoint := c.Endpoint
-	if endpoint == "" {
-		endpoint = DefaultEndpoint
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpointURL(), bytes.NewReader(payload))
 	if err != nil {
 		return provider.Response{}, fmt.Errorf("anthropic: build request: %w", err)
 	}
@@ -137,6 +144,16 @@ func (c *Client) Send(ctx context.Context, req provider.Request) (provider.Respo
 		InputTokens:  apiResp.Usage.InputTokens,
 		OutputTokens: apiResp.Usage.OutputTokens,
 	}, nil
+}
+
+// endpointURL returns BaseURL + MessagesPath, applying defaults and trimming
+// any trailing slash on BaseURL so the join is exactly one slash.
+func (c *Client) endpointURL() string {
+	base := c.BaseURL
+	if base == "" {
+		base = DefaultBaseURL
+	}
+	return strings.TrimRight(base, "/") + MessagesPath
 }
 
 // toAPIMessages converts agent.Message slice into the Anthropic wire format.

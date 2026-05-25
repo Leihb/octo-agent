@@ -74,7 +74,7 @@ func TestSend_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Endpoint = srv.URL
+	c.BaseURL = srv.URL
 
 	resp, err := c.Send(context.Background(), provider.Request{
 		Model:        "claude-haiku-4-5-20251001",
@@ -116,7 +116,7 @@ func TestSend_SystemMessageStripped(t *testing.T) {
 	defer srv.Close()
 
 	c, _ := New("k")
-	c.Endpoint = srv.URL
+	c.BaseURL = srv.URL
 
 	_, err := c.Send(context.Background(), provider.Request{
 		Model: "claude-haiku-4-5-20251001",
@@ -141,7 +141,7 @@ func TestSend_HTTPError_Wrapped(t *testing.T) {
 	defer srv.Close()
 
 	c, _ := New("k")
-	c.Endpoint = srv.URL
+	c.BaseURL = srv.URL
 
 	_, err := c.Send(context.Background(), provider.Request{
 		Model:    "x",
@@ -160,7 +160,7 @@ func TestSend_HTTPError_Wrapped(t *testing.T) {
 
 func TestSend_ValidatesRequest(t *testing.T) {
 	c, _ := New("k")
-	c.Endpoint = "http://invalid"
+	c.BaseURL = "http://invalid"
 
 	if _, err := c.Send(context.Background(), provider.Request{}); err == nil {
 		t.Error("empty request should error")
@@ -182,7 +182,7 @@ func TestSend_DefaultMaxTokens(t *testing.T) {
 	defer srv.Close()
 
 	c, _ := New("k")
-	c.Endpoint = srv.URL
+	c.BaseURL = srv.URL
 
 	_, err := c.Send(context.Background(), provider.Request{
 		Model:    "x",
@@ -194,6 +194,47 @@ func TestSend_DefaultMaxTokens(t *testing.T) {
 	}
 	if capturedMaxTokens != DefaultMaxTokens {
 		t.Errorf("MaxTokens = %d, want default %d", capturedMaxTokens, DefaultMaxTokens)
+	}
+}
+
+func TestSend_AppendsMessagesPath(t *testing.T) {
+	// Verify the client always POSTs to BaseURL + "/v1/messages", regardless
+	// of whether the caller's BaseURL has a trailing slash. This is the
+	// guarantee that makes pointing at Anthropic-compatible third parties
+	// (e.g. DeepSeek at https://api.deepseek.com/anthropic) work transparently.
+	cases := []struct {
+		name string
+		base string
+	}{
+		{"no trailing slash", ""}, // populated below with srv.URL
+		{"trailing slash", ""},
+	}
+	for i, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				_, _ = w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"x","content":[],"stop_reason":"end_turn","usage":{"input_tokens":0,"output_tokens":0}}`))
+			}))
+			defer srv.Close()
+
+			cl, _ := New("k")
+			cl.BaseURL = srv.URL
+			if i == 1 {
+				cl.BaseURL = srv.URL + "/"
+			}
+
+			_, err := cl.Send(context.Background(), provider.Request{
+				Model:    "x",
+				Messages: []agent.Message{agent.NewUserMessage("hi")},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotPath != "/v1/messages" {
+				t.Errorf("path = %q, want /v1/messages", gotPath)
+			}
+		})
 	}
 }
 

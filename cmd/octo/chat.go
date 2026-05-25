@@ -52,6 +52,13 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "octo chat: %v\n", err)
 		return 1
 	}
+	// Honour ANTHROPIC_BASE_URL (same env name the official Anthropic SDK uses)
+	// so the same `octo chat` invocation can target an Anthropic-compatible
+	// third party — e.g. DeepSeek at https://api.deepseek.com/anthropic.
+	// Without the env var the client uses anthropic.DefaultBaseURL.
+	if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
+		client.BaseURL = baseURL
+	}
 
 	a := agent.New(providerSender{p: client}, *model)
 	a.System = *system

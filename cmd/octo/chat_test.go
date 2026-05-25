@@ -37,6 +37,37 @@ func TestRunChat_MissingAPIKey(t *testing.T) {
 	}
 }
 
+func TestRunChat_HonoursAnthropicBaseURL(t *testing.T) {
+	// Stand up a fake Anthropic-compatible endpoint and verify runChat
+	// actually POSTs there when ANTHROPIC_BASE_URL is set. Same shape the
+	// user will use with DeepSeek / Kimi / OpenRouter-Anthropic-shim.
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{
+			"id":"m","type":"message","role":"assistant","model":"x",
+			"content":[{"type":"text","text":"hi"}],
+			"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}
+		}`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("ANTHROPIC_API_KEY", "k")
+	t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
+
+	var stdout, stderr bytes.Buffer
+	code := runChat([]string{"--model", "x", "hello"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "hi") {
+		t.Errorf("stdout should contain reply; got: %q", stdout.String())
+	}
+	if gotPath != "/v1/messages" {
+		t.Errorf("path = %q, want /v1/messages", gotPath)
+	}
+}
+
 func TestRunChat_EndToEnd(t *testing.T) {
 	// httptest server impersonating Anthropic — proves the full chain
 	// (cmd → adapter → provider → HTTP) is wired correctly.
