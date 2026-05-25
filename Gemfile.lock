@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    octo-agent (0.11.1)
+    octo-agent (0.11.2)
       artii (~> 2.1)
       base64 (>= 0.1.0)
       chunky_png (~> 1.4)
