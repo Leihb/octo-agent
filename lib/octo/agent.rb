@@ -145,6 +145,11 @@ module Octo
       # Register built-in tools
       register_builtin_tools
 
+      # Wire user-defined shell hooks from config.yml's settings.hooks.
+      # Each yaml entry becomes a programmatic hook block on @hooks that
+      # delegates execution to Octo::ShellHookRunner.
+      register_user_shell_hooks!
+
       # Ensure user-space parsers are in place (~/.octo/parsers/)
       Utils::ParserManager.setup!
 
@@ -1694,6 +1699,38 @@ module Octo
       @tool_registry.register(Tools::ListTasks.new)
       @tool_registry.register(Tools::Browser.new)
       @tool_registry.register(Tools::Agent.new)
+    end
+
+    # Convert the user's config.yml `settings.hooks` block into programmatic
+    # hooks on @hooks. Each yaml entry becomes a Proc that delegates to
+    # Octo::ShellHookRunner.run with the appropriate event + args.
+    #
+    # Subagent guard runs INSIDE the closure rather than at registration
+    # time — `@is_subagent` is set AFTER Agent.new returns (by fork_subagent),
+    # so a registration-time check would always be false. Checking inside the
+    # block uses the live value at trigger time and keeps user shell hooks
+    # firing only for main-agent activity.
+    private def register_user_shell_hooks!
+      return unless @config.respond_to?(:hooks)
+      cfg = @config.hooks
+      return unless cfg.is_a?(Hash) && !cfg.empty?
+
+      cfg.each do |event_name, entries|
+        event = event_name.to_sym
+        next unless HookManager::HOOK_EVENTS.include?(event)
+
+        Array(entries).each do |entry|
+          @hooks.add(event) do |*args|
+            next { action: :allow } if @is_subagent
+            Octo::ShellHookRunner.run(
+              event: event,
+              entry: entry,
+              args: args,
+              agent: self
+            )
+          end
+        end
+      end
     end
 
     # Fork a subagent with specified configuration

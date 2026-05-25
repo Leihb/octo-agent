@@ -158,7 +158,8 @@ module Octo
                   :next_message_suggestion_enabled,
                   :max_running_agents, :max_idle_agents,
                   :default_working_dir,
-                  :max_turns, :max_cost_usd
+                  :max_turns, :max_cost_usd,
+                  :hooks
 
     def initialize(options = {})
       @permission_mode = validate_permission_mode(options[:permission_mode])
@@ -211,6 +212,12 @@ module Octo
       # don't want to surprise users who run on self-hosted endpoints.
       @max_turns = options.key?(:max_turns) ? options[:max_turns] : 30
       @max_cost_usd = options[:max_cost_usd]
+
+      # User-defined shell hooks loaded from config.yml's settings.hooks
+      # block. Keyed by event name (string), value is an array of entries:
+      #   { "matcher" => "terminal", "command" => "...", "block" => true }
+      # Octo::ShellHookRunner consumes each entry on event trigger.
+      @hooks = options[:hooks] || {}
 
       # Per-session virtual model overlay.
       # When set, #current_model returns a *merged* hash (the resolved @models
@@ -389,6 +396,7 @@ module Octo
       skill_evolution max_running_agents max_idle_agents
       default_working_dir
       max_turns max_cost_usd
+      hooks
     ].freeze
 
     # Serialize the current agent configuration to YAML.
@@ -408,8 +416,9 @@ module Octo
         "max_idle_agents" => @max_idle_agents,
         "default_working_dir" => @default_working_dir,
         "max_turns" => @max_turns,
-        "max_cost_usd" => @max_cost_usd
-      }
+        "max_cost_usd" => @max_cost_usd,
+        "hooks" => (@hooks.nil? || @hooks.empty? ? nil : @hooks)
+      }.compact
       YAML.dump("settings" => settings, "models" => persistable_models)
     end
 

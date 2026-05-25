@@ -71,6 +71,32 @@ CLI override per run: `--max-turns N`, `--max-cost N`. Inside a session, `/cost`
 
 Cost is computed by `Octo::ModelPricing` from the active model's published rate; self-hosted or unknown models still report tokens but cost displays as `n/a`.
 
+## Hooks
+
+Shell commands can be wired to agent lifecycle events through the same
+`settings:` block. Each entry runs in a fresh shell with `OCTO_EVENT`,
+`OCTO_TOOL_NAME`, `OCTO_TOOL_INPUT`, `OCTO_SESSION_ID`, `OCTO_WORKING_DIR`
+exposed as environment variables.
+
+```yaml
+settings:
+  hooks:
+    before_tool_use:
+      - matcher: "terminal"
+        command: "echo $OCTO_TOOL_INPUT >> ~/.octo/audit.log"
+        block: true     # non-zero exit aborts the tool call
+        timeout: 5      # seconds; default 30
+    on_complete:
+      - command: "osascript -e 'display notification \"Octo done\"'"
+```
+
+Events: `before_tool_use`, `after_tool_use`, `on_tool_error`, `on_start`,
+`on_complete`, `on_iteration`, `session_rollback`.
+
+Only `before_tool_use` honors `block: true` (non-zero exit denies the tool
+call). Other events log non-zero exits but never abort. Hooks run only on
+the main agent, not on forked sub-agents.
+
 ## Supported Providers
 
 Octo has built-in presets for:

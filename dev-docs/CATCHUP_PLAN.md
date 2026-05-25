@@ -10,7 +10,7 @@
 |------|------|-------|--------|------|------|
 | P0-1 | LLM 可调度的 `Task`/`Agent` 子代理工具 | [#2](https://github.com/Leihb/octo/issues/2) | P0 | ✅ 2026-05-25 | 2d |
 | P0-2 | 通用 MCP 客户端（stdio + SSE） | [#3](https://github.com/Leihb/octo/issues/3) | P0 | ⬜ todo | 5d |
-| P0-3 | `settings.yml` 用户可配置 hook | [#4](https://github.com/Leihb/octo/issues/4) | P0 | ⬜ todo | 3d |
+| P0-3 | `config.yml` 用户可配置 hook | [#4](https://github.com/Leihb/octo/issues/4) | P0 | ✅ 2026-05-25 | 3d |
 | P0-4 | `max_turns` / `max_cost_usd` 主循环闸门 | [#5](https://github.com/Leihb/octo/issues/5) | P0 | ✅ 2026-05-25 | 1d |
 | P1-1 | 内置子代理预设 explore/plan/verification/general-purpose | [#6](https://github.com/Leihb/octo/issues/6) | P1 | ✅ 2026-05-25 | 2d |
 | P1-2 | 沙箱执行（命令/网络/路径白名单） | [#7](https://github.com/Leihb/octo/issues/7) | P1 | ⬜ todo | 3d |
@@ -66,27 +66,35 @@
 
 ---
 
-### P0-3. `settings.yml` 用户可配置 hook
+### P0-3. `config.yml` 用户可配置 hook
 
 **现状**：`agent/hook_manager.rb` 提供 7 个事件（`:before_tool_use` / `:after_tool_use` / `:on_tool_error` / `:on_start` / `:on_complete` / `:on_iteration` / `:session_rollback`），但只能编程注入，外部用户改不到。
 
 **对标**：claude-code `schemas/hooks.ts` + `settings.json` 的 `hooks` 段，shell 命令挂事件。
 
-**目标**：
-- `~/.octo/settings.yml` 新增 `hooks` 段：
-  ```yaml
+**目标**：复用 `~/.octo/config.yml` 的 `settings:` block（P0-4 已经在那里加了 `max_turns` / `max_cost_usd`），新增 `hooks:` 键。不开新文件。
+
+```yaml
+settings:
+  max_turns: 30
   hooks:
     before_tool_use:
       - matcher: "terminal"
         command: "echo $OCTO_TOOL_INPUT >> ~/.octo/audit.log"
+        block: true
     on_complete:
       - command: "osascript -e 'display notification \"Octo done\"'"
-  ```
-- 主进程在事件触发时把上下文塞 env，同步/异步 spawn shell 命令
+```
+
+- 主进程在事件触发时把上下文塞 ENV（`OCTO_EVENT` / `OCTO_TOOL_NAME` / `OCTO_TOOL_INPUT` / `OCTO_SESSION_ID` / `OCTO_WORKING_DIR`），同步/异步 spawn shell
 - 非零退出码默认不阻塞；`block: true` 时阻断该工具调用
-- 项目级 `.octo/settings.yml` 覆盖用户级
+- `matcher` 对 tool 事件按 tool name 精确匹配，nil 表示全匹配
+- `timeout` 默认 30s
+- 项目级 `.octo/config.yml` 留到 P2-3 那批项目级配置一起做
 
 **验收**：手写 hook 让 `before_tool_use` 拦截 `terminal` 工具的 `rm -rf *` 调用并退出非零，主代理收到阻断消息。
+
+**完成**：2026-05-25。新增 `Octo::ShellHookRunner`（stateless，负责 ENV 构建 + popen3 spawn + timeout/kill 清理 + block:true 解析）。`AgentConfig` 加 `:hooks` 字段，复用现有 `CONFIG_SETTINGS_KEYS` 自动 yaml 持久化（empty 时不输出 stray 键）。`Agent#initialize` 末尾调 `register_user_shell_hooks!`，把 yaml 描述每条 hook 转成 `@hooks` 上的 Ruby 闭包；subagent 防护通过闭包内 `@is_subagent` 运行时检查实现（构造时该 ivar 还没设好）。matcher 按 tool name 精确匹配，timeout 默认 30s，async/sync 两路。product-help/docs/agent-config.md 同步加 "Hooks" 段。
 
 ---
 
