@@ -274,7 +274,7 @@ module Octo
       # ---------------------------------------------------------------------
       def execute(command: nil, handle_id: nil, input: nil, async: false,
                   cwd: nil, env: nil, kill: nil, idle_ms: nil,
-                  working_dir: nil, max_duration: max_duration, **_ignored)
+                  working_dir: nil, max_duration: nil, **_ignored)
         # Auto-tune: for well-known long-running commands (rspec, bundle
         # install, cargo build, etc.), we stretch the budget AND disable
         # idle-return. This collapses what would otherwise be 5-10
