@@ -21,3 +21,11 @@ openclacky/
 /checksums.yaml.gz
 /data.tar.gz
 /metadata.gz
+
+# Go build artefacts
+/octo
+/octo.exe
+/dist/
+*.test
+coverage.out
+coverage.html
