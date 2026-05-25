@@ -703,7 +703,7 @@ main() {
     if is_macos && ! command_exists brew; then
         local install_cmd
         if [ "$USE_CN_MIRRORS" = true ]; then
-            install_cmd='/bin/bash -c "$(curl -sSL https://oss.1024code.com/scripts/install_full.sh)"'
+            install_cmd='/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/Leihb/octo/main/scripts/install_full.sh)"'
         else
             install_cmd='/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/Leihb/octo/main/scripts/install_full.sh)"'
         fi

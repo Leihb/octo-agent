@@ -683,11 +683,7 @@ module Octo
 
         Thread.new do
           begin
-            if official_gem_source?
-              upgrade_via_gem_update
-            else
-              upgrade_via_oss_cdn
-            end
+            upgrade_via_gem_update
           rescue StandardError => e
             Octo::Logger.error("[Upgrade] Exception: #{e.class}: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
             broadcast_all(type: "upgrade_log", line: "\n✗ Error during upgrade: #{e.message}\n")
@@ -797,21 +793,14 @@ module Octo
         false
       end
 
-      # Returns true when the configured gem source is the official RubyGems.org.
-      # Raises on error — caller's rescue will handle it.
-      private def official_gem_source?
-        output, exit_code = run_shell("gem sources -l")
-        raise "gem sources -l failed (exit #{exit_code}): #{output}" unless exit_code&.zero?
-
-        Octo::Logger.info("[Upgrade] gem sources: #{output.strip}")
-        output.include?("https://rubygems.org") &&
-          !output.match?(%r{mirrors\.|aliyun|tuna|ustc|ruby-china})
-      end
-
-      # Upgrade via `gem update octo-agent --no-document` (official RubyGems source).
+      # Upgrade via `gem update octo-agent --no-document`. Works regardless of
+      # whether the user has the official RubyGems source or a mirror configured
+      # (e.g. ruby-china), because `gem update` honours whatever sources `gem`
+      # is configured with. The fork has no CDN of its own; users who want a
+      # mirror should configure it via `gem sources` directly.
       private def upgrade_via_gem_update
         cmd = "gem update octo-agent --no-document"
-        Octo::Logger.info("[Upgrade] Official source — running: #{cmd}")
+        Octo::Logger.info("[Upgrade] Running: #{cmd}")
         broadcast_all(type: "upgrade_log", line: "Starting upgrade: #{cmd}\n")
 
         output, exit_code = run_shell(cmd, timeout: 600)
@@ -823,80 +812,6 @@ module Octo
 
         broadcast_all(type: "upgrade_log", line: output)
         finish_upgrade(success, fallback_hint: "gem update octo-agent")
-      end
-
-      # Upgrade via OSS CDN: fetch latest.txt → download .gem → gem install (bypasses mirror lag).
-      private def upgrade_via_oss_cdn
-        require "net/http"
-        require "uri"
-
-        oss_base   = "https://oss.1024code.com/octo"
-        latest_url = "#{oss_base}/latest.txt"
-
-        Octo::Logger.info("[Upgrade] Non-official source — fetching latest version from OSS CDN")
-        broadcast_all(type: "upgrade_log", line: "Non-official gem source detected — fetching latest version from OSS CDN...\n")
-
-        # Step 1: fetch latest version from OSS
-        latest_version = fetch_oss_latest_version(latest_url)
-        unless latest_version
-          broadcast_all(type: "upgrade_log", line: "✗ Failed to fetch latest version from OSS CDN\n")
-          broadcast_all(type: "upgrade_complete", success: false)
-          return
-        end
-
-        broadcast_all(type: "upgrade_log", line: "Latest version: #{latest_version}\n")
-
-        # Already up to date?
-        unless version_older?(Octo::VERSION, latest_version)
-          broadcast_all(type: "upgrade_log", line: "✓ Already at latest version (#{Octo::VERSION})\n")
-          broadcast_all(type: "upgrade_complete", success: true)
-          return
-        end
-
-        # Step 2: download .gem file from OSS
-        gem_url  = "#{oss_base}/octo-#{latest_version}.gem"
-        gem_file = "/tmp/octo-#{latest_version}.gem"
-        broadcast_all(type: "upgrade_log", line: "Downloading octo-#{latest_version}.gem from OSS...\n")
-        Octo::Logger.info("[Upgrade] Downloading #{gem_url}")
-
-        shell_cmd = "curl -fsSL '#{gem_url}' -o '#{gem_file}'"
-        dl_out, dl_exit = run_shell(shell_cmd, timeout: 300)
-        unless dl_exit&.zero?
-          broadcast_all(type: "upgrade_log", line: "✗ Download failed: #{dl_out}\n")
-          broadcast_all(type: "upgrade_complete", success: false)
-          return
-        end
-
-        # Step 3: install the downloaded .gem (dependencies resolved via configured gem source)
-        cmd    = "gem install '#{gem_file}' --no-document"
-        broadcast_all(type: "upgrade_log", line: "Installing...\n")
-        Octo::Logger.info("[Upgrade] Running: #{cmd}")
-
-        output, exit_code = run_shell(cmd, timeout: 600)
-        success = exit_code&.zero? || false
-
-        broadcast_all(type: "upgrade_log", line: output)
-        finish_upgrade(success, fallback_hint: "gem install #{gem_url}")
-      ensure
-        File.delete(gem_file) if gem_file && File.exist?(gem_file) rescue nil
-      end
-
-      # Fetch the latest version string from OSS latest.txt.
-      private def fetch_oss_latest_version(url)
-        require "net/http"
-        uri  = URI(url)
-        http = Net::HTTP.new(uri.host, uri.port)
-        http.use_ssl      = uri.scheme == "https"
-        http.open_timeout = 10
-        http.read_timeout = 10
-        res = http.get(uri.request_uri)
-        return nil unless res.is_a?(Net::HTTPSuccess)
-
-        version = res.body.to_s.strip
-        version.empty? ? nil : version
-      rescue StandardError => e
-        Octo::Logger.warn("[Upgrade] fetch_oss_latest_version error: #{e.message}")
-        nil
       end
 
       # Broadcast final upgrade result with appropriate log message.
