@@ -4148,7 +4148,7 @@ body {
 }
 #skills-body {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   padding: 2rem 2rem 1.5rem;
