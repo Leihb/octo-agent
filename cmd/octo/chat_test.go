@@ -68,6 +68,64 @@ func TestRunChat_HonoursAnthropicBaseURL(t *testing.T) {
 	}
 }
 
+func TestRunChat_OpenAI_EndToEnd(t *testing.T) {
+	// Stand up a fake OpenAI-compatible endpoint and verify --provider openai
+	// routes there with Bearer auth and lands at /v1/chat/completions.
+	var gotAuthHeader, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuthHeader = r.Header.Get("Authorization")
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl-x","object":"chat.completion","model":"gpt-4o-mini",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"howdy"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+		}`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("OPENAI_BASE_URL", srv.URL)
+	t.Setenv("ANTHROPIC_API_KEY", "") // ensure we're testing the openai branch
+
+	var stdout, stderr bytes.Buffer
+	code := runChat([]string{"--provider", "openai", "hello"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "howdy") {
+		t.Errorf("stdout should contain reply; got: %q", stdout.String())
+	}
+	if gotPath != "/v1/chat/completions" {
+		t.Errorf("path = %q, want /v1/chat/completions", gotPath)
+	}
+	if gotAuthHeader != "Bearer test-key" {
+		t.Errorf("Authorization = %q, want 'Bearer test-key'", gotAuthHeader)
+	}
+}
+
+func TestRunChat_OpenAI_MissingAPIKey(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	var stdout, stderr bytes.Buffer
+	code := runChat([]string{"--provider", "openai", "hello"}, &stdout, &stderr)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "OPENAI_API_KEY") {
+		t.Errorf("stderr should mention env var; got: %q", stderr.String())
+	}
+}
+
+func TestRunChat_UnknownProvider(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runChat([]string{"--provider", "bogus", "hello"}, &stdout, &stderr)
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown provider") {
+		t.Errorf("stderr should mention unknown provider; got: %q", stderr.String())
+	}
+}
+
 func TestRunChat_EndToEnd(t *testing.T) {
 	// httptest server impersonating Anthropic — proves the full chain
 	// (cmd → adapter → provider → HTTP) is wired correctly.
