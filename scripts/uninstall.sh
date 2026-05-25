@@ -195,46 +195,19 @@ restore_gem_home() {
 }
 
 
-# --------------------------------------------------------------------------
-# Load brand config
-# --------------------------------------------------------------------------
-BRAND_NAME=""
-BRAND_COMMAND=""
-DISPLAY_NAME="Octo"
-
-load_brand() {
-    local brand_file="$HOME/.octo/brand.yml"
-    [ -f "$brand_file" ] || return 0
-    BRAND_NAME=$(awk -F': ' '/^product_name:/{gsub(/^"|"$/, "", $2); gsub(/^ +| +$/, "", $2); print $2}' "$brand_file") || true
-    BRAND_COMMAND=$(awk -F': ' '/^package_name:/{gsub(/^"|"$/, "", $2); gsub(/^ +| +$/, "", $2); print $2}' "$brand_file") || true
-    [ -n "$BRAND_NAME" ] && DISPLAY_NAME="$BRAND_NAME"
-}
-
 check_installation() {
-    command_exists octo || command_exists octo && return 0
-    [ -n "$BRAND_COMMAND" ] && command_exists "$BRAND_COMMAND" && return 0
+    command_exists octo && return 0
+    gem list -i octo-agent >/dev/null 2>&1 && return 0
     return 1
 }
 
 uninstall_gem() {
     command_exists gem || return 1
-    if gem list -i octo >/dev/null 2>&1; then
+    if gem list -i octo-agent >/dev/null 2>&1; then
         print_step "Uninstalling via RubyGems..."
-        gem uninstall octo -x
+        gem uninstall octo-agent -x
     else
-        print_info "Gem 'octo' not found (already removed)"
-    fi
-}
-
-remove_brand() {
-    [ -z "$BRAND_COMMAND" ] && return 0
-    local octo_bin dir
-    octo_bin=$(command -v octo 2>/dev/null || true)
-    [ -z "$octo_bin" ] && return 0
-    dir=$(dirname "$octo_bin")
-    if [ -f "$dir/$BRAND_COMMAND" ]; then
-        rm -f "$dir/$BRAND_COMMAND"
-        print_success "Brand wrapper removed: $dir/$BRAND_COMMAND"
+        print_info "Gem 'octo-agent' not found (already removed)"
     fi
 }
 
@@ -255,32 +228,30 @@ remove_config() {
 # Main
 # --------------------------------------------------------------------------
 main() {
-    load_brand
     detect_shell
 
     echo ""
     echo "╔═══════════════════════════════════════════════════════════╗"
     echo "║                                                           ║"
-    echo -e "║   🗑️  ${DISPLAY_NAME} Uninstallation                     ║"
+    echo "║   🗑️  Octo Uninstallation                                 ║"
     echo "║                                                           ║"
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo ""
 
     if ! check_installation; then
-        print_warning "${DISPLAY_NAME} does not appear to be installed"
+        print_warning "Octo does not appear to be installed"
         echo ""; exit 0
     fi
 
-    remove_brand
     uninstall_gem || print_warning "gem command not found, skipping gem uninstall"
-    print_success "${DISPLAY_NAME} uninstalled successfully"
+    print_success "Octo uninstalled successfully"
     restore_gemrc
     restore_gem_home
     remove_config
 
     echo ""
     print_success "Uninstallation complete!"
-    print_info "Thank you for using ${DISPLAY_NAME} 👋"
+    print_info "Thank you for using Octo 👋"
     echo ""
 }
 

@@ -1,6 +1,6 @@
 # mise.sh — install mise, Ruby, and Node via mise
 # Depends-On: colors.sh os.sh
-# Requires-Vars: $SHELL_RC $USE_CN_MIRRORS $CURRENT_SHELL $MISE_INSTALL_URL $NODE_MIRROR_URL $RUBY_VERSION_SPEC $CN_RUBY_PRECOMPILED_URL
+# Requires-Vars: $SHELL_RC $USE_CN_MIRRORS $CURRENT_SHELL $MISE_INSTALL_URL $NODE_MIRROR_URL $RUBY_VERSION_SPEC
 # Sets-Vars: $MISE_BIN
 # Include via: @include lib/mise.sh
 
@@ -53,9 +53,7 @@ ensure_mise() {
 }
 
 # --------------------------------------------------------------------------
-# install_ruby_via_mise — install Ruby via mise
-#   CN mode: precompiled binary from oss.1024code.com
-#   Global:  mise default (precompiled where available)
+# install_ruby_via_mise — install Ruby via mise (precompiled where available)
 # --------------------------------------------------------------------------
 install_ruby_via_mise() {
     local mise="${MISE_BIN:-$(_mise_bin)}"
@@ -66,15 +64,11 @@ install_ruby_via_mise() {
 
     print_info "Installing Ruby via mise ($RUBY_VERSION_SPEC)..."
 
-    if [ "$USE_CN_MIRRORS" = true ]; then
-        "$mise" settings ruby.compile=false 2>/dev/null || true
-        "$mise" settings ruby.precompiled_url="$CN_RUBY_PRECOMPILED_URL" 2>/dev/null || true
-        print_info "Using precompiled Ruby from CN CDN"
-    else
-        # Enable precompiled binaries globally (mise supports this on common platforms)
-        "$mise" settings ruby.compile=false 2>/dev/null || true
-        "$mise" settings unset ruby.precompiled_url 2>/dev/null || true
-    fi
+    # Use mise's default precompiled-binary source (no custom CDN). CN users
+    # get slower downloads — set a `ruby.precompiled_url` in `mise settings`
+    # by hand if you have your own mirror.
+    "$mise" settings ruby.compile=false 2>/dev/null || true
+    "$mise" settings unset ruby.precompiled_url 2>/dev/null || true
 
     if "$mise" use -g "$RUBY_VERSION_SPEC"; then
         eval "$($mise activate bash 2>/dev/null)" 2>/dev/null || true

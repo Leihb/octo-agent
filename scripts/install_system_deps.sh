@@ -117,6 +117,13 @@ detect_shell() {
 
 # --------------------------------------------------------------------------
 # Mirror variables — overridden by detect_network_region()
+#
+# This fork keeps only third-party public mirrors (Aliyun for RubyGems,
+# npmmirror.com for Node/npm). It does NOT use any fork-owned CDN; the
+# upstream `oss.1024code.com` references were dropped because they pointed
+# at clacky-ai infrastructure we have no access to. For mise/Ruby installs
+# on a slow CN connection, set `mise settings ruby.precompiled_url=<url>`
+# manually if you have your own mirror.
 # --------------------------------------------------------------------------
 SLOW_THRESHOLD_MS=5000
 NETWORK_REGION="global"   # china | global | unknown
@@ -127,22 +134,19 @@ DEFAULT_RUBYGEMS_URL="https://rubygems.org"
 DEFAULT_NPM_REGISTRY="https://registry.npmjs.org"
 DEFAULT_MISE_INSTALL_URL="https://mise.run"
 
-CN_CDN_BASE_URL="https://oss.1024code.com"
+# Third-party public mirrors. CN users get faster RubyGems via Aliyun and
+# faster Node/npm via npmmirror.com.
 CN_ALIYUN_MIRROR="https://mirrors.aliyun.com"
-CN_MISE_INSTALL_URL="${CN_CDN_BASE_URL}/mise.sh"
-CN_RUBY_PRECOMPILED_URL="${CN_CDN_BASE_URL}/ruby/ruby-{version}.{platform}.tar.gz"
 CN_RUBYGEMS_URL="${CN_ALIYUN_MIRROR}/rubygems/"
 CN_NPM_REGISTRY="https://registry.npmmirror.com"
 CN_NODE_MIRROR_URL="https://cdn.npmmirror.com/binaries/node/"
-CN_GEM_BASE_URL="${CN_CDN_BASE_URL}/octo"
-CN_GEM_LATEST_URL="${CN_GEM_BASE_URL}/latest.txt"
 
 # Active values (set by detect_network_region)
 MISE_INSTALL_URL="$DEFAULT_MISE_INSTALL_URL"
 RUBYGEMS_INSTALL_URL="$DEFAULT_RUBYGEMS_URL"
 NPM_REGISTRY_URL="$DEFAULT_NPM_REGISTRY"
-NODE_MIRROR_URL=""          # empty = mise default (nodejs.org)
-RUBY_VERSION_SPEC="ruby@3"  # CN mode pins to a specific precompiled build
+NODE_MIRROR_URL=""        # empty = mise default (nodejs.org)
+RUBY_VERSION_SPEC="ruby@3"
 
 # --------------------------------------------------------------------------
 # Internal probe helpers
@@ -227,27 +231,20 @@ detect_network_region() {
     echo ""
 
     if [ "$NETWORK_REGION" = "china" ]; then
-        local cdn_result mirror_result
-        cdn_result=$(_probe_url_with_retry "$CN_MISE_INSTALL_URL")
+        # Only probe the public third-party gem mirror (Aliyun) — that's the
+        # one we actually swap in. mise itself still installs from mise.run.
+        local mirror_result
         mirror_result=$(_probe_url_with_retry "$CN_RUBYGEMS_URL")
+        _print_probe_result "Aliyun (gem)" "$mirror_result"
 
-        _print_probe_result "CN CDN (mise/Ruby)" "$cdn_result"
-        _print_probe_result "Aliyun (gem)"       "$mirror_result"
-
-        local cdn_ok=false mirror_ok=false
-        ! _is_slow_or_unreachable "$cdn_result"    && cdn_ok=true
-        ! _is_slow_or_unreachable "$mirror_result" && mirror_ok=true
-
-        if [ "$cdn_ok" = true ] || [ "$mirror_ok" = true ]; then
+        if ! _is_slow_or_unreachable "$mirror_result"; then
             USE_CN_MIRRORS=true
-            MISE_INSTALL_URL="$CN_MISE_INSTALL_URL"
             RUBYGEMS_INSTALL_URL="$CN_RUBYGEMS_URL"
             NPM_REGISTRY_URL="$CN_NPM_REGISTRY"
             NODE_MIRROR_URL="$CN_NODE_MIRROR_URL"
-            RUBY_VERSION_SPEC="ruby@3.4.8"
-            print_info "CN mirrors applied"
+            print_info "CN mirrors applied (RubyGems / npm / Node)"
         else
-            print_warning "CN mirrors unreachable — falling back to global sources"
+            print_warning "Aliyun mirror unreachable — falling back to global sources"
         fi
     else
         local rubygems_result mise_result
@@ -259,9 +256,6 @@ detect_network_region() {
 
         _is_slow_or_unreachable "$rubygems_result" && print_warning "RubyGems is slow/unreachable."
         _is_slow_or_unreachable "$mise_result"     && print_warning "mise.run is slow/unreachable."
-
-        USE_CN_MIRRORS=false
-        RUBY_VERSION_SPEC="ruby@3"
     fi
 
     echo ""
@@ -325,9 +319,8 @@ EOF
 # ---[ @include lib/brew.sh ]---
 
 # --------------------------------------------------------------------------
-# Homebrew CN mirror URLs (Aliyun)
+# Homebrew CN mirror URLs (Aliyun public mirrors)
 # --------------------------------------------------------------------------
-CN_HOMEBREW_INSTALL_SCRIPT_URL="${CN_CDN_BASE_URL}/Homebrew/install/HEAD/install.sh"
 CN_HOMEBREW_BREW_GIT_REMOTE="https://mirrors.aliyun.com/homebrew/brew.git"
 CN_HOMEBREW_CORE_GIT_REMOTE="https://mirrors.aliyun.com/homebrew/homebrew-core.git"
 CN_HOMEBREW_BOTTLE_DOMAIN="https://mirrors.aliyun.com/homebrew/homebrew-bottles"
@@ -394,10 +387,9 @@ ensure_homebrew() {
     fi
 
     print_info "Installing Homebrew..."
-    local brew_url="$HOMEBREW_INSTALL_SCRIPT_URL"
-    [ "$USE_CN_MIRRORS" = true ] && brew_url="$CN_HOMEBREW_INSTALL_SCRIPT_URL"
-
-    if /bin/bash -c "$(curl -fsSL "$brew_url")"; then
+    # Always use the official Homebrew install script; CN bottles still go
+    # through Aliyun via the HOMEBREW_* env vars set in configure_homebrew_cn_mirrors.
+    if /bin/bash -c "$(curl -fsSL "$HOMEBREW_INSTALL_SCRIPT_URL")"; then
         # Add Homebrew to PATH (Apple Silicon default path)
         echo 'export PATH="/opt/homebrew/bin:$PATH"' >> "$SHELL_RC"
         export PATH="/opt/homebrew/bin:$PATH"

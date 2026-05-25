@@ -1,11 +1,9 @@
 #!/bin/bash
-# install_full.sh — OpenClacky full installer (macOS + Linux, with Homebrew)
+# install_full.sh — Octo full installer (macOS + Linux, with Homebrew)
 # Generated from scripts/build/src/install_full.sh.cc — DO NOT EDIT DIRECTLY
 
 set -e
 
-BRAND_NAME=""
-BRAND_COMMAND=""
 RESTORE_MIRRORS=false
 
 @include lib/colors.sh
@@ -31,7 +29,7 @@ configure_cn_mirrors() {
     if grep -q "${NPM_REGISTRY_URL}" "$npmrc" 2>/dev/null; then
         print_success "npm registry already set → ${NPM_REGISTRY_URL}"
     else
-        [ -f "$npmrc" ] && [ ! -f "$HOME/.npmrc_clackybak" ] && cp "$npmrc" "$HOME/.npmrc_clackybak"
+        [ -f "$npmrc" ] && [ ! -f "$HOME/.npmrc_octobak" ] && cp "$npmrc" "$HOME/.npmrc_octobak"
         if command_exists npm; then
             npm config set registry "$NPM_REGISTRY_URL" 2>/dev/null && \
                 print_success "npm registry → ${NPM_REGISTRY_URL}"
@@ -51,7 +49,7 @@ restore_mirrors() {
     restore_gemrc
 
     # npm
-    local npmrc="$HOME/.npmrc" npmrc_bak="$HOME/.npmrc_clackybak"
+    local npmrc="$HOME/.npmrc" npmrc_bak="$HOME/.npmrc_octobak"
     if [ -f "$npmrc_bak" ]; then
         mv "$npmrc_bak" "$npmrc"; print_success "~/.npmrc restored from backup"
     elif [ -f "$npmrc" ]; then
@@ -143,7 +141,7 @@ EOF
 }
 
 # --------------------------------------------------------------------------
-# gem install openclacky
+# gem install octo-agent
 # --------------------------------------------------------------------------
 install_via_gem() {
     print_step "Installing via RubyGems..."
@@ -153,9 +151,9 @@ install_via_gem() {
     local ver; ver=$(ruby -e 'puts RUBY_VERSION' 2>/dev/null)
     version_ge "$ver" "3.1.0" || { print_error "Ruby $ver too old (>= 3.1.0 required)"; return 1; }
 
-    print_info "Installing ${DISPLAY_NAME}..."
-    if gem install openclacky --no-document; then
-        print_success "${DISPLAY_NAME} installed!"
+    print_info "Installing Octo..."
+    if gem install octo-agent --no-document; then
+        print_success "Octo installed!"
         install_chrome_devtools_mcp
         return 0
     else
@@ -200,61 +198,26 @@ install_chrome_devtools_mcp() {
 parse_args() {
     for arg in "$0" "$@"; do
         case "$arg" in
-            --brand-name=*)    BRAND_NAME="${arg#--brand-name=}"    ;;
-            --command=*)       BRAND_COMMAND="${arg#--command=}"     ;;
-            --restore-mirrors) RESTORE_MIRRORS=true                 ;;
+            --restore-mirrors) RESTORE_MIRRORS=true ;;
         esac
     done
-    DISPLAY_NAME="${BRAND_NAME:-OpenClacky}"
-}
-
-# --------------------------------------------------------------------------
-# Brand setup
-# --------------------------------------------------------------------------
-setup_brand() {
-    [ -z "$BRAND_NAME" ] && return 0
-    local brand_file="$HOME/.clacky/brand.yml"
-    mkdir -p "$HOME/.clacky"
-    print_step "Configuring brand: $BRAND_NAME"
-    cat > "$brand_file" <<YAML
-product_name: "${BRAND_NAME}"
-package_name: "${BRAND_COMMAND}"
-YAML
-    print_success "Brand config written to $brand_file"
-
-    if [ -n "$BRAND_COMMAND" ]; then
-        local bin_dir="$HOME/.local/bin"
-        mkdir -p "$bin_dir"
-        local wrapper="$bin_dir/$BRAND_COMMAND"
-        cat > "$wrapper" <<WRAPPER
-#!/bin/sh
-exec openclacky "\$@"
-WRAPPER
-        chmod +x "$wrapper"
-        print_success "Wrapper installed: $wrapper"
-        case ":$PATH:" in
-            *":$bin_dir:"*) ;;
-            *) print_warning "Add to PATH: export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
-        esac
-    fi
 }
 
 # --------------------------------------------------------------------------
 # Post-install info
 # --------------------------------------------------------------------------
 show_post_install_info() {
-    local cmd="${BRAND_COMMAND:-openclacky}"
     echo ""
-    echo -e "  ${GREEN}${DISPLAY_NAME} installed successfully!${NC}"
+    echo -e "  ${GREEN}Octo installed successfully!${NC}"
     echo ""
     echo "  Reload your shell:"
     echo -e "    ${YELLOW}source ${SHELL_RC}${NC}"
     echo ""
     echo -e "  ${GREEN}Web UI${NC} (recommended):"
-    echo "    $cmd server  →  http://localhost:7070"
+    echo "    octo server  →  http://localhost:8888"
     echo ""
     echo -e "  ${GREEN}Terminal${NC}:"
-    echo "    $cmd"
+    echo "    octo"
     echo ""
 }
 
@@ -267,7 +230,7 @@ main() {
     [ "$RESTORE_MIRRORS" = true ] && { restore_mirrors; exit 0; }
 
     echo ""
-    echo "${DISPLAY_NAME} Installation"
+    echo "Octo Installation"
     echo ""
 
     detect_os
@@ -275,7 +238,7 @@ main() {
     detect_network_region
     configure_cn_mirrors
 
-    assert_supported_os "Please install Ruby manually and run: gem install openclacky"
+    assert_supported_os "Please install Ruby manually and run: gem install octo-agent"
 
     if [ "$OS" = "macOS" ]; then
         install_macos_dependencies || { print_error "Failed to install dependencies"; exit 1; }
@@ -283,8 +246,8 @@ main() {
         install_ubuntu_dependencies || { print_error "Failed to install dependencies"; exit 1; }
     fi
 
-    install_via_gem && { setup_brand; show_post_install_info; exit 0; }
-    print_error "Failed to install ${DISPLAY_NAME}"; exit 1
+    install_via_gem && { show_post_install_info; exit 0; }
+    print_error "Failed to install Octo"; exit 1
 }
 
 main "$@"

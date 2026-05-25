@@ -4,10 +4,6 @@
 
 set -e
 
-# Brand configuration (populated by --brand-name / --command flags)
-BRAND_NAME=""
-BRAND_COMMAND=""
-
 
 # ---[ @include lib/colors.sh ]---
 
@@ -118,6 +114,13 @@ detect_shell() {
 
 # --------------------------------------------------------------------------
 # Mirror variables — overridden by detect_network_region()
+#
+# This fork keeps only third-party public mirrors (Aliyun for RubyGems,
+# npmmirror.com for Node/npm). It does NOT use any fork-owned CDN; the
+# upstream `oss.1024code.com` references were dropped because they pointed
+# at clacky-ai infrastructure we have no access to. For mise/Ruby installs
+# on a slow CN connection, set `mise settings ruby.precompiled_url=<url>`
+# manually if you have your own mirror.
 # --------------------------------------------------------------------------
 SLOW_THRESHOLD_MS=5000
 NETWORK_REGION="global"   # china | global | unknown
@@ -128,22 +131,19 @@ DEFAULT_RUBYGEMS_URL="https://rubygems.org"
 DEFAULT_NPM_REGISTRY="https://registry.npmjs.org"
 DEFAULT_MISE_INSTALL_URL="https://mise.run"
 
-CN_CDN_BASE_URL="https://oss.1024code.com"
+# Third-party public mirrors. CN users get faster RubyGems via Aliyun and
+# faster Node/npm via npmmirror.com.
 CN_ALIYUN_MIRROR="https://mirrors.aliyun.com"
-CN_MISE_INSTALL_URL="${CN_CDN_BASE_URL}/mise.sh"
-CN_RUBY_PRECOMPILED_URL="${CN_CDN_BASE_URL}/ruby/ruby-{version}.{platform}.tar.gz"
 CN_RUBYGEMS_URL="${CN_ALIYUN_MIRROR}/rubygems/"
 CN_NPM_REGISTRY="https://registry.npmmirror.com"
 CN_NODE_MIRROR_URL="https://cdn.npmmirror.com/binaries/node/"
-CN_GEM_BASE_URL="${CN_CDN_BASE_URL}/octo"
-CN_GEM_LATEST_URL="${CN_GEM_BASE_URL}/latest.txt"
 
 # Active values (set by detect_network_region)
 MISE_INSTALL_URL="$DEFAULT_MISE_INSTALL_URL"
 RUBYGEMS_INSTALL_URL="$DEFAULT_RUBYGEMS_URL"
 NPM_REGISTRY_URL="$DEFAULT_NPM_REGISTRY"
-NODE_MIRROR_URL=""          # empty = mise default (nodejs.org)
-RUBY_VERSION_SPEC="ruby@3"  # CN mode pins to a specific precompiled build
+NODE_MIRROR_URL=""        # empty = mise default (nodejs.org)
+RUBY_VERSION_SPEC="ruby@3"
 
 # --------------------------------------------------------------------------
 # Internal probe helpers
@@ -228,27 +228,20 @@ detect_network_region() {
     echo ""
 
     if [ "$NETWORK_REGION" = "china" ]; then
-        local cdn_result mirror_result
-        cdn_result=$(_probe_url_with_retry "$CN_MISE_INSTALL_URL")
+        # Only probe the public third-party gem mirror (Aliyun) — that's the
+        # one we actually swap in. mise itself still installs from mise.run.
+        local mirror_result
         mirror_result=$(_probe_url_with_retry "$CN_RUBYGEMS_URL")
+        _print_probe_result "Aliyun (gem)" "$mirror_result"
 
-        _print_probe_result "CN CDN (mise/Ruby)" "$cdn_result"
-        _print_probe_result "Aliyun (gem)"       "$mirror_result"
-
-        local cdn_ok=false mirror_ok=false
-        ! _is_slow_or_unreachable "$cdn_result"    && cdn_ok=true
-        ! _is_slow_or_unreachable "$mirror_result" && mirror_ok=true
-
-        if [ "$cdn_ok" = true ] || [ "$mirror_ok" = true ]; then
+        if ! _is_slow_or_unreachable "$mirror_result"; then
             USE_CN_MIRRORS=true
-            MISE_INSTALL_URL="$CN_MISE_INSTALL_URL"
             RUBYGEMS_INSTALL_URL="$CN_RUBYGEMS_URL"
             NPM_REGISTRY_URL="$CN_NPM_REGISTRY"
             NODE_MIRROR_URL="$CN_NODE_MIRROR_URL"
-            RUBY_VERSION_SPEC="ruby@3.4.8"
-            print_info "CN mirrors applied"
+            print_info "CN mirrors applied (RubyGems / npm / Node)"
         else
-            print_warning "CN mirrors unreachable — falling back to global sources"
+            print_warning "Aliyun mirror unreachable — falling back to global sources"
         fi
     else
         local rubygems_result mise_result
@@ -260,9 +253,6 @@ detect_network_region() {
 
         _is_slow_or_unreachable "$rubygems_result" && print_warning "RubyGems is slow/unreachable."
         _is_slow_or_unreachable "$mise_result"     && print_warning "mise.run is slow/unreachable."
-
-        USE_CN_MIRRORS=false
-        RUBY_VERSION_SPEC="ruby@3"
     fi
 
     echo ""
@@ -435,38 +425,25 @@ ensure_ruby() {
 }
 
 # --------------------------------------------------------------------------
-# gem install octo
+# gem install octo-agent
+# Source comes from configure_gem_source: official RubyGems globally,
+# Aliyun mirror for CN users. No custom CDN.
 # --------------------------------------------------------------------------
 install_via_gem() {
-    print_step "Installing ${DISPLAY_NAME} via gem..."
+    print_step "Installing Octo via gem..."
     configure_gem_source
     setup_gem_home
-
-    local target source_args=()
-    if [ "$USE_CN_MIRRORS" = true ]; then
-        print_info "Fetching latest version from OSS..."
-        local cn_version; cn_version=$(curl -fsSL "$CN_GEM_LATEST_URL" | tr -d '[:space:]')
-        print_info "Latest version: ${cn_version}"
-        local gem_url="${CN_GEM_BASE_URL}/octo-${cn_version}.gem"
-        local gem_file="/tmp/octo-${cn_version}.gem"
-        print_info "Downloading octo-${cn_version}.gem..."
-        curl -fsSL "$gem_url" -o "$gem_file"
-        target="$gem_file"
-        source_args=(--source "$CN_RUBYGEMS_URL")
-    else
-        target="octo"
-    fi
 
     # macOS system Ruby 2.6 has a buggy gem resolver that fails on rouge 4.x.
     # Pre-install a 2.6-compatible rouge to avoid resolver failure.
     local ruby_ver; ruby_ver=$(ruby -e 'puts RUBY_VERSION' 2>/dev/null)
     if [[ "$ruby_ver" == 2.6.* ]]; then
         print_warning "Ruby 2.6 detected — pinning rouge 3.30.0 first"
-        gem install rouge -v 3.30.0 --no-document "${source_args[@]}" || { print_error "gem install rouge failed"; return 1; }
+        gem install rouge -v 3.30.0 --no-document || { print_error "gem install rouge failed"; return 1; }
     fi
 
-    if gem install "$target" --no-document "${source_args[@]}"; then
-        print_success "${DISPLAY_NAME} installed successfully!"
+    if gem install octo-agent --no-document; then
+        print_success "Octo installed successfully!"
         return 0
     fi
 
@@ -474,69 +451,21 @@ install_via_gem() {
 }
 
 # --------------------------------------------------------------------------
-# Parse CLI args
-# --------------------------------------------------------------------------
-parse_args() {
-    for arg in "$0" "$@"; do
-        case "$arg" in
-            --brand-name=*) BRAND_NAME="${arg#--brand-name=}" ;;
-            --command=*)    BRAND_COMMAND="${arg#--command=}"  ;;
-        esac
-    done
-    DISPLAY_NAME="${BRAND_NAME:-Octo}"
-}
-
-# --------------------------------------------------------------------------
-# Brand wrapper setup
-# --------------------------------------------------------------------------
-setup_brand() {
-    [ -z "$BRAND_NAME" ] && return 0
-    local octo_dir="$HOME/.octo"
-    local brand_file="$octo_dir/brand.yml"
-    mkdir -p "$octo_dir"
-    print_step "Configuring brand: $BRAND_NAME"
-    cat > "$brand_file" <<YAML
-product_name: "${BRAND_NAME}"
-package_name: "${BRAND_COMMAND}"
-YAML
-    print_success "Brand config written to $brand_file"
-
-    if [ -n "$BRAND_COMMAND" ]; then
-        local octo_bin bin_dir
-        octo_bin=$(command -v octo 2>/dev/null || true)
-        if [ -n "$octo_bin" ]; then
-            bin_dir=$(dirname "$octo_bin")
-        else
-            print_warning "octo binary not found in PATH; skipping wrapper install"
-            return 0
-        fi
-        local wrapper="$bin_dir/$BRAND_COMMAND"
-        cat > "$wrapper" <<WRAPPER
-#!/bin/sh
-exec octo "\$@"
-WRAPPER
-        chmod +x "$wrapper"
-        print_success "Wrapper installed: $wrapper"
-    fi
-}
-
-# --------------------------------------------------------------------------
 # Post-install info
 # --------------------------------------------------------------------------
 show_post_install_info() {
-    local cmd="${BRAND_COMMAND:-octo}"
     echo ""
-    echo -e "  ${GREEN}${DISPLAY_NAME} installed successfully!${NC}"
+    echo -e "  ${GREEN}Octo installed successfully!${NC}"
     echo ""
     echo "  Reload your shell:"
     echo -e "    ${YELLOW}source ${SHELL_RC}${NC}"
     echo ""
     echo -e "  ${GREEN}Web UI${NC} (recommended):"
-    echo "    $cmd server"
+    echo "    octo server"
     echo "    Open http://localhost:8888"
     echo ""
     echo -e "  ${GREEN}Terminal${NC}:"
-    echo "    $cmd"
+    echo "    octo"
     echo ""
 }
 
@@ -544,24 +473,23 @@ show_post_install_info() {
 # Main
 # --------------------------------------------------------------------------
 main() {
-    parse_args "$@"
     echo ""
-    echo "${DISPLAY_NAME} Installation"
+    echo "Octo Installation"
     echo ""
 
     detect_os
     detect_shell
     detect_network_region
 
-    assert_supported_os "Please install Ruby >= 2.6.0 manually and run: gem install octo"
+    assert_supported_os "Please install Ruby >= 2.6.0 manually and run: gem install octo-agent"
 
     if [ "$OS" = "Linux" ]; then
         setup_apt_mirror
     fi
 
     ensure_ruby  || { print_error "Could not install a compatible Ruby"; exit 1; }
-    install_via_gem && { setup_brand; show_post_install_info; exit 0; }
-    print_error "Failed to install ${DISPLAY_NAME}"; exit 1
+    install_via_gem && { show_post_install_info; exit 0; }
+    print_error "Failed to install Octo"; exit 1
 }
 
 main "$@"

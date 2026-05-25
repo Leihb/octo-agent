@@ -10,10 +10,8 @@ set -e
 @include lib/network.sh
 @include lib/mise.sh
 
-# Chrome DMG — update CHROME_VERSION when re-uploading a newer build to OSS
-CHROME_VERSION="134"
+# Chrome DMG — always download from Google's official CDN.
 DEFAULT_CHROME_DMG_URL="https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
-CN_CHROME_DMG_URL="${CN_CDN_BASE_URL}/browsers/googlechrome-mac-${CHROME_VERSION}.dmg"
 
 # --------------------------------------------------------------------------
 # Ensure Chrome is installed (macOS only)
@@ -28,20 +26,13 @@ ensure_chrome_macos() {
         return 0
     fi
 
-    print_warning "Google Chrome not found — downloading..."
-    local dmg_url="$DEFAULT_CHROME_DMG_URL"
-    if [ "$USE_CN_MIRRORS" = true ]; then
-        dmg_url="$CN_CHROME_DMG_URL"
-        print_info "Using OSS mirror (Chrome ${CHROME_VERSION})"
-    else
-        print_info "Using official Google download"
-    fi
+    print_warning "Google Chrome not found — downloading from dl.google.com..."
 
     local dmg_path="$HOME/Desktop/googlechrome.dmg"
     print_info "Downloading Chrome (~238 MB) to Desktop..."
-    curl -L --progress-bar "$dmg_url" -o "$dmg_path" || {
+    curl -L --progress-bar "$DEFAULT_CHROME_DMG_URL" -o "$dmg_path" || {
         print_error "Download failed"
-        print_info "Please download manually: ${dmg_url}"
+        print_info "Please download manually: ${DEFAULT_CHROME_DMG_URL}"
         exit 1
     }
 

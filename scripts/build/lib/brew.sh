@@ -1,13 +1,12 @@
 # brew.sh — Homebrew install and CN mirror configuration
 # Depends-On: colors.sh os.sh
-# Requires-Vars: $SHELL_RC $USE_CN_MIRRORS $CN_CDN_BASE_URL
+# Requires-Vars: $SHELL_RC $USE_CN_MIRRORS
 # Sets-Vars: (none)
 # Include via: @include lib/brew.sh
 
 # --------------------------------------------------------------------------
-# Homebrew CN mirror URLs (Aliyun)
+# Homebrew CN mirror URLs (Aliyun public mirrors)
 # --------------------------------------------------------------------------
-CN_HOMEBREW_INSTALL_SCRIPT_URL="${CN_CDN_BASE_URL}/Homebrew/install/HEAD/install.sh"
 CN_HOMEBREW_BREW_GIT_REMOTE="https://mirrors.aliyun.com/homebrew/brew.git"
 CN_HOMEBREW_CORE_GIT_REMOTE="https://mirrors.aliyun.com/homebrew/homebrew-core.git"
 CN_HOMEBREW_BOTTLE_DOMAIN="https://mirrors.aliyun.com/homebrew/homebrew-bottles"
@@ -74,10 +73,9 @@ ensure_homebrew() {
     fi
 
     print_info "Installing Homebrew..."
-    local brew_url="$HOMEBREW_INSTALL_SCRIPT_URL"
-    [ "$USE_CN_MIRRORS" = true ] && brew_url="$CN_HOMEBREW_INSTALL_SCRIPT_URL"
-
-    if /bin/bash -c "$(curl -fsSL "$brew_url")"; then
+    # Always use the official Homebrew install script; CN bottles still go
+    # through Aliyun via the HOMEBREW_* env vars set in configure_homebrew_cn_mirrors.
+    if /bin/bash -c "$(curl -fsSL "$HOMEBREW_INSTALL_SCRIPT_URL")"; then
         # Add Homebrew to PATH (Apple Silicon default path)
         echo 'export PATH="/opt/homebrew/bin:$PATH"' >> "$SHELL_RC"
         export PATH="/opt/homebrew/bin:$PATH"

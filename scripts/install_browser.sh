@@ -114,6 +114,13 @@ detect_shell() {
 
 # --------------------------------------------------------------------------
 # Mirror variables — overridden by detect_network_region()
+#
+# This fork keeps only third-party public mirrors (Aliyun for RubyGems,
+# npmmirror.com for Node/npm). It does NOT use any fork-owned CDN; the
+# upstream `oss.1024code.com` references were dropped because they pointed
+# at clacky-ai infrastructure we have no access to. For mise/Ruby installs
+# on a slow CN connection, set `mise settings ruby.precompiled_url=<url>`
+# manually if you have your own mirror.
 # --------------------------------------------------------------------------
 SLOW_THRESHOLD_MS=5000
 NETWORK_REGION="global"   # china | global | unknown
@@ -124,22 +131,19 @@ DEFAULT_RUBYGEMS_URL="https://rubygems.org"
 DEFAULT_NPM_REGISTRY="https://registry.npmjs.org"
 DEFAULT_MISE_INSTALL_URL="https://mise.run"
 
-CN_CDN_BASE_URL="https://oss.1024code.com"
+# Third-party public mirrors. CN users get faster RubyGems via Aliyun and
+# faster Node/npm via npmmirror.com.
 CN_ALIYUN_MIRROR="https://mirrors.aliyun.com"
-CN_MISE_INSTALL_URL="${CN_CDN_BASE_URL}/mise.sh"
-CN_RUBY_PRECOMPILED_URL="${CN_CDN_BASE_URL}/ruby/ruby-{version}.{platform}.tar.gz"
 CN_RUBYGEMS_URL="${CN_ALIYUN_MIRROR}/rubygems/"
 CN_NPM_REGISTRY="https://registry.npmmirror.com"
 CN_NODE_MIRROR_URL="https://cdn.npmmirror.com/binaries/node/"
-CN_GEM_BASE_URL="${CN_CDN_BASE_URL}/octo"
-CN_GEM_LATEST_URL="${CN_GEM_BASE_URL}/latest.txt"
 
 # Active values (set by detect_network_region)
 MISE_INSTALL_URL="$DEFAULT_MISE_INSTALL_URL"
 RUBYGEMS_INSTALL_URL="$DEFAULT_RUBYGEMS_URL"
 NPM_REGISTRY_URL="$DEFAULT_NPM_REGISTRY"
-NODE_MIRROR_URL=""          # empty = mise default (nodejs.org)
-RUBY_VERSION_SPEC="ruby@3"  # CN mode pins to a specific precompiled build
+NODE_MIRROR_URL=""        # empty = mise default (nodejs.org)
+RUBY_VERSION_SPEC="ruby@3"
 
 # --------------------------------------------------------------------------
 # Internal probe helpers
@@ -224,27 +228,20 @@ detect_network_region() {
     echo ""
 
     if [ "$NETWORK_REGION" = "china" ]; then
-        local cdn_result mirror_result
-        cdn_result=$(_probe_url_with_retry "$CN_MISE_INSTALL_URL")
+        # Only probe the public third-party gem mirror (Aliyun) — that's the
+        # one we actually swap in. mise itself still installs from mise.run.
+        local mirror_result
         mirror_result=$(_probe_url_with_retry "$CN_RUBYGEMS_URL")
+        _print_probe_result "Aliyun (gem)" "$mirror_result"
 
-        _print_probe_result "CN CDN (mise/Ruby)" "$cdn_result"
-        _print_probe_result "Aliyun (gem)"       "$mirror_result"
-
-        local cdn_ok=false mirror_ok=false
-        ! _is_slow_or_unreachable "$cdn_result"    && cdn_ok=true
-        ! _is_slow_or_unreachable "$mirror_result" && mirror_ok=true
-
-        if [ "$cdn_ok" = true ] || [ "$mirror_ok" = true ]; then
+        if ! _is_slow_or_unreachable "$mirror_result"; then
             USE_CN_MIRRORS=true
-            MISE_INSTALL_URL="$CN_MISE_INSTALL_URL"
             RUBYGEMS_INSTALL_URL="$CN_RUBYGEMS_URL"
             NPM_REGISTRY_URL="$CN_NPM_REGISTRY"
             NODE_MIRROR_URL="$CN_NODE_MIRROR_URL"
-            RUBY_VERSION_SPEC="ruby@3.4.8"
-            print_info "CN mirrors applied"
+            print_info "CN mirrors applied (RubyGems / npm / Node)"
         else
-            print_warning "CN mirrors unreachable — falling back to global sources"
+            print_warning "Aliyun mirror unreachable — falling back to global sources"
         fi
     else
         local rubygems_result mise_result
@@ -256,9 +253,6 @@ detect_network_region() {
 
         _is_slow_or_unreachable "$rubygems_result" && print_warning "RubyGems is slow/unreachable."
         _is_slow_or_unreachable "$mise_result"     && print_warning "mise.run is slow/unreachable."
-
-        USE_CN_MIRRORS=false
-        RUBY_VERSION_SPEC="ruby@3"
     fi
 
     echo ""
@@ -316,9 +310,7 @@ ensure_mise() {
 }
 
 # --------------------------------------------------------------------------
-# install_ruby_via_mise — install Ruby via mise
-#   CN mode: precompiled binary from oss.1024code.com
-#   Global:  mise default (precompiled where available)
+# install_ruby_via_mise — install Ruby via mise (precompiled where available)
 # --------------------------------------------------------------------------
 install_ruby_via_mise() {
     local mise="${MISE_BIN:-$(_mise_bin)}"
@@ -329,15 +321,11 @@ install_ruby_via_mise() {
 
     print_info "Installing Ruby via mise ($RUBY_VERSION_SPEC)..."
 
-    if [ "$USE_CN_MIRRORS" = true ]; then
-        "$mise" settings ruby.compile=false 2>/dev/null || true
-        "$mise" settings ruby.precompiled_url="$CN_RUBY_PRECOMPILED_URL" 2>/dev/null || true
-        print_info "Using precompiled Ruby from CN CDN"
-    else
-        # Enable precompiled binaries globally (mise supports this on common platforms)
-        "$mise" settings ruby.compile=false 2>/dev/null || true
-        "$mise" settings unset ruby.precompiled_url 2>/dev/null || true
-    fi
+    # Use mise's default precompiled-binary source (no custom CDN). CN users
+    # get slower downloads — set a `ruby.precompiled_url` in `mise settings`
+    # by hand if you have your own mirror.
+    "$mise" settings ruby.compile=false 2>/dev/null || true
+    "$mise" settings unset ruby.precompiled_url 2>/dev/null || true
 
     if "$mise" use -g "$RUBY_VERSION_SPEC"; then
         eval "$($mise activate bash 2>/dev/null)" 2>/dev/null || true
@@ -388,10 +376,8 @@ install_node_via_mise() {
 }
 
 
-# Chrome DMG — update CHROME_VERSION when re-uploading a newer build to OSS
-CHROME_VERSION="134"
+# Chrome DMG — always download from Google's official CDN.
 DEFAULT_CHROME_DMG_URL="https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
-CN_CHROME_DMG_URL="${CN_CDN_BASE_URL}/browsers/googlechrome-mac-${CHROME_VERSION}.dmg"
 
 # --------------------------------------------------------------------------
 # Ensure Chrome is installed (macOS only)
@@ -406,20 +392,13 @@ ensure_chrome_macos() {
         return 0
     fi
 
-    print_warning "Google Chrome not found — downloading..."
-    local dmg_url="$DEFAULT_CHROME_DMG_URL"
-    if [ "$USE_CN_MIRRORS" = true ]; then
-        dmg_url="$CN_CHROME_DMG_URL"
-        print_info "Using OSS mirror (Chrome ${CHROME_VERSION})"
-    else
-        print_info "Using official Google download"
-    fi
+    print_warning "Google Chrome not found — downloading from dl.google.com..."
 
     local dmg_path="$HOME/Desktop/googlechrome.dmg"
     print_info "Downloading Chrome (~238 MB) to Desktop..."
-    curl -L --progress-bar "$dmg_url" -o "$dmg_path" || {
+    curl -L --progress-bar "$DEFAULT_CHROME_DMG_URL" -o "$dmg_path" || {
         print_error "Download failed"
-        print_info "Please download manually: ${dmg_url}"
+        print_info "Please download manually: ${DEFAULT_CHROME_DMG_URL}"
         exit 1
     }
 
