@@ -17,3 +17,26 @@ type ToolDefinition struct {
 type ToolExecutor interface {
 	Execute(ctx context.Context, name string, input map[string]any) (string, error)
 }
+
+// StreamingToolExecutor is an optional extension to ToolExecutor: tools that
+// produce incremental output (e.g. a long shell command writing stdout line
+// by line) can implement ExecuteStream and surface chunks as they happen.
+//
+// The agent loop type-asserts the executor at dispatch time. If the executor
+// supports streaming AND the caller provided an EventHandler, the loop calls
+// ExecuteStream and forwards each chunk as an EventToolProgress event.
+// Otherwise the loop falls back to Execute.
+//
+// progress may be nil; implementations should treat a nil progress callback
+// as equivalent to non-streaming Execute. The (string, error) return is the
+// FULL aggregated output (same contract as Execute) — progress chunks are
+// for UI/observability only.
+type StreamingToolExecutor interface {
+	ToolExecutor
+	ExecuteStream(
+		ctx context.Context,
+		name string,
+		input map[string]any,
+		progress func(chunk string),
+	) (string, error)
+}

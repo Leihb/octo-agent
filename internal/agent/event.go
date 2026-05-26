@@ -26,6 +26,15 @@ const (
 	// ToolID / ToolName / Input identify the call.
 	EventToolStarted EventKind = "tool_started"
 
+	// EventToolProgress fires zero or more times between EventToolStarted and
+	// EventToolDone, surfacing incremental tool output (e.g. a long shell
+	// command's stdout line-by-line). Only tools that implement
+	// StreamingToolExecutor emit these; tools that don't are silent until
+	// EventToolDone. Chunk carries the new fragment, NOT the running total —
+	// it's not truncated (the consumer is responsible for any rate limiting
+	// or batching).
+	EventToolProgress EventKind = "tool_progress"
+
 	// EventToolDone fires after a successful tool execution.
 	// Output carries the tool's combined stdout/stderr text (truncated to
 	// EventToolOutputCap if longer).
@@ -58,6 +67,7 @@ const EventToolOutputCap = 512
 //   - EventTextDelta:      Text
 //   - EventToolInputDelta: ToolID, ToolName, InputDelta
 //   - EventToolStarted:    ToolID, ToolName, Input
+//   - EventToolProgress:   ToolID, ToolName, Chunk
 //   - EventToolDone:       ToolID, ToolName, Output
 //   - EventToolError:      ToolID, ToolName, Output (may be empty), Err
 //   - EventTurnDone:       Reply
@@ -71,6 +81,7 @@ type AgentEvent struct {
 	ToolName   string         `json:"tool_name,omitempty"`
 	Input      map[string]any `json:"input,omitempty"`
 	InputDelta string         `json:"input_delta,omitempty"`
+	Chunk      string         `json:"chunk,omitempty"`
 	Output     string         `json:"output,omitempty"`
 	Err        string         `json:"err,omitempty"`
 	Reply      *Reply         `json:"reply,omitempty"`

@@ -197,3 +197,95 @@ func TestREPL_ResumedSessionShowsTurnCount(t *testing.T) {
 		t.Errorf("expected '1 turn' in output:\n%s", out)
 	}
 }
+
+// ─── replToolEventHandler tests ─────────────────────────────────────────────
+
+func TestREPLToolEventHandler_TextOnly(t *testing.T) {
+	var buf bytes.Buffer
+	h := replToolEventHandler(&buf)
+	h(agent.AgentEvent{Kind: agent.EventTextDelta, Text: "hello"})
+	h(agent.AgentEvent{Kind: agent.EventTextDelta, Text: " world"})
+	if got := buf.String(); got != "hello world" {
+		t.Errorf("text deltas = %q, want 'hello world'", got)
+	}
+}
+
+func TestREPLToolEventHandler_ToolStartedAndDone(t *testing.T) {
+	var buf bytes.Buffer
+	h := replToolEventHandler(&buf)
+	h(agent.AgentEvent{Kind: agent.EventTextDelta, Text: "Running now..."})
+	h(agent.AgentEvent{
+		Kind: agent.EventToolStarted, ToolID: "c1", ToolName: "terminal",
+		Input: map[string]any{"command": "ls"},
+	})
+	h(agent.AgentEvent{
+		Kind: agent.EventToolDone, ToolID: "c1", ToolName: "terminal",
+	})
+	out := buf.String()
+	if !strings.Contains(out, "↳ terminal: command=ls") {
+		t.Errorf("missing started line:\n%s", out)
+	}
+	if !strings.Contains(out, "↳ terminal ✓") {
+		t.Errorf("missing done line:\n%s", out)
+	}
+	// "Running now..." should be followed by a newline before the ↳ line —
+	// without it the status arrow would butt up against the dot.
+	if !strings.Contains(out, "Running now...\n↳") {
+		t.Errorf("expected newline between text and ↳:\n%q", out)
+	}
+}
+
+func TestREPLToolEventHandler_ToolError(t *testing.T) {
+	var buf bytes.Buffer
+	h := replToolEventHandler(&buf)
+	h(agent.AgentEvent{
+		Kind: agent.EventToolStarted, ToolID: "c1", ToolName: "write_file",
+		Input: map[string]any{"path": "/etc/passwd"},
+	})
+	h(agent.AgentEvent{
+		Kind: agent.EventToolError, ToolID: "c1", ToolName: "write_file",
+		Err: "permission denied",
+	})
+	out := buf.String()
+	if !strings.Contains(out, "↳ write_file ✗") {
+		t.Errorf("missing error marker:\n%s", out)
+	}
+	if !strings.Contains(out, "permission denied") {
+		t.Errorf("error message not shown:\n%s", out)
+	}
+}
+
+func TestREPLToolEventHandler_TurnDoneSilent(t *testing.T) {
+	// EventTurnDone is intentionally not rendered — the REPL loop appends
+	// its own trailing newline. This test locks that in so a well-meaning
+	// future change doesn't accidentally double-print.
+	var buf bytes.Buffer
+	h := replToolEventHandler(&buf)
+	reply := agent.Reply{Content: "all done"}
+	h(agent.AgentEvent{Kind: agent.EventTurnDone, Reply: &reply})
+	if buf.Len() != 0 {
+		t.Errorf("EventTurnDone should be silent; got %q", buf.String())
+	}
+}
+
+func TestSummariseInput_TruncatesLongValues(t *testing.T) {
+	got := summariseInput(map[string]any{
+		"path":    "short",
+		"content": strings.Repeat("X", 200),
+	})
+	// Long value should be truncated with ellipsis.
+	if !strings.Contains(got, "...") {
+		t.Errorf("expected truncation marker, got %q", got)
+	}
+	// Output line itself capped at 120 chars.
+	if len(got) > 120 {
+		t.Errorf("line not capped: len=%d, got %q", len(got), got)
+	}
+}
+
+func TestTruncate1Line_CollapsesMultiline(t *testing.T) {
+	got := truncate1Line("\n\nfirst real line\nsecond line that gets dropped")
+	if got != "first real line" {
+		t.Errorf("truncate1Line = %q", got)
+	}
+}
