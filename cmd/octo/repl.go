@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -93,15 +94,14 @@ func runREPL(cfg replConfig) int {
 			err   error
 		)
 		if len(cfg.tools) > 0 && cfg.executor != nil {
-			// Wrap the new event handler as a text-only printer so REPL
-			// behaviour matches the pre-M5 streaming output exactly.
-			// Tool events are not surfaced in the REPL today; later they
-			// can grow inline cards or status lines.
-			reply, err = a.RunStream(context.Background(), line, cfg.tools, cfg.executor, func(ev agent.AgentEvent) {
-				if ev.Kind == agent.EventTextDelta {
-					fmt.Fprint(cfg.stdout, ev.Text)
-				}
-			})
+			// Tool events become inline status lines so the user can see what
+			// the agent is doing instead of staring at a blank terminal while
+			// a tool runs. Text deltas stream as before. Output is muted on
+			// EventToolDone — the tool's own product (file written, command
+			// stdout, etc.) is conversational state for the LLM, not user-
+			// facing chrome. EventTurnDone is also silent; the trailing
+			// newline below marks the visible turn boundary.
+			reply, err = a.RunStream(context.Background(), line, cfg.tools, cfg.executor, replToolEventHandler(cfg.stdout))
 		} else {
 			reply, err = a.TurnStream(context.Background(), line, func(delta string) {
 				fmt.Fprint(cfg.stdout, delta)
@@ -182,4 +182,104 @@ func printSessions(w io.Writer) error {
 		fmt.Fprintln(w)
 	}
 	return nil
+}
+
+// replToolEventHandler returns an EventHandler that paints tool activity
+// onto the terminal between assistant text streams. Layout:
+//
+//	…assistant text streamed…
+//	↳ terminal: ls -la                                          ← tool_started
+//	↳ terminal ✓ (142ms)                                        ← tool_done
+//	…more assistant text…
+//
+// Status lines start with "↳ " so they're visually distinct from the
+// assistant's reply, and each is on its own line. We also insert a leading
+// newline before the FIRST status line of a turn — without it the marker
+// would butt up against the trailing character of the assistant's
+// "I'll now run terminal..." sentence.
+func replToolEventHandler(stdout io.Writer) func(agent.AgentEvent) {
+	// Per-tool-call start times so EventToolDone can report elapsed.
+	startedAt := make(map[string]time.Time)
+	// Track whether the previous event was a text delta — if so, a tool
+	// status line needs a leading newline to start cleanly.
+	prevWasText := false
+
+	return func(ev agent.AgentEvent) {
+		switch ev.Kind {
+		case agent.EventTextDelta:
+			fmt.Fprint(stdout, ev.Text)
+			prevWasText = true
+
+		case agent.EventToolStarted:
+			if prevWasText {
+				fmt.Fprintln(stdout)
+				prevWasText = false
+			}
+			startedAt[ev.ToolID] = time.Now()
+			fmt.Fprintf(stdout, "↳ %s: %s\n", ev.ToolName, summariseInput(ev.Input))
+
+		case agent.EventToolDone:
+			elapsed := ""
+			if t, ok := startedAt[ev.ToolID]; ok {
+				elapsed = fmt.Sprintf(" (%s)", time.Since(t).Round(time.Millisecond))
+				delete(startedAt, ev.ToolID)
+			}
+			fmt.Fprintf(stdout, "↳ %s ✓%s\n", ev.ToolName, elapsed)
+
+		case agent.EventToolError:
+			elapsed := ""
+			if t, ok := startedAt[ev.ToolID]; ok {
+				elapsed = fmt.Sprintf(" (%s)", time.Since(t).Round(time.Millisecond))
+				delete(startedAt, ev.ToolID)
+			}
+			fmt.Fprintf(stdout, "↳ %s ✗%s — %s\n", ev.ToolName, elapsed, truncate1Line(ev.Err))
+
+			// EventTurnDone is silent — the trailing newline emitted by the
+			// REPL loop after RunStream returns serves as the turn boundary.
+		}
+	}
+}
+
+// summariseInput renders a short single-line description of the tool's input
+// for inline display. Keys are sorted so the line is stable; long values are
+// truncated. The goal is "enough for the user to know which call this is",
+// not full fidelity.
+func summariseInput(input map[string]any) string {
+	if len(input) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(input))
+	for k := range input {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v := fmt.Sprintf("%v", input[k])
+		if len(v) > 60 {
+			v = v[:57] + "..."
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+	}
+	joined := strings.Join(parts, " ")
+	if len(joined) > 120 {
+		joined = joined[:117] + "..."
+	}
+	return joined
+}
+
+// truncate1Line collapses a multi-line error to its first non-empty line and
+// caps total length, so the status row stays single-line.
+func truncate1Line(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if len(line) > 200 {
+			line = line[:197] + "..."
+		}
+		return line
+	}
+	return "(empty error)"
 }
