@@ -7,8 +7,8 @@
 // provider streaming aggregators and the tool registry.
 package agent
 
-// Role is the message author role, mirroring the role string used by all three
-// LLM API protocols (Anthropic Messages, OpenAI, Bedrock).
+// Role is the message author role, mirroring the role string used by both
+// supported LLM API protocols (Anthropic Messages, OpenAI Chat Completions).
 type Role string
 
 const (

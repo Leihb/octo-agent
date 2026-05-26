@@ -9,7 +9,7 @@
   <a href="README.md">English</a> · <a href="README_CN.md">简体中文</a>
 </p>
 
-以功能为先的 AI Agent，单一 Go 二进制分发。原生支持三种 API 协议 —— **Anthropic Messages**、**OpenAI Chat Completions**、**AWS Bedrock**（规划中），目标是 **CLI**、**Web**、**IM** 三种平等的交互界面。
+以功能为先的 AI Agent，单一 Go 二进制分发。原生支持两种 API 协议 —— **Anthropic Messages** 和 **OpenAI Chat Completions**，并能对接任何兼容这两种协议的第三方（DeepSeek、Kimi、百炼、OpenRouter、vLLM 等）。目标是 **CLI**、**Web**、**IM** 三种平等的交互界面。
 
 ## 状态
 

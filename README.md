@@ -9,7 +9,7 @@
   <a href="README.md">English</a> · <a href="README_CN.md">简体中文</a>
 </p>
 
-A functionality-first AI agent, distributed as a single Go binary. Speaks three native API protocols — **Anthropic Messages**, **OpenAI Chat Completions**, **AWS Bedrock** (planned) — and aims for three equal interfaces: **CLI**, **Web**, and **IM**.
+A functionality-first AI agent, distributed as a single Go binary. Speaks two native API protocols — **Anthropic Messages** and **OpenAI Chat Completions** — and works against any compatible third party (DeepSeek, Kimi, Bailian, OpenRouter, vLLM, …). Aims for three equal interfaces: **CLI**, **Web**, and **IM**.
 
 ## Status
 

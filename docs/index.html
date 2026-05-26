@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Octo — a functionality-first AI agent</title>
-  <meta name="description" content="A functionality-first AI agent with three equal interfaces — terminal CLI, web UI, and IM bridges. Speaks Anthropic Messages, OpenAI, and AWS Bedrock natively.">
+  <meta name="description" content="A functionality-first AI agent, distributed as a single Go binary. Speaks Anthropic Messages and OpenAI Chat Completions natively, plus any compatible third party. Three equal interfaces: CLI, web UI, IM.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E🐙%3C/text%3E%3C/svg%3E">
   <style>
     :root {
@@ -141,8 +141,8 @@
     </section>
 
     <section>
-      <h2>Three native API protocols</h2>
-      <p style="color: var(--muted);">Speaks <strong>Anthropic Messages</strong>, <strong>OpenAI</strong> (Chat Completions + Responses), and <strong>AWS Bedrock</strong> natively — dispatched per-provider, per-model. Any provider that exposes one of these shapes works out of the box.</p>
+      <h2>Two native API protocols</h2>
+      <p style="color: var(--muted);">Speaks <strong>Anthropic Messages</strong> and <strong>OpenAI Chat Completions</strong> natively — dispatched per-provider, per-model. Any service that exposes one of these shapes (DeepSeek, Kimi, Bailian, OpenRouter, vLLM, …) works out of the box.</p>
     </section>
 
     <section>

@@ -50,7 +50,7 @@ type Response struct {
 }
 
 // Provider is the per-backend abstraction. Implementations are kept under
-// internal/provider/<name>/ (e.g. anthropic, openai, bedrock).
+// internal/provider/<name>/ (e.g. anthropic, openai).
 type Provider interface {
 	// Name returns a stable identifier for the provider, used in logs and
 	// telemetry — e.g. "anthropic-messages", "openai-completions".
