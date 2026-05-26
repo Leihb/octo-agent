@@ -615,3 +615,142 @@ func TestAgent_RunStream_TruncatesLongToolOutput(t *testing.T) {
 		t.Errorf("Output should be marked truncated: %q", seen.Output[:50])
 	}
 }
+
+// ─── StreamingToolExecutor / EventToolProgress tests ────────────────────────
+
+// streamingFakeExecutor implements StreamingToolExecutor — emits N progress
+// chunks before returning the aggregated result.
+type streamingFakeExecutor struct {
+	results map[string]string
+	chunks  []string
+	called  []string
+}
+
+func (f *streamingFakeExecutor) Execute(_ context.Context, name string, _ map[string]any) (string, error) {
+	f.called = append(f.called, name)
+	if v, ok := f.results[name]; ok {
+		return v, nil
+	}
+	return "ok", nil
+}
+
+func (f *streamingFakeExecutor) ExecuteStream(
+	_ context.Context, name string, _ map[string]any, progress func(string),
+) (string, error) {
+	f.called = append(f.called, name)
+	for _, c := range f.chunks {
+		if progress != nil {
+			progress(c)
+		}
+	}
+	if v, ok := f.results[name]; ok {
+		return v, nil
+	}
+	return "ok", nil
+}
+
+func TestAgent_RunStream_StreamingExecutor_EmitsProgress(t *testing.T) {
+	send := &fakeToolSender{
+		replies: []Reply{
+			{
+				StopReason: "tool_use",
+				Blocks: []ContentBlock{
+					NewToolUseBlock("c1", "terminal", map[string]any{"command": "echo"}),
+				},
+			},
+			{Content: "done", StopReason: "end_turn"},
+		},
+	}
+
+	exec := &streamingFakeExecutor{
+		chunks:  []string{"line A", "line B", "line C"},
+		results: map[string]string{"terminal": "line A\nline B\nline C"},
+	}
+	a := New(send, "m")
+	defs := []ToolDefinition{{Name: "terminal"}}
+
+	var progressEvents []AgentEvent
+	_, err := a.RunStream(context.Background(), "go", defs, exec, func(ev AgentEvent) {
+		if ev.Kind == EventToolProgress {
+			progressEvents = append(progressEvents, ev)
+		}
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+
+	if len(progressEvents) != 3 {
+		t.Fatalf("expected 3 progress events, got %d: %+v", len(progressEvents), progressEvents)
+	}
+	for i, want := range []string{"line A", "line B", "line C"} {
+		if progressEvents[i].Chunk != want {
+			t.Errorf("event[%d].Chunk = %q, want %q", i, progressEvents[i].Chunk, want)
+		}
+		if progressEvents[i].ToolID != "c1" {
+			t.Errorf("event[%d].ToolID = %q", i, progressEvents[i].ToolID)
+		}
+		if progressEvents[i].ToolName != "terminal" {
+			t.Errorf("event[%d].ToolName = %q", i, progressEvents[i].ToolName)
+		}
+	}
+}
+
+func TestAgent_RunStream_NonStreamingExecutor_NoProgressEvents(t *testing.T) {
+	// fakeExecutor only implements ToolExecutor (not StreamingToolExecutor)
+	// — RunStream must NOT call ExecuteStream and therefore emits zero
+	// progress events.
+	send := &fakeToolSender{
+		replies: []Reply{
+			{
+				StopReason: "tool_use",
+				Blocks:     []ContentBlock{NewToolUseBlock("c1", "terminal", nil)},
+			},
+			{Content: "done", StopReason: "end_turn"},
+		},
+	}
+	exec := &fakeExecutor{} // plain ToolExecutor
+	a := New(send, "m")
+	defs := []ToolDefinition{{Name: "terminal"}}
+
+	var progressEvents int
+	_, err := a.RunStream(context.Background(), "go", defs, exec, func(ev AgentEvent) {
+		if ev.Kind == EventToolProgress {
+			progressEvents++
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if progressEvents != 0 {
+		t.Errorf("non-streaming executor should produce 0 progress events; got %d", progressEvents)
+	}
+}
+
+func TestAgent_RunStream_StreamingExecutor_NilHandler_StillRuns(t *testing.T) {
+	// handler=nil + streaming executor: dispatchTools must degrade to the
+	// non-streaming Execute path (progress would have nowhere to go).
+	send := &fakeToolSender{
+		replies: []Reply{
+			{
+				StopReason: "tool_use",
+				Blocks:     []ContentBlock{NewToolUseBlock("c1", "terminal", nil)},
+			},
+			{Content: "done", StopReason: "end_turn"},
+		},
+	}
+	exec := &streamingFakeExecutor{chunks: []string{"a", "b"}}
+	a := New(send, "m")
+	defs := []ToolDefinition{{Name: "terminal"}}
+
+	reply, err := a.RunStream(context.Background(), "go", defs, exec, nil)
+	if err != nil {
+		t.Fatalf("RunStream(nil handler): %v", err)
+	}
+	if reply.Content != "done" {
+		t.Errorf("reply.Content = %q", reply.Content)
+	}
+	// The fake's chunks should NOT have been emitted because handler is nil
+	// → dispatchTools called Execute, not ExecuteStream.
+	// (We can't directly observe "ExecuteStream wasn't called" from outside,
+	// but the absence of side effects + clean completion is the contract.)
+}

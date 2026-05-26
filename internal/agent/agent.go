@@ -246,7 +246,10 @@ func (a *Agent) Run(ctx context.Context, userInput string, tools []ToolDefinitio
 			// Append assistant message with tool_use blocks, then dispatch.
 			a.History.Append(NewToolUseMessage(reply.Blocks))
 
-			resultBlocks, err := dispatchTools(ctx, executor, reply.Blocks)
+			// Run.runner doesn't carry a handler — progress events would
+			// have nowhere to go. Pass nil; dispatchTools degrades to the
+			// non-streaming path automatically.
+			resultBlocks, err := dispatchTools(ctx, executor, reply.Blocks, nil)
 			if err != nil {
 				return Reply{}, fmt.Errorf("agent: dispatch tools[%d]: %w", i, err)
 			}
@@ -373,7 +376,10 @@ func (a *Agent) runStreamLoop(
 			// "thinking → tool call" boundary even if the tool blocks.
 			emitToolStartedEvents(handler, reply.Blocks)
 
-			resultBlocks, err := dispatchTools(ctx, executor, reply.Blocks)
+			// handler is threaded through to dispatchTools so streaming
+			// tools (StreamingToolExecutor) can fire EventToolProgress as
+			// output arrives mid-execution.
+			resultBlocks, err := dispatchTools(ctx, executor, reply.Blocks, handler)
 			if err != nil {
 				return Reply{}, fmt.Errorf("agent: dispatch tools[%d]: %w", i, err)
 			}
@@ -457,16 +463,48 @@ func emitToolResultEvents(handler EventHandler, useBlocks, resultBlocks []Conten
 	}
 }
 
-// dispatchTools calls executor.Execute for every tool_use block in blocks,
-// returning the corresponding tool_result blocks. Errors from Execute are
-// returned as tool_result blocks with IsError=true so the model can recover.
-func dispatchTools(ctx context.Context, executor ToolExecutor, blocks []ContentBlock) ([]ContentBlock, error) {
+// dispatchTools calls executor.Execute (or ExecuteStream when both the
+// executor implements StreamingToolExecutor AND handler is non-nil) for
+// every tool_use block in blocks, returning the corresponding tool_result
+// blocks. Errors from Execute are returned as tool_result blocks with
+// IsError=true so the model can recover.
+//
+// handler may be nil — in that case progress events are dropped and even a
+// streaming executor effectively runs in non-streaming mode (the aggregated
+// output is still what lands in the tool_result block).
+func dispatchTools(ctx context.Context, executor ToolExecutor, blocks []ContentBlock, handler EventHandler) ([]ContentBlock, error) {
+	streaming, hasStreaming := executor.(StreamingToolExecutor)
+
 	var results []ContentBlock
 	for _, b := range blocks {
 		if b.Type != "tool_use" {
 			continue
 		}
-		output, execErr := executor.Execute(ctx, b.Name, b.Input)
+
+		var (
+			output  string
+			execErr error
+		)
+		if hasStreaming && handler != nil {
+			// Capture id/name in this iteration's closure — the next loop
+			// iteration would clobber `b` otherwise.
+			toolID, toolName := b.ID, b.Name
+			progress := func(chunk string) {
+				if chunk == "" {
+					return
+				}
+				handler(AgentEvent{
+					Kind:     EventToolProgress,
+					ToolID:   toolID,
+					ToolName: toolName,
+					Chunk:    chunk,
+				})
+			}
+			output, execErr = streaming.ExecuteStream(ctx, b.Name, b.Input, progress)
+		} else {
+			output, execErr = executor.Execute(ctx, b.Name, b.Input)
+		}
+
 		if execErr != nil {
 			results = append(results, NewToolResultBlock(b.ID, execErr.Error(), true))
 		} else {
