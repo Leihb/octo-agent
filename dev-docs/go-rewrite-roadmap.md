@@ -123,7 +123,7 @@ REPL 兼容层：`repl.go` 把 `EventHandler` 包装为只打印 `EventTextDelta
 
 ### web_search 实现
 
-**设计哲学**（沿用 Ruby 版 `lib/octo/tools/web_search.rb` 的踩坑经验）：
+**设计哲学：**
 - **零启动成本是默认值** —— 开源用户拉下来即可用，不强制注册 key
 - 付费 API 是 _可选升级_，env 设了就优先用，不设也能跑
 
@@ -139,7 +139,7 @@ REPL 兼容层：`repl.go` 把 `EventHandler` 包装为只打印 `EventTextDelta
 
 > Bing Search **API** 已于 2025-08 停服。Bing HTML 抓取通道仍可用，但不是同一个东西。
 
-### HTML 抓取通道的实战细节（从 Ruby 版搬过来，全是踩过的坑）
+### HTML 抓取通道的实战细节
 
 ```go
 // internal/tools/web_search.go
@@ -148,7 +148,7 @@ REPL 兼容层：`repl.go` 把 `EventHandler` 包装为只打印 `EventTextDelta
 // 2. 完整 browser header 集：Sec-Fetch-Dest=document / Mode=navigate /
 //    Site=none / Upgrade-Insecure-Requests=1 / Accept-Language=zh-CN,zh;q=0.9,en;q=0.8
 // 3. *不设* Accept-Encoding —— 一旦发 gzip，Bing 会返回 ~39KB 的 JS-only
-//    骨架页而不是 ~120KB 的真 HTML。这是 Ruby 版花了好一阵才定位的坑。
+//    骨架页而不是 ~120KB 的真 HTML（实测踩坑）。
 // 4. cn.bing.com 在非中国 IP 上会 302 到 www.bing.com，必须跟 redirect
 //    （最多 2 跳）。
 // 5. Bing 的真实链接藏在 bing.com/ck/a?...&u=a1<URL-safe base64>&ntb=1
@@ -427,7 +427,7 @@ M5 AgentEvent     ←── 基础，影响所有后续
 
 ## 差异化原则（不为追赶而丢失）
 
-1. **单 binary，无安装依赖** — 所有功能打进一个 Go binary，不依赖 Node/Ruby/Python runtime
+1. **单 binary，无安装依赖** — 所有功能打进一个 Go binary，不依赖外部语言 runtime
 2. **三界面平等** — CLI / Web / WeChat 是同等头等公民，不是"CLI 主，其他适配"
 3. **Skill-first** — 优先用 SKILL.md 扩展能力，工具数量保持最小化
 4. **100% Claude Code Skill 兼容** — 用户的 `~/.claude/skills/` 可直接在 octo 使用

@@ -56,7 +56,4 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  help       Print this help and exit")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Run `octo chat --help` for chat-specific flags.")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "More commands will land as the rewrite progresses. The Ruby")
-	fmt.Fprintln(w, "implementation lives on the archive/ruby branch in the meantime.")
 }

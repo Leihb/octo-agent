@@ -29,10 +29,6 @@ Thanks for taking the time to contribute. Every PR is reviewed by a human; bots 
 - **No new third-party dependencies without justification.** If you must add one, explain why the stdlib won't do.
 - **Comments in English, the *why* not the *what*.** Names should already explain *what*. Only write a comment when removing it would lose information (a non-obvious constraint, a workaround for a known bug, a tradeoff that matters).
 
-## What about the Ruby implementation?
-
-The Ruby gem is retired. It lives on the `archive/ruby` branch as read-only history. PRs targeting that branch are not accepted — open a new GitHub issue if you find a bug there and we'll evaluate whether to backport, but the energy is going into the Go rewrite.
-
 ## License
 
 By contributing, you agree your code is released under the project's [MIT license](LICENSE.txt).

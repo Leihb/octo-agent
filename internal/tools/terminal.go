@@ -21,10 +21,9 @@ const TerminalTimeout = 30 * time.Second
 // exit codes are reported as extra metadata in the result text rather than
 // as a tool error, so the LLM can see the failure output and adapt.
 //
-// The LLM-facing tool name is "terminal" — matches the Ruby implementation
-// (lib/octo/tools/terminal.rb on archive/ruby) and avoids the misleading
-// implication of a hard /bin/bash dependency (the executor actually shells
-// out via `sh -c`).
+// The LLM-facing tool name is "terminal" — calling it "bash" would imply a
+// hard /bin/bash dependency, but the executor actually shells out via
+// `sh -c`.
 type TerminalTool struct{}
 
 // Definition returns the agent.ToolDefinition the LLM receives in the tools
