@@ -5,9 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> **History note.** This repository began life as the Ruby gem `octo` (a hard fork of [clacky-ai/openclacky](https://github.com/clacky-ai/openclacky) at upstream 1.1.6, numbered 0.10.0 here). The Ruby line ended at `v0.11.2-final-ruby`, preserved on the `archive/ruby` branch. From `0.1.0-dev` onward this is a clean Go reimplementation; the Ruby changelog is no longer carried forward.
-
-## [Unreleased — 0.1.0-dev] — Go rewrite
+## [Unreleased — 0.1.0-dev]
 
 ### Added
 - **Go module scaffold** at `github.com/Leihb/octo-agent` (`cmd/octo` entry, `internal/{agent,provider,tools,version}`, Makefile, Go 1.22 CI matrix on Linux / macOS / Windows).
@@ -19,8 +17,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`terminal` tool** — first concrete tool; runs `sh -c <command>` with a 30s timeout, returns combined stdout+stderr, surfaces non-zero exits as `[exit: ...]` annotations rather than Go errors so the LLM can read and adapt.
 - **Session persistence** — JSON sessions under `~/.octo/sessions/<YYYYMMDD-HHMMSS>.json`, resume via `octo chat -c <id>`, list via `--list-sessions`, opt out with `--no-save`.
 - **REPL slash commands** — `/help`, `/cost` (token + USD estimate, per-model pricing), `/save`, `/sessions`, `/exit`, `/quit`.
-- **M5 — AgentEvent structured event stream** — `Agent.RunStream` now takes an `EventHandler` instead of `onChunk func(string)`. Events: `text_delta`, `tool_started`, `tool_done`, `tool_error`, `turn_done` (carries final `Reply`). Tool events identify the call by `ToolID` + `ToolName` + `Input`; `Output` is truncated to 512 bytes for previews while the agent's own conversation history keeps the full result. The REPL wraps the handler as a text-only printer so its behaviour is unchanged. Foundation for Web UI / IM tool-call visualization in M8 / M9.
-
-### Notes
-- The Ruby implementation under `lib/`, `spec/`, `bin/octo`, `Gemfile`, `Rakefile`, `octo-agent.gemspec`, `.rubocop.yml`, `Dockerfile` (Ruby base image), `homebrew/octo-agent.rb`, `scripts/`, `benchmark/`, `sig/`, and `POSITIONING.md` (Ruby-era) has been removed from `main`. The frozen Ruby tree remains accessible at `archive/ruby`.
-- Repository was renamed `Leihb/octo` → `Leihb/octo-agent` on GitHub; old URLs continue to 301 to the new ones.
+- **AgentEvent structured event stream** — `Agent.RunStream` takes an `EventHandler` that receives typed events (`text_delta`, `tool_started`, `tool_done`, `tool_error`, `turn_done`). Tool events carry `ToolID` + `ToolName` + `Input`; `Output` is truncated to 512 bytes for UI/IM previews while the agent's conversation history keeps the full result. The REPL wraps the handler as a text-only printer so its behaviour is unchanged.
