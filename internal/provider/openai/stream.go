@@ -31,7 +31,9 @@ type toolCallState struct {
 // responses because we don't send `stream_options.include_usage=true` —
 // some third-party OpenAI-compatible servers reject it, and the cost of
 // missing usage on a single turn is much smaller than losing compatibility.
-func (c *Client) SendStream(ctx context.Context, req provider.Request, onChunk func(string)) (provider.Response, error) {
+func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
+	onChunk := cb.OnText
+	onToolDelta := cb.OnToolDelta
 	if req.Model == "" {
 		return provider.Response{}, errors.New("openai: req.Model is required")
 	}
@@ -148,6 +150,13 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, onChunk f
 				st.name = tc.Function.Name
 			}
 			st.args.WriteString(tc.Function.Arguments)
+			// Surface argument fragments to the caller as they arrive.
+			// st.id/name may not be set yet on the very first chunk (some
+			// providers send them in a later chunk) — skip those until the
+			// identifiers land. The aggregate is still complete by EOF.
+			if onToolDelta != nil && tc.Function.Arguments != "" && st.id != "" {
+				onToolDelta(st.id, st.name, tc.Function.Arguments)
+			}
 		}
 		if choice.FinishReason != "" {
 			stopReason := choice.FinishReason

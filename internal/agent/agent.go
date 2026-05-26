@@ -52,9 +52,17 @@ type ToolSender interface {
 	) (Reply, error)
 }
 
+// ToolInputDeltaFunc receives raw JSON fragments of a tool_use block's
+// arguments as they stream in. Fragments concatenate to form the final
+// JSON object. May be nil; implementations should treat nil as "don't
+// surface tool-input deltas" and skip the callback.
+type ToolInputDeltaFunc func(toolID, toolName, partialJSON string)
+
 // ToolStreamingSender extends ToolSender and StreamingSender with a streaming
-// tool-aware variant. Implementations stream text deltas via onChunk and
-// accumulate tool_use blocks; the final Reply carries Blocks for dispatch.
+// tool-aware variant. Implementations stream text deltas via onChunk,
+// stream tool-argument JSON fragments via onToolDelta (optional, may be
+// nil), and accumulate tool_use blocks. The final Reply carries Blocks for
+// dispatch.
 type ToolStreamingSender interface {
 	ToolSender
 	StreamMessagesWithTools(
@@ -64,6 +72,7 @@ type ToolStreamingSender interface {
 		maxTokens int,
 		tools []ToolDefinition,
 		onChunk func(textDelta string),
+		onToolDelta ToolInputDeltaFunc,
 	) (Reply, error)
 }
 
@@ -316,11 +325,24 @@ func (a *Agent) RunStream(
 		return reply, err
 	}
 
+	// Tool-argument JSON fragments → EventToolInputDelta. Nil-safe.
+	onToolDelta := func(toolID, toolName, partialJSON string) {
+		if handler == nil || partialJSON == "" {
+			return
+		}
+		handler(AgentEvent{
+			Kind:       EventToolInputDelta,
+			ToolID:     toolID,
+			ToolName:   toolName,
+			InputDelta: partialJSON,
+		})
+	}
+
 	// Try ToolStreamingSender first, then fall back to ToolSender (buffered).
 	if tss, ok := a.Sender.(ToolStreamingSender); ok {
 		return a.runStreamLoop(ctx, userInput, tools, executor, handler,
 			func(ctx context.Context, msgs []Message) (Reply, error) {
-				return tss.StreamMessagesWithTools(ctx, a.Model, a.System, msgs, a.MaxTokens, tools, onChunk)
+				return tss.StreamMessagesWithTools(ctx, a.Model, a.System, msgs, a.MaxTokens, tools, onChunk, onToolDelta)
 			})
 	}
 	if ts, ok := a.Sender.(ToolSender); ok {

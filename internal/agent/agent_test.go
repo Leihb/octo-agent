@@ -754,3 +754,117 @@ func TestAgent_RunStream_StreamingExecutor_NilHandler_StillRuns(t *testing.T) {
 	// (We can't directly observe "ExecuteStream wasn't called" from outside,
 	// but the absence of side effects + clean completion is the contract.)
 }
+
+// ─── EventToolInputDelta plumbing tests ─────────────────────────────────────
+
+// fakeToolStreamingSender implements ToolStreamingSender — exercises the
+// onToolDelta plumbing in RunStream → ToolStreamingSender →
+// EventToolInputDelta.
+type fakeToolStreamingSender struct {
+	fakeToolSender
+	textChunks []string
+	toolDeltas []struct{ id, name, partialJSON string }
+}
+
+func (f *fakeToolStreamingSender) StreamMessagesWithTools(
+	_ context.Context, _, _ string, _ []Message, _ int,
+	_ []ToolDefinition,
+	onChunk func(string),
+	onToolDelta ToolInputDeltaFunc,
+) (Reply, error) {
+	// Replay scripted callbacks only on the FIRST call so multi-iteration
+	// loops don't double-fire deltas attached to the first tool call.
+	if f.calls == 0 {
+		for _, c := range f.textChunks {
+			if onChunk != nil {
+				onChunk(c)
+			}
+		}
+		for _, d := range f.toolDeltas {
+			if onToolDelta != nil {
+				onToolDelta(d.id, d.name, d.partialJSON)
+			}
+		}
+	}
+	return f.nextReply()
+}
+
+// fakeToolStreamingSender must also satisfy StreamingSender (it embeds
+// fakeToolSender, which is only Sender + ToolSender). Add the streaming
+// text method explicitly so RunStream type-asserts the right interface.
+func (f *fakeToolStreamingSender) StreamMessages(
+	_ context.Context, _, _ string, _ []Message, _ int, onChunk func(string),
+) (Reply, error) {
+	for _, c := range f.textChunks {
+		if onChunk != nil {
+			onChunk(c)
+		}
+	}
+	return f.nextReply()
+}
+
+func TestAgent_RunStream_ToolInputDeltaEventsFire(t *testing.T) {
+	send := &fakeToolStreamingSender{
+		toolDeltas: []struct{ id, name, partialJSON string }{
+			{"c1", "terminal", `{"comm`},
+			{"c1", "terminal", `and":"`},
+			{"c1", "terminal", `ls"}`},
+		},
+	}
+	send.replies = []Reply{
+		{
+			StopReason: "tool_use",
+			Blocks: []ContentBlock{
+				NewToolUseBlock("c1", "terminal", map[string]any{"command": "ls"}),
+			},
+		},
+		{Content: "done", StopReason: "end_turn"},
+	}
+	exec := &fakeExecutor{}
+	a := New(send, "m")
+	defs := []ToolDefinition{{Name: "terminal"}}
+
+	var deltas []AgentEvent
+	_, err := a.RunStream(context.Background(), "ls please", defs, exec, func(ev AgentEvent) {
+		if ev.Kind == EventToolInputDelta {
+			deltas = append(deltas, ev)
+		}
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+
+	if len(deltas) != 3 {
+		t.Fatalf("expected 3 input-delta events, got %d: %+v", len(deltas), deltas)
+	}
+	for i, want := range []string{`{"comm`, `and":"`, `ls"}`} {
+		if deltas[i].InputDelta != want {
+			t.Errorf("delta[%d].InputDelta = %q, want %q", i, deltas[i].InputDelta, want)
+		}
+		if deltas[i].ToolID != "c1" {
+			t.Errorf("delta[%d].ToolID = %q", i, deltas[i].ToolID)
+		}
+		if deltas[i].ToolName != "terminal" {
+			t.Errorf("delta[%d].ToolName = %q", i, deltas[i].ToolName)
+		}
+	}
+}
+
+func TestAgent_RunStream_NilHandler_TolerantOfInputDeltas(t *testing.T) {
+	// A nil handler with a sender that fires onToolDelta must NOT crash —
+	// the agent layer swallows the call (the closure check `handler == nil`).
+	send := &fakeToolStreamingSender{
+		toolDeltas: []struct{ id, name, partialJSON string }{
+			{"c1", "x", `{"a":1}`},
+		},
+	}
+	send.replies = []Reply{
+		{StopReason: "tool_use", Blocks: []ContentBlock{NewToolUseBlock("c1", "x", nil)}},
+		{Content: "ok", StopReason: "end_turn"},
+	}
+	exec := &fakeExecutor{}
+	a := New(send, "m")
+	if _, err := a.RunStream(context.Background(), "hi", []ToolDefinition{{Name: "x"}}, exec, nil); err != nil {
+		t.Fatalf("RunStream(nil handler): %v", err)
+	}
+}

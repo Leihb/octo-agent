@@ -36,7 +36,9 @@ type blockAccumulator struct {
 //
 // Cancellation is via ctx; no HTTP-level timeout is set, because streaming
 // responses can legitimately run for minutes.
-func (c *Client) SendStream(ctx context.Context, req provider.Request, onChunk func(string)) (provider.Response, error) {
+func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
+	onChunk := cb.OnText
+	onToolDelta := cb.OnToolDelta
 	if req.Model == "" {
 		return provider.Response{}, errors.New("anthropic: req.Model is required")
 	}
@@ -165,6 +167,15 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, onChunk f
 				}
 			case "input_json_delta":
 				acc.inputJSON.WriteString(ev.Delta.PartialJSON)
+				// Stream the JSON fragment to the caller; the
+				// fully-aggregated input map is still parsed at
+				// content_block_stop. acc.id/name are set when the
+				// content_block_start event for this index landed —
+				// they're present for tool_use blocks by the time
+				// any input_json_delta arrives.
+				if onToolDelta != nil && ev.Delta.PartialJSON != "" && acc.blockType == "tool_use" {
+					onToolDelta(acc.id, acc.name, ev.Delta.PartialJSON)
+				}
 			}
 
 		case "message_delta":

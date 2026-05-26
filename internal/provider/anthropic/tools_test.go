@@ -243,7 +243,7 @@ func TestSendStream_ToolUse(t *testing.T) {
 		Model:    "x",
 		Messages: []agent.Message{agent.NewUserMessage("run echo test")},
 		Tools:    []agent.ToolDefinition{{Name: "bash"}},
-	}, func(d string) { textChunks = append(textChunks, d) })
+	}, provider.StreamCallbacks{OnText: func(d string) { textChunks = append(textChunks, d) }})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -294,5 +294,84 @@ func TestSend_NoTools_FieldAbsent(t *testing.T) {
 
 	if strings.Contains(string(capturedBody), `"tools"`) {
 		t.Errorf("tools field should be absent when no tools: %s", capturedBody)
+	}
+}
+
+// TestSendStream_ToolInputDeltaCallbackFires verifies that
+// input_json_delta fragments arrive on cb.OnToolDelta as they stream.
+// The fragments concatenate to the final JSON, and ToolID/ToolName
+// (carried by the preceding content_block_start) are populated.
+func TestSendStream_ToolInputDeltaCallbackFires(t *testing.T) {
+	// Canned SSE: text → content_block_start(tool_use, id=call-1,
+	// name=terminal) → 3 input_json_delta fragments → block stop →
+	// message_delta(stop_reason=tool_use).
+	sse := "" +
+		`data: {"type":"message_start","message":{"id":"m","model":"x","usage":{"input_tokens":1,"output_tokens":0}}}` + "\n\n" +
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}` + "\n\n" +
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"running "}}` + "\n\n" +
+		`data: {"type":"content_block_stop","index":0}` + "\n\n" +
+		`data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call-1","name":"terminal","input":{}}}` + "\n\n" +
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"comm"}}` + "\n\n" +
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"and\":\""}}` + "\n\n" +
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"ls -la\"}"}}` + "\n\n" +
+		`data: {"type":"content_block_stop","index":1}` + "\n\n" +
+		`data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":0,"output_tokens":12}}` + "\n\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(sse))
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+
+	type deltaCall struct{ id, name, partialJSON string }
+	var deltas []deltaCall
+
+	resp, err := c.SendStream(context.Background(), provider.Request{
+		Model:    "x",
+		Messages: []agent.Message{agent.NewUserMessage("ls please")},
+		Tools:    []agent.ToolDefinition{{Name: "terminal"}},
+	}, provider.StreamCallbacks{
+		OnToolDelta: func(id, name, partialJSON string) {
+			deltas = append(deltas, deltaCall{id, name, partialJSON})
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+
+	// Three fragments arrived in order, all tagged with call-1/terminal.
+	if len(deltas) != 3 {
+		t.Fatalf("expected 3 delta callbacks, got %d: %+v", len(deltas), deltas)
+	}
+	for i, want := range []string{`{"comm`, `and":"`, `ls -la"}`} {
+		if deltas[i].partialJSON != want {
+			t.Errorf("delta[%d].partialJSON = %q, want %q", i, deltas[i].partialJSON, want)
+		}
+		if deltas[i].id != "call-1" {
+			t.Errorf("delta[%d].id = %q", i, deltas[i].id)
+		}
+		if deltas[i].name != "terminal" {
+			t.Errorf("delta[%d].name = %q", i, deltas[i].name)
+		}
+	}
+
+	// And the aggregated block still parses correctly.
+	if resp.StopReason != "tool_use" || len(resp.Blocks) == 0 {
+		t.Fatalf("response: %+v", resp)
+	}
+	var found bool
+	for _, b := range resp.Blocks {
+		if b.Type == "tool_use" && b.ID == "call-1" {
+			found = true
+			if b.Input["command"] != "ls -la" {
+				t.Errorf("aggregated input = %+v", b.Input)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("tool_use block not found in resp.Blocks: %+v", resp.Blocks)
 	}
 }

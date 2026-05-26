@@ -243,7 +243,7 @@ func TestSendStream_ToolCalls_Accumulated(t *testing.T) {
 		Model:    "gpt-4o",
 		Messages: []agent.Message{agent.NewUserMessage("list files")},
 		Tools:    []agent.ToolDefinition{{Name: "bash"}},
-	}, nil)
+	}, provider.StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -260,5 +260,65 @@ func TestSendStream_ToolCalls_Accumulated(t *testing.T) {
 	}
 	if b.Input["command"] != "ls" {
 		t.Errorf("Blocks[0].Input = %v", b.Input)
+	}
+}
+
+// TestSendStream_OpenAI_ToolInputDeltaCallbackFires verifies that
+// tool_calls[].function.arguments fragments arrive on cb.OnToolDelta as
+// they stream. OpenAI chunks the arguments JSON across multiple chunks;
+// each fragment is forwarded with ToolID + ToolName (once known) + the
+// raw partial string.
+func TestSendStream_OpenAI_ToolInputDeltaCallbackFires(t *testing.T) {
+	// Canned SSE: first chunk carries id+name+first arg fragment, two
+	// follow-on chunks carry only the next arg fragments, then
+	// finish_reason=tool_calls.
+	sse := "" +
+		`data: {"id":"c","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call-77","type":"function","function":{"name":"terminal","arguments":"{\"comm"}}]}}]}` + "\n\n" +
+		`data: {"id":"c","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"and\":\""}}]}}]}` + "\n\n" +
+		`data: {"id":"c","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ls -la\"}"}}]}}]}` + "\n\n" +
+		`data: {"id":"c","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n" +
+		"data: [DONE]\n\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(sse))
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+
+	type deltaCall struct{ id, name, partialJSON string }
+	var deltas []deltaCall
+
+	resp, err := c.SendStream(context.Background(), provider.Request{
+		Model:    "gpt-4o",
+		Messages: []agent.Message{agent.NewUserMessage("ls please")},
+		Tools:    []agent.ToolDefinition{{Name: "terminal"}},
+	}, provider.StreamCallbacks{
+		OnToolDelta: func(id, name, partialJSON string) {
+			deltas = append(deltas, deltaCall{id, name, partialJSON})
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+
+	// 3 fragments — all tagged call-77 / terminal once known.
+	if len(deltas) != 3 {
+		t.Fatalf("expected 3 delta callbacks, got %d: %+v", len(deltas), deltas)
+	}
+	for i, want := range []string{`{"comm`, `and":"`, `ls -la"}`} {
+		if deltas[i].partialJSON != want {
+			t.Errorf("delta[%d].partialJSON = %q, want %q", i, deltas[i].partialJSON, want)
+		}
+		if deltas[i].id != "call-77" {
+			t.Errorf("delta[%d].id = %q", i, deltas[i].id)
+		}
+	}
+
+	// Normalised stop_reason and aggregated tool_use block both intact.
+	if resp.StopReason != "tool_use" {
+		t.Errorf("StopReason = %q (should normalise tool_calls → tool_use)", resp.StopReason)
 	}
 }

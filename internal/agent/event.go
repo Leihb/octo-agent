@@ -9,6 +9,19 @@ const (
 	// the full reply text.
 	EventTextDelta EventKind = "text_delta"
 
+	// EventToolInputDelta fires zero or more times while the LLM is
+	// streaming a tool_use block's input arguments (e.g. write_file's
+	// content field). ToolID / ToolName identify the call; InputDelta is
+	// the raw JSON fragment as it arrived on the wire — fragments
+	// concatenate to form the final JSON object. EventToolStarted (with
+	// the fully-parsed Input map) still fires after the arguments are
+	// complete and parsed.
+	//
+	// These events are useful for live-rendering large tool arguments
+	// (e.g. showing a file's content as it's being written) in a Web UI.
+	// Most CLI consumers can ignore them.
+	EventToolInputDelta EventKind = "tool_input_delta"
+
 	// EventToolStarted fires immediately before a tool is dispatched.
 	// ToolID / ToolName / Input identify the call.
 	EventToolStarted EventKind = "tool_started"
@@ -51,25 +64,27 @@ const EventToolOutputCap = 512
 // All fields are populated only for the EventKinds that need them; the rest
 // stay at zero values. The contract for each kind:
 //
-//   - EventTextDelta:    Text
-//   - EventToolStarted:  ToolID, ToolName, Input
-//   - EventToolProgress: ToolID, ToolName, Chunk
-//   - EventToolDone:     ToolID, ToolName, Output
-//   - EventToolError:    ToolID, ToolName, Output (may be empty), Err
-//   - EventTurnDone:     Reply
+//   - EventTextDelta:      Text
+//   - EventToolInputDelta: ToolID, ToolName, InputDelta
+//   - EventToolStarted:    ToolID, ToolName, Input
+//   - EventToolProgress:   ToolID, ToolName, Chunk
+//   - EventToolDone:       ToolID, ToolName, Output
+//   - EventToolError:      ToolID, ToolName, Output (may be empty), Err
+//   - EventTurnDone:       Reply
 //
 // JSON tags are included so HTTP/SSE transports (M8 web server) can
 // marshal events directly without an intermediate type.
 type AgentEvent struct {
-	Kind     EventKind      `json:"kind"`
-	Text     string         `json:"text,omitempty"`
-	ToolID   string         `json:"tool_id,omitempty"`
-	ToolName string         `json:"tool_name,omitempty"`
-	Input    map[string]any `json:"input,omitempty"`
-	Chunk    string         `json:"chunk,omitempty"`
-	Output   string         `json:"output,omitempty"`
-	Err      string         `json:"err,omitempty"`
-	Reply    *Reply         `json:"reply,omitempty"`
+	Kind       EventKind      `json:"kind"`
+	Text       string         `json:"text,omitempty"`
+	ToolID     string         `json:"tool_id,omitempty"`
+	ToolName   string         `json:"tool_name,omitempty"`
+	Input      map[string]any `json:"input,omitempty"`
+	InputDelta string         `json:"input_delta,omitempty"`
+	Chunk      string         `json:"chunk,omitempty"`
+	Output     string         `json:"output,omitempty"`
+	Err        string         `json:"err,omitempty"`
+	Reply      *Reply         `json:"reply,omitempty"`
 }
 
 // EventHandler is the callback type passed into Agent.RunStream. The handler

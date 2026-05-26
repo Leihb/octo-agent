@@ -221,12 +221,12 @@ type streamingMockProvider struct {
 	streamCalled bool
 }
 
-func (m *streamingMockProvider) SendStream(_ context.Context, req provider.Request, onChunk func(string)) (provider.Response, error) {
+func (m *streamingMockProvider) SendStream(_ context.Context, req provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
 	m.streamCalled = true
 	m.gotReq = req
 	for _, d := range m.deltas {
-		if onChunk != nil {
-			onChunk(d)
+		if cb.OnText != nil {
+			cb.OnText(d)
 		}
 	}
 	if m.err != nil {

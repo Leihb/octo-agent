@@ -263,7 +263,8 @@ func (s providerSender) StreamMessages(
 		MaxTokens:    maxTokens,
 	}
 	if sp, ok := s.p.(provider.StreamingProvider); ok {
-		resp, err := sp.SendStream(ctx, req, onChunk)
+		// Text-only path: no tool deltas applicable.
+		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{OnText: onChunk})
 		if err != nil {
 			return agent.Reply{}, err
 		}
@@ -327,6 +328,7 @@ func (s providerSender) StreamMessagesWithTools(
 	maxTokens int,
 	tools []agent.ToolDefinition,
 	onChunk func(string),
+	onToolDelta agent.ToolInputDeltaFunc,
 ) (agent.Reply, error) {
 	if s.p == nil {
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
@@ -339,7 +341,14 @@ func (s providerSender) StreamMessagesWithTools(
 		Tools:        tools,
 	}
 	if sp, ok := s.p.(provider.StreamingProvider); ok {
-		resp, err := sp.SendStream(ctx, req, onChunk)
+		// Both callbacks are forwarded. provider.StreamCallbacks is a
+		// per-event union — text deltas and tool-input deltas can
+		// interleave on the wire (the Anthropic stream actually does that
+		// when the LLM mixes prose with tool calls).
+		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{
+			OnText:      onChunk,
+			OnToolDelta: onToolDelta,
+		})
 		if err != nil {
 			return agent.Reply{}, err
 		}

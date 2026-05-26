@@ -59,7 +59,7 @@ func TestSendStream_OpenAI_AggregatesAndCallsBack(t *testing.T) {
 		Model:        "gpt-4o-mini",
 		SystemPrompt: "you are octo",
 		Messages:     []agent.Message{agent.NewUserMessage("hi")},
-	}, func(d string) { chunks = append(chunks, d) })
+	}, provider.StreamCallbacks{OnText: func(d string) { chunks = append(chunks, d) }})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestSendStream_OpenAI_NoDoneSentinelTolerated(t *testing.T) {
 	resp, err := c.SendStream(context.Background(), provider.Request{
 		Model:    "x",
 		Messages: []agent.Message{agent.NewUserMessage("hi")},
-	}, nil)
+	}, provider.StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestSendStream_OpenAI_UsageChunkParsed(t *testing.T) {
 	resp, err := c.SendStream(context.Background(), provider.Request{
 		Model:    "x",
 		Messages: []agent.Message{agent.NewUserMessage("hi")},
-	}, nil)
+	}, provider.StreamCallbacks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestSendStream_OpenAI_HTTPError_Wrapped(t *testing.T) {
 	_, err := c.SendStream(context.Background(), provider.Request{
 		Model:    "x",
 		Messages: []agent.Message{agent.NewUserMessage("hi")},
-	}, nil)
+	}, provider.StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -171,10 +171,10 @@ func TestSendStream_OpenAI_ValidatesRequest(t *testing.T) {
 	c, _ := New("k")
 	c.BaseURL = "http://invalid"
 
-	if _, err := c.SendStream(context.Background(), provider.Request{}, nil); err == nil {
+	if _, err := c.SendStream(context.Background(), provider.Request{}, provider.StreamCallbacks{}); err == nil {
 		t.Error("empty request should error")
 	}
-	if _, err := c.SendStream(context.Background(), provider.Request{Model: "x"}, nil); err == nil {
+	if _, err := c.SendStream(context.Background(), provider.Request{Model: "x"}, provider.StreamCallbacks{}); err == nil {
 		t.Error("missing messages should error")
 	}
 }

@@ -62,21 +62,38 @@ type Provider interface {
 	Send(ctx context.Context, req Request) (Response, error)
 }
 
-// StreamingProvider extends Provider with the ability to stream the
-// assistant reply chunk-by-chunk via a callback.
+// StreamCallbacks bundles every per-event callback a streaming provider may
+// fire. Adding a new event class (citations, thinking blocks, image deltas)
+// in the future means adding another field here — no interface bump.
 //
-// Implementations must invoke onChunk synchronously as each text delta
+// All fields are nil-safe; implementations should skip the call when the
+// corresponding callback is nil.
+type StreamCallbacks struct {
+	// OnText is invoked for each text fragment of the assistant's reply.
+	OnText func(textDelta string)
+
+	// OnToolDelta is invoked while a tool_use block's input arguments are
+	// streaming in. partialJSON is the raw fragment (NOT a running total);
+	// fragments concatenate to form the final JSON object. toolID and
+	// toolName identify the tool call (both known once the block starts).
+	OnToolDelta func(toolID, toolName, partialJSON string)
+}
+
+// StreamingProvider extends Provider with the ability to stream the
+// assistant reply chunk-by-chunk via callbacks.
+//
+// Implementations must invoke the callbacks synchronously as each event
 // arrives off the wire. After the stream closes they return the
 // aggregated Response — Content is the full joined text, plus whatever
-// usage / model / stop-reason metadata the protocol surfaces.
+// usage / model / stop-reason / Blocks metadata the protocol surfaces.
 //
 // Callers detect streaming support via a type assertion:
 //
 //	if sp, ok := p.(provider.StreamingProvider); ok {
-//	    return sp.SendStream(ctx, req, onChunk)
+//	    return sp.SendStream(ctx, req, provider.StreamCallbacks{OnText: f})
 //	}
 //	return p.Send(ctx, req)  // fall back to batch
 type StreamingProvider interface {
 	Provider
-	SendStream(ctx context.Context, req Request, onChunk func(textDelta string)) (Response, error)
+	SendStream(ctx context.Context, req Request, cb StreamCallbacks) (Response, error)
 }

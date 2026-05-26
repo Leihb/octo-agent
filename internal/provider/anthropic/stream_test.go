@@ -75,7 +75,7 @@ func TestSendStream_AggregatesAndCallsBack(t *testing.T) {
 	resp, err := c.SendStream(context.Background(), provider.Request{
 		Model:    "claude-haiku-4-5-20251001",
 		Messages: []agent.Message{agent.NewUserMessage("hi")},
-	}, func(d string) { chunks = append(chunks, d) })
+	}, provider.StreamCallbacks{OnText: func(d string) { chunks = append(chunks, d) }})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestSendStream_NilCallbackTolerated(t *testing.T) {
 	resp, err := c.SendStream(context.Background(), provider.Request{
 		Model:    "x",
 		Messages: []agent.Message{agent.NewUserMessage("hi")},
-	}, nil)
+	}, provider.StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestSendStream_HTTPError_Wrapped(t *testing.T) {
 	_, err := c.SendStream(context.Background(), provider.Request{
 		Model:    "x",
 		Messages: []agent.Message{agent.NewUserMessage("hi")},
-	}, nil)
+	}, provider.StreamCallbacks{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -151,10 +151,10 @@ func TestSendStream_ValidatesRequest(t *testing.T) {
 	c, _ := New("k")
 	c.BaseURL = "http://invalid"
 
-	if _, err := c.SendStream(context.Background(), provider.Request{}, nil); err == nil {
+	if _, err := c.SendStream(context.Background(), provider.Request{}, provider.StreamCallbacks{}); err == nil {
 		t.Error("empty request should error")
 	}
-	if _, err := c.SendStream(context.Background(), provider.Request{Model: "x"}, nil); err == nil {
+	if _, err := c.SendStream(context.Background(), provider.Request{Model: "x"}, provider.StreamCallbacks{}); err == nil {
 		t.Error("missing messages should error")
 	}
 }
@@ -182,7 +182,7 @@ func TestSendStream_NonTextDeltasIgnored(t *testing.T) {
 	resp, err := c.SendStream(context.Background(), provider.Request{
 		Model:    "x",
 		Messages: []agent.Message{agent.NewUserMessage("hi")},
-	}, nil)
+	}, provider.StreamCallbacks{})
 	if err != nil {
 		t.Fatal(err)
 	}
