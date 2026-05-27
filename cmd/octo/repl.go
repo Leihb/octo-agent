@@ -129,8 +129,12 @@ func runREPL(cfg replConfig) int {
 			continue
 		}
 		_ = startedAt
-		_ = reply
 		fmt.Fprintln(cfg.stdout) // newline after streamed reply
+		// Surface cache activity per turn so the win is visible (and tunable).
+		if reply.CacheReadTokens > 0 || reply.CacheWriteTokens > 0 {
+			fmt.Fprintf(cfg.stdout, "  ⓘ cache: %d read, %d write (in %d / out %d)\n",
+				reply.CacheReadTokens, reply.CacheWriteTokens, reply.InputTokens, reply.OutputTokens)
+		}
 
 		// Auto-save after every turn unless opted out.
 		if !cfg.noSave {
@@ -168,6 +172,9 @@ func printCost(w io.Writer, a *agent.Agent) {
 	in, out := a.SessionTokens()
 	cost := a.SessionCostUSD()
 	fmt.Fprintf(w, "Tokens: %d in / %d out  |  est. $%.6f\n", in, out, cost)
+	if read, write := a.SessionCacheTokens(); read > 0 || write > 0 {
+		fmt.Fprintf(w, "Cache:  %d read / %d write\n", read, write)
+	}
 }
 
 func saveSession(w io.Writer, sess *agent.Session, a *agent.Agent) error {

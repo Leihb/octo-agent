@@ -164,6 +164,8 @@ func (c *Client) Send(ctx context.Context, req provider.Request) (provider.Respo
 		StopReason:   stopReason,
 		InputTokens:  apiResp.Usage.PromptTokens,
 		OutputTokens: apiResp.Usage.CompletionTokens,
+		// OpenAI/DeepSeek report only cached (read) input; no write count.
+		CacheReadTokens: apiResp.Usage.cachedTokens(),
 	}, nil
 }
 

@@ -133,6 +133,9 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 				result.Model = ev.Message.Model
 				result.InputTokens = ev.Message.Usage.InputTokens
 				result.OutputTokens = ev.Message.Usage.OutputTokens
+				// Cache counts arrive in the initial usage block.
+				result.CacheReadTokens = ev.Message.Usage.CacheReadInputTokens
+				result.CacheWriteTokens = ev.Message.Usage.CacheCreationInputTokens
 			}
 
 		case "content_block_start":

@@ -82,9 +82,15 @@ type apiContentBlock struct {
 }
 
 // apiUsageBlock is the token-count block Anthropic returns on every message.
+// The cache fields are present when prompt caching is in play:
+// cache_creation_input_tokens is input written into the cache this turn
+// (billed at a premium), cache_read_input_tokens is input served from the
+// cache (billed cheap).
 type apiUsageBlock struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 }
 
 // apiError is the body of an Anthropic error response (4xx/5xx).

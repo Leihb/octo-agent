@@ -92,6 +92,11 @@ type Reply struct {
 	StopReason   string
 	InputTokens  int
 	OutputTokens int
+	// Cache accounting for this call (0 when the backend reports none).
+	// CacheReadTokens is input served from cache; CacheWriteTokens is input
+	// written into the cache this turn (Anthropic only).
+	CacheReadTokens  int
+	CacheWriteTokens int
 }
 
 // Agent owns one conversation: the system prompt, the history of turns, the
@@ -125,6 +130,9 @@ type Agent struct {
 	// Cumulative token counts for this session (all turns combined).
 	sessionInputTokens  int
 	sessionOutputTokens int
+	// Cumulative cache accounting for this session.
+	sessionCacheReadTokens  int
+	sessionCacheWriteTokens int
 	// lastInputTokens is the size of the most recently sent context, used as
 	// the compaction trigger.
 	lastInputTokens int
@@ -177,9 +185,7 @@ func (a *Agent) Turn(ctx context.Context, userInput string) (Reply, error) {
 	}
 
 	a.History.Append(NewAssistantMessage(reply.Content))
-	a.sessionInputTokens += reply.InputTokens
-	a.sessionOutputTokens += reply.OutputTokens
-	a.lastInputTokens = reply.InputTokens
+	a.accrueUsage(reply)
 	return reply, nil
 }
 
@@ -232,9 +238,7 @@ func (a *Agent) TurnStream(
 	}
 
 	a.History.Append(NewAssistantMessage(reply.Content))
-	a.sessionInputTokens += reply.InputTokens
-	a.sessionOutputTokens += reply.OutputTokens
-	a.lastInputTokens = reply.InputTokens
+	a.accrueUsage(reply)
 	return reply, nil
 }
 
@@ -407,9 +411,7 @@ func (a *Agent) runLoop(
 			}
 			return Reply{}, fmt.Errorf("agent: loop[%d]: %w", i, err)
 		}
-		a.sessionInputTokens += reply.InputTokens
-		a.sessionOutputTokens += reply.OutputTokens
-		a.lastInputTokens = reply.InputTokens
+		a.accrueUsage(reply)
 
 		if reply.StopReason == "tool_use" {
 			a.History.Append(NewToolUseMessage(reply.Blocks))
@@ -676,10 +678,27 @@ func textFromBlocks(blocks []ContentBlock) string {
 	return sb.String()
 }
 
+// accrueUsage folds one reply's token/cache counts into the session totals
+// and records the context size used by the compaction trigger.
+func (a *Agent) accrueUsage(reply Reply) {
+	a.sessionInputTokens += reply.InputTokens
+	a.sessionOutputTokens += reply.OutputTokens
+	a.sessionCacheReadTokens += reply.CacheReadTokens
+	a.sessionCacheWriteTokens += reply.CacheWriteTokens
+	a.lastInputTokens = reply.InputTokens
+}
+
 // SessionTokens returns the cumulative input and output token counts for all
 // turns made so far in this Agent's lifetime.
 func (a *Agent) SessionTokens() (inputTokens, outputTokens int) {
 	return a.sessionInputTokens, a.sessionOutputTokens
+}
+
+// SessionCacheTokens returns the cumulative cache read/write token counts.
+// Read is input served from cache (cheap); write is input written into the
+// cache (Anthropic only). Both zero when the backend reports no cache info.
+func (a *Agent) SessionCacheTokens() (readTokens, writeTokens int) {
+	return a.sessionCacheReadTokens, a.sessionCacheWriteTokens
 }
 
 // SessionCostUSD returns a rough USD estimate for the tokens used so far.

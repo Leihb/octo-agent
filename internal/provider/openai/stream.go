@@ -125,6 +125,7 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 		if ch.Usage != nil {
 			result.InputTokens = ch.Usage.PromptTokens
 			result.OutputTokens = ch.Usage.CompletionTokens
+			result.CacheReadTokens = ch.Usage.cachedTokens()
 		}
 		if len(ch.Choices) == 0 {
 			continue

@@ -144,12 +144,14 @@ func (c *Client) Send(ctx context.Context, req provider.Request) (provider.Respo
 
 	blocks := fromAPIContentBlocks(apiResp.Content)
 	return provider.Response{
-		Content:      joinTextBlocks(apiResp.Content),
-		Blocks:       blocks,
-		Model:        apiResp.Model,
-		StopReason:   apiResp.StopReason,
-		InputTokens:  apiResp.Usage.InputTokens,
-		OutputTokens: apiResp.Usage.OutputTokens,
+		Content:          joinTextBlocks(apiResp.Content),
+		Blocks:           blocks,
+		Model:            apiResp.Model,
+		StopReason:       apiResp.StopReason,
+		InputTokens:      apiResp.Usage.InputTokens,
+		OutputTokens:     apiResp.Usage.OutputTokens,
+		CacheReadTokens:  apiResp.Usage.CacheReadInputTokens,
+		CacheWriteTokens: apiResp.Usage.CacheCreationInputTokens,
 	}, nil
 }
 

@@ -252,3 +252,36 @@ func TestSend_AppendsMessagesPath(t *testing.T) {
 
 // Compile-time assertion: *Client implements provider.Provider.
 var _ provider.Provider = (*Client)(nil)
+
+func TestSend_ParsesCacheUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"msg_01","type":"message","role":"assistant","model":"m",
+			"content":[{"type":"text","text":"hi"}],
+			"stop_reason":"end_turn",
+			"usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":1200,"cache_read_input_tokens":3400}
+		}`))
+	}))
+	defer srv.Close()
+
+	c, err := New("k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.BaseURL = srv.URL
+
+	resp, err := c.Send(context.Background(), provider.Request{
+		Model:    "m",
+		Messages: []agent.Message{agent.NewUserMessage("hi")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.CacheWriteTokens != 1200 {
+		t.Errorf("CacheWriteTokens = %d, want 1200 (cache_creation_input_tokens)", resp.CacheWriteTokens)
+	}
+	if resp.CacheReadTokens != 3400 {
+		t.Errorf("CacheReadTokens = %d, want 3400 (cache_read_input_tokens)", resp.CacheReadTokens)
+	}
+}

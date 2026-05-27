@@ -195,7 +195,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	// ── Single-turn mode (original M2 behaviour) ──────────────────────────────
 	if *stream {
-		_, err := a.TurnStream(context.Background(), userInput, func(d string) {
+		reply, err := a.TurnStream(context.Background(), userInput, func(d string) {
 			fmt.Fprint(stdout, d)
 		})
 		if err != nil {
@@ -203,6 +203,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintln(stdout)
+		printUsageLine(stderr, reply)
 		return 0
 	}
 
@@ -212,7 +213,18 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, reply.Content)
+	printUsageLine(stderr, reply)
 	return 0
+}
+
+// printUsageLine writes a one-line token/cache summary to w when the backend
+// reported any usage. Goes to stderr so it doesn't pollute piped stdout.
+func printUsageLine(w io.Writer, reply agent.Reply) {
+	if reply.InputTokens == 0 && reply.OutputTokens == 0 && reply.CacheReadTokens == 0 {
+		return
+	}
+	fmt.Fprintf(w, "[usage] in %d / out %d / cache %d read, %d write\n",
+		reply.InputTokens, reply.OutputTokens, reply.CacheReadTokens, reply.CacheWriteTokens)
 }
 
 // buildProvider constructs a provider.Provider for the requested vendor,
@@ -344,12 +356,14 @@ func (s providerSender) StreamMessages(
 
 func replyFromResponse(resp provider.Response) agent.Reply {
 	return agent.Reply{
-		Content:      resp.Content,
-		Blocks:       resp.Blocks,
-		Model:        resp.Model,
-		StopReason:   resp.StopReason,
-		InputTokens:  resp.InputTokens,
-		OutputTokens: resp.OutputTokens,
+		Content:          resp.Content,
+		Blocks:           resp.Blocks,
+		Model:            resp.Model,
+		StopReason:       resp.StopReason,
+		InputTokens:      resp.InputTokens,
+		OutputTokens:     resp.OutputTokens,
+		CacheReadTokens:  resp.CacheReadTokens,
+		CacheWriteTokens: resp.CacheWriteTokens,
 	}
 }
 

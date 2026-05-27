@@ -53,6 +53,13 @@ type Response struct {
 	StopReason   string               // "end_turn" | "tool_use" | "max_tokens" | "stop_sequence"
 	InputTokens  int
 	OutputTokens int
+
+	// Cache accounting, when the backend reports it. CacheReadTokens is input
+	// served from a prompt cache (cheap); CacheWriteTokens is input written
+	// into the cache this turn (Anthropic only — OpenAI/DeepSeek don't report
+	// a write count). Both zero when the backend reports no cache info.
+	CacheReadTokens  int
+	CacheWriteTokens int
 }
 
 // Provider is the per-backend abstraction. Implementations are kept under
