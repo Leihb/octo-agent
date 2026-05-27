@@ -15,6 +15,7 @@ import (
 
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/permission"
+	"github.com/Leihb/octo-agent/internal/skills"
 	"github.com/Leihb/octo-agent/internal/tools"
 	"github.com/Leihb/octo-agent/internal/tui"
 )
@@ -31,6 +32,7 @@ type replConfig struct {
 	stderr     io.Writer
 	tools      []agent.ToolDefinition
 	executor   agent.ToolExecutor
+	skillReg   *skills.Registry // discovered skills; backs /skills and /<name>
 }
 
 // runREPL runs the interactive multi-turn loop until the user exits or EOF.
@@ -129,6 +131,12 @@ func runREPL(cfg replConfig) int {
 			}
 			fmt.Fprintln(cfg.stdout, "Analyzing the repository to generate .octorules…")
 			line = initInstruction
+		} else if s, args, ok := skillTrigger(cfg.skillReg, line); ok {
+			// /<name> [args] → inline the skill's instructions and fall through
+			// to a normal turn (same machinery as /init). This saves the round
+			// trip the model would otherwise spend calling the skill tool.
+			fmt.Fprintf(cfg.stdout, "Running skill /%s…\n", s.Name)
+			line = inlineSkill(s.Body, args)
 		} else if strings.HasPrefix(line, "/") {
 			cmd := strings.ToLower(strings.Fields(line)[0])
 			switch cmd {
@@ -149,6 +157,9 @@ func runREPL(cfg replConfig) int {
 				if err := printSessions(cfg.stdout); err != nil {
 					fmt.Fprintf(cfg.stderr, "sessions: %v\n", err)
 				}
+				continue
+			case "/skills":
+				printSkills(cfg.stdout, cfg.skillReg)
 				continue
 			default:
 				fmt.Fprintf(cfg.stdout, "Unknown command %q. Type /help for a list.\n", cmd)
@@ -233,7 +244,56 @@ func printReplHelp(w io.Writer) {
 	fmt.Fprintln(w, "  /cost       Show token usage and estimated cost for this session")
 	fmt.Fprintln(w, "  /save       Save the session now (it also auto-saves after each turn)")
 	fmt.Fprintln(w, "  /sessions   List the 10 most recent sessions")
+	fmt.Fprintln(w, "  /skills     List available skills (trigger one with /<name>)")
 	fmt.Fprintln(w, "  /exit       Save and exit  (also: /quit, Ctrl-C, Ctrl-D)")
+}
+
+// reservedReplCommands are the built-in slash commands; a skill may not shadow
+// one (so /help always means help even if a skill dir is named "help").
+var reservedReplCommands = map[string]bool{
+	"init": true, "exit": true, "quit": true, "help": true,
+	"cost": true, "save": true, "sessions": true, "skills": true,
+}
+
+// skillTrigger reports whether line is a /<name> invocation of a discovered
+// skill (and not a reserved command), returning the skill and any trailing
+// args (the text after the command word).
+func skillTrigger(reg *skills.Registry, line string) (skills.Skill, string, bool) {
+	if reg == nil || !strings.HasPrefix(line, "/") {
+		return skills.Skill{}, "", false
+	}
+	fields := strings.Fields(line)
+	name := strings.TrimPrefix(fields[0], "/")
+	if reservedReplCommands[strings.ToLower(name)] {
+		return skills.Skill{}, "", false
+	}
+	s, ok := reg.Get(name)
+	if !ok {
+		return skills.Skill{}, "", false
+	}
+	args := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+	return s, args, true
+}
+
+// inlineSkill builds the turn input for an explicit /<name> trigger: the skill
+// body, optionally followed by the user's trailing arguments.
+func inlineSkill(body, args string) string {
+	if args == "" {
+		return body
+	}
+	return body + "\n\nUser input: " + args
+}
+
+// printSkills lists the discovered skills, or a hint when there are none.
+func printSkills(w io.Writer, reg *skills.Registry) {
+	if reg == nil || reg.Len() == 0 {
+		fmt.Fprintln(w, "No skills found (looked in ~/.octo/skills and ./.octo/skills).")
+		return
+	}
+	fmt.Fprintln(w, "Available skills (trigger with /<name>):")
+	for _, s := range reg.List() {
+		fmt.Fprintf(w, "  /%-16s [%-7s] %s\n", s.Name, s.Source, s.Description)
+	}
 }
 
 func printCost(w io.Writer, a *agent.Agent) {

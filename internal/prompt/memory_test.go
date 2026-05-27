@@ -28,7 +28,7 @@ func TestCompose_UserLayerBetweenEnvAndProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := Compose("SYSTEM_OVERRIDE", dir, "ENV_BLOCK")
+	out := Compose("SYSTEM_OVERRIDE", dir, "ENV_BLOCK", "")
 
 	envIdx := strings.Index(out, "ENV_BLOCK")
 	userIdx := strings.Index(out, "USER_GLOBAL_RULE")
@@ -54,7 +54,7 @@ func TestCompose_NoUserFile_NoUserLayer(t *testing.T) {
 	userRulesPath = func() string { return filepath.Join(t.TempDir(), "absent.md") }
 	t.Cleanup(func() { userRulesPath = orig })
 
-	out := Compose("", t.TempDir(), "")
+	out := Compose("", t.TempDir(), "", "")
 	if strings.Contains(out, "octorules.md") {
 		t.Errorf("absent user file should add no layer:\n%s", out)
 	}

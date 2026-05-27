@@ -43,28 +43,37 @@ var userRulesPath = func() string {
 	return filepath.Join(home, ".octo", "octorules.md")
 }
 
-// Compose assembles the session system prompt from up to five layers, in order
+// Compose assembles the session system prompt from up to six layers, in order
 // of increasing specificity:
 //
 //  1. base    — embedded octo foundation (always present)
 //  2. env     — environment snapshot (cwd, git, date, OS) the caller renders
-//  3. user    — ~/.octo/octorules.md, if present (cross-project user rules)
-//  4. project — ProjectContextFile in cwd, if present (repo conventions)
-//  5. system  — the --system value, if any (highest-priority override, last)
+//  3. skills  — the available-skills manifest the caller renders, if any
+//  4. user    — ~/.octo/octorules.md, if present (cross-project user rules)
+//  5. project — ProjectContextFile in cwd, if present (repo conventions)
+//  6. system  — the --system value, if any (highest-priority override, last)
 //
 // Empty layers are skipped. Later layers appear later in the text, which is
 // the conventional way to let more specific instructions take precedence —
 // project rules override the user's global rules, and --system overrides all.
 //
+// skills is the already-rendered manifest (see skills.RenderManifest); it sits
+// near base/env because it's a capability description, not a rule. It is passed
+// in rather than discovered here so this package keeps a one-directional dep
+// (prompt does not import skills) and the prefix stays stable across turns.
+//
 // The user and project files may pull in other files with @include directives
 // (see expandIncludes). env is passed in rather than computed here so this
 // package stays pure (no os/exec, no git); the caller snapshots it once at
 // session start, which keeps the cached prompt prefix stable across turns.
-func Compose(userSystem, cwd, env string) string {
+func Compose(userSystem, cwd, env, skills string) string {
 	layers := []string{strings.TrimSpace(base)}
 
 	if e := strings.TrimSpace(env); e != "" {
 		layers = append(layers, e)
+	}
+	if s := strings.TrimSpace(skills); s != "" {
+		layers = append(layers, s)
 	}
 	if u := readUserContext(); u != "" {
 		layers = append(layers, "# User conventions (~/.octo/octorules.md)\n\n"+u)

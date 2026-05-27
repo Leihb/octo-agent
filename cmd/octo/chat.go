@@ -18,6 +18,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/provider"
 	"github.com/Leihb/octo-agent/internal/provider/anthropic"
 	"github.com/Leihb/octo-agent/internal/provider/openai"
+	"github.com/Leihb/octo-agent/internal/skills"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
@@ -58,6 +59,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	continueIDLong := fs.String("continue", "", "Session ID to resume")
 	noSave := fs.Bool("no-save", false, "Disable auto-save in REPL mode")
 	listSessions := fs.Bool("list-sessions", false, "Print the 10 most recent sessions and exit")
+	listSkills := fs.Bool("list-skills", false, "Print available skills (user + project) and exit")
 	enableTools := fs.Bool("tools", false, "Enable built-in tools (bash) for agentic loop")
 	plain := fs.Bool("plain", false, "Render tool events as one-line ↳ status lines instead of rich diff cards")
 	permMode := fs.String("permission-mode", "interactive", "Tool permission handling: interactive (prompt on ask) | strict (deny on ask)")
@@ -107,6 +109,21 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// --list-skills: discover and print, no provider needed.
+	if *listSkills {
+		cwd, _ := os.Getwd()
+		reg := skills.Discover(cwd)
+		if reg.Len() == 0 {
+			fmt.Fprintln(stdout, "No skills found (looked in ~/.octo/skills and ./.octo/skills).")
+			return 0
+		}
+		fmt.Fprintln(stdout, "Available skills (trigger with /<name>):")
+		for _, s := range reg.List() {
+			fmt.Fprintf(stdout, "  /%-16s [%-7s] %s\n", s.Name, s.Source, s.Description)
+		}
+		return 0
+	}
+
 	// Resolve -c / --continue (short wins if both somehow set).
 	resumeID := *continueIDLong
 	if *continueID != "" {
@@ -143,6 +160,13 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cwd, _ := os.Getwd()
 	env := buildEnvContext(cwd)
 
+	// Discover skills (user + project) once at session start. The manifest goes
+	// into the frozen system prompt (L1); the registry backs the `skill` tool so
+	// it can serve full bodies on demand (L2).
+	skillReg := skills.Discover(cwd)
+	skillsManifest := skills.RenderManifest(skillReg)
+	tools.SetSkills(skillReg)
+
 	if *useSandbox {
 		opts := sandboxOpts{allowNet: *sandboxAllowNet, writeRoots: sandboxWrite, readRoots: sandboxRead}
 		if err := activateSandbox(cwd, opts, stderr); err != nil {
@@ -158,7 +182,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		thinkingBudget: *thinkingBudget,
 		thinkingOut:    stdout,
 	}, resolvedModel)
-	a.System = prompt.Compose(*system, cwd, env)
+	a.System = prompt.Compose(*system, cwd, env, skillsManifest)
 	a.MaxTokens = *maxTokens
 	a.MaxTurns = *maxTurns
 	a.MaxCostUSD = *maxCost
@@ -181,19 +205,20 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			// Recompose from the session's raw user layer so base/project/env
 			// pick up any changes since the session was created.
-			a.System = prompt.Compose(sess.System, cwd, env)
+			a.System = prompt.Compose(sess.System, cwd, env, skillsManifest)
 		} else {
 			sess = agent.NewSession(resolvedModel, *system)
 		}
 
 		cfg := replConfig{
-			a:       a,
-			session: sess,
-			noSave:  *noSave,
-			plain:   *plain,
-			stdin:   stdin,
-			stdout:  stdout,
-			stderr:  stderr,
+			a:        a,
+			session:  sess,
+			noSave:   *noSave,
+			plain:    *plain,
+			stdin:    stdin,
+			stdout:   stdout,
+			stderr:   stderr,
+			skillReg: skillReg,
 		}
 		if *enableTools {
 			cfg.tools = tools.DefaultTools()

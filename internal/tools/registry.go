@@ -29,6 +29,7 @@ var allTools = []tool{
 	GrepTool{},
 	WebFetchTool{},
 	WebSearchTool{},
+	SkillTool{},
 }
 
 // DefaultRegistry is the agent.ToolExecutor used when `octo chat --tools` is
@@ -84,11 +85,17 @@ func (r DefaultRegistry) Execute(ctx context.Context, name string, input map[str
 }
 
 // DefaultTools returns the slice of ToolDefinitions sent to the LLM when
-// `--tools` is on. Order matches allTools.
+// `--tools` is on. Order matches allTools. The skill tool is withheld unless
+// at least one skill was discovered (SetSkills) — advertising a tool that can
+// only error wastes a slot and confuses the model.
 func DefaultTools() []agent.ToolDefinition {
-	defs := make([]agent.ToolDefinition, len(allTools))
-	for i, t := range allTools {
-		defs[i] = t.Definition()
+	skillsOn := skillsEnabled()
+	defs := make([]agent.ToolDefinition, 0, len(allTools))
+	for _, t := range allTools {
+		if _, isSkill := t.(SkillTool); isSkill && !skillsOn {
+			continue
+		}
+		defs = append(defs, t.Definition())
 	}
 	return defs
 }
