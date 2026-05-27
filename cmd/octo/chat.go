@@ -60,6 +60,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	permMode := fs.String("permission-mode", "interactive", "Tool permission handling: interactive (prompt on ask) | strict (deny on ask)")
 	maxTurns := fs.Int("max-turns", 0, "Max provider round-trips per message in the agentic loop (0 = default 20)")
 	maxCost := fs.Float64("max-cost", 0, "Stop the session once estimated cost (USD) reaches this; 0 = unlimited")
+	compactThreshold := fs.Int("compact-threshold", 0, "Summarize older history once a turn's input exceeds this many tokens; 0 = disabled")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -137,6 +138,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	a.MaxTokens = *maxTokens
 	a.MaxTurns = *maxTurns
 	a.MaxCostUSD = *maxCost
+	a.CompactThreshold = *compactThreshold
 
 	// ── REPL mode ────────────────────────────────────────────────────────────
 	if isREPL {

@@ -116,9 +116,17 @@ type Agent struct {
 	// provider call with StopReason "max_cost".
 	MaxCostUSD float64
 
+	// CompactThreshold triggers history compaction: when the most recent
+	// context sent (lastInputTokens) exceeds this, the next Run/RunStream
+	// summarizes the older turns before continuing. 0 disables compaction.
+	CompactThreshold int
+
 	// Cumulative token counts for this session (all turns combined).
 	sessionInputTokens  int
 	sessionOutputTokens int
+	// lastInputTokens is the size of the most recently sent context, used as
+	// the compaction trigger.
+	lastInputTokens int
 }
 
 // StopReason sentinels set on the Reply when a loop budget is exhausted.
@@ -170,6 +178,7 @@ func (a *Agent) Turn(ctx context.Context, userInput string) (Reply, error) {
 	a.History.Append(NewAssistantMessage(reply.Content))
 	a.sessionInputTokens += reply.InputTokens
 	a.sessionOutputTokens += reply.OutputTokens
+	a.lastInputTokens = reply.InputTokens
 	return reply, nil
 }
 
@@ -224,6 +233,7 @@ func (a *Agent) TurnStream(
 	a.History.Append(NewAssistantMessage(reply.Content))
 	a.sessionInputTokens += reply.InputTokens
 	a.sessionOutputTokens += reply.OutputTokens
+	a.lastInputTokens = reply.InputTokens
 	return reply, nil
 }
 
@@ -369,6 +379,13 @@ func (a *Agent) runLoop(
 	handler EventHandler,
 	send func(ctx context.Context, msgs []Message) (Reply, error),
 ) (Reply, error) {
+	// Compact older history before starting a new turn, if the last context
+	// crossed the threshold. Done here (a safe between-turns boundary, history
+	// ends on a complete assistant message) rather than mid-loop, where a
+	// tool_use/tool_result pair could be split. A summarization failure is
+	// non-fatal — we log nothing and proceed with the full history.
+	_ = a.maybeCompact(ctx)
+
 	a.History.Append(NewUserMessage(userInput))
 
 	limit := a.turnLimit()
@@ -391,6 +408,7 @@ func (a *Agent) runLoop(
 		}
 		a.sessionInputTokens += reply.InputTokens
 		a.sessionOutputTokens += reply.OutputTokens
+		a.lastInputTokens = reply.InputTokens
 
 		if reply.StopReason == "tool_use" {
 			a.History.Append(NewToolUseMessage(reply.Blocks))
