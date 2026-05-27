@@ -3,10 +3,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
@@ -53,6 +57,43 @@ func runREPL(cfg replConfig) int {
 	fmt.Fprintln(cfg.stdout)
 
 	scanner := bufio.NewScanner(cfg.stdin)
+
+	// Ctrl-C handling: while a turn is running, SIGINT cancels just that turn
+	// (the loop catches context.Canceled, finalizes well-formed history, and
+	// returns to the prompt). At an idle prompt — no turn in flight — SIGINT
+	// exits cleanly, preserving the documented "Ctrl-C to quit" behaviour.
+	var (
+		turnMu     sync.Mutex
+		turnCancel context.CancelFunc
+	)
+	setTurnCancel := func(c context.CancelFunc) {
+		turnMu.Lock()
+		turnCancel = c
+		turnMu.Unlock()
+	}
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	defer signal.Stop(sigCh)
+	go func() {
+		for range sigCh {
+			turnMu.Lock()
+			c := turnCancel
+			turnMu.Unlock()
+			if c != nil {
+				c() // interrupt the in-flight turn; the loop returns to prompt
+				continue
+			}
+			// Idle prompt: save what we have and exit cleanly. os.Exit skips the
+			// deferred cleanup below, so do it explicitly here.
+			fmt.Fprintln(cfg.stdout, "\n^C")
+			if !cfg.noSave {
+				sess.SyncFrom(a.History)
+				_ = sess.Save()
+			}
+			tools.KillAllBackground()
+			os.Exit(0)
+		}
+	}()
 
 	// Permission gating shares the REPL scanner so an interactive "ask"
 	// prompt reads from the same stdin buffer the loop uses. Tool dispatch
@@ -110,7 +151,10 @@ func runREPL(cfg replConfig) int {
 		}
 
 		// Regular message — streaming turn (or agentic loop when tools enabled).
-		startedAt := time.Now()
+		// Each turn gets its own cancellable context so SIGINT can interrupt
+		// just this turn without tearing down the session.
+		turnCtx, cancelTurn := context.WithCancel(context.Background())
+		setTurnCancel(cancelTurn)
 		var (
 			reply agent.Reply
 			err   error
@@ -123,25 +167,35 @@ func runREPL(cfg replConfig) int {
 			// stdout, etc.) is conversational state for the LLM, not user-
 			// facing chrome. EventTurnDone is also silent; the trailing
 			// newline below marks the visible turn boundary.
-			reply, err = a.RunStream(context.Background(), line, cfg.tools, cfg.executor, replToolEventHandler(cfg.stdout, cfg.plain))
+			reply, err = a.RunStream(turnCtx, line, cfg.tools, cfg.executor, replToolEventHandler(cfg.stdout, cfg.plain))
 		} else {
-			reply, err = a.TurnStream(context.Background(), line, func(delta string) {
+			reply, err = a.TurnStream(turnCtx, line, func(delta string) {
 				fmt.Fprint(cfg.stdout, delta)
 			})
 		}
-		if err != nil {
+		setTurnCancel(nil)
+		cancelTurn()
+
+		switch {
+		case errors.Is(err, context.Canceled):
+			// Ctrl-C: the agent already finalized history into a well-formed
+			// state. Acknowledge and fall through to auto-save so the next turn
+			// continues cleanly.
+			fmt.Fprintln(cfg.stdout, "\n^C interrupted")
+		case err != nil:
 			fmt.Fprintf(cfg.stderr, "\nerror: %v\n", err)
 			continue
-		}
-		_ = startedAt
-		fmt.Fprintln(cfg.stdout) // newline after streamed reply
-		// Surface cache activity per turn so the win is visible (and tunable).
-		if reply.CacheReadTokens > 0 || reply.CacheWriteTokens > 0 {
-			fmt.Fprintf(cfg.stdout, "  ⓘ cache: %d read, %d write (in %d / out %d)\n",
-				reply.CacheReadTokens, reply.CacheWriteTokens, reply.InputTokens, reply.OutputTokens)
+		default:
+			fmt.Fprintln(cfg.stdout) // newline after streamed reply
+			// Surface cache activity per turn so the win is visible (and tunable).
+			if reply.CacheReadTokens > 0 || reply.CacheWriteTokens > 0 {
+				fmt.Fprintf(cfg.stdout, "  ⓘ cache: %d read, %d write (in %d / out %d)\n",
+					reply.CacheReadTokens, reply.CacheWriteTokens, reply.InputTokens, reply.OutputTokens)
+			}
 		}
 
-		// Auto-save after every turn unless opted out.
+		// Auto-save after every turn (including interrupted ones — history is
+		// well-formed) unless opted out.
 		if !cfg.noSave {
 			sess.SyncFrom(a.History)
 			if err := sess.Save(); err != nil {

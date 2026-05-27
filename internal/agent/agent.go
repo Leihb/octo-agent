@@ -144,9 +144,14 @@ type Agent struct {
 // They are NOT provider stop reasons — the agent synthesises them so callers
 // can distinguish "the model finished" from "we cut it off".
 const (
-	StopReasonMaxTurns = "max_turns"
-	StopReasonMaxCost  = "max_cost"
+	StopReasonMaxTurns    = "max_turns"
+	StopReasonMaxCost     = "max_cost"
+	StopReasonInterrupted = "interrupted"
 )
+
+// interruptNote caps an interrupted turn as an assistant message so history
+// keeps the user/assistant alternation the next turn depends on.
+const interruptNote = "[Interrupted by user.]"
 
 // New constructs an Agent with a fresh History.
 //
@@ -397,6 +402,11 @@ func (a *Agent) runLoop(
 
 	limit := a.turnLimit()
 	for i := 0; i < limit; i++ {
+		// Interrupt (Ctrl-C) between iterations — e.g. right after a tool batch.
+		if ctx.Err() != nil {
+			return a.finishInterrupted(handler)
+		}
+
 		// Cost gate: checked before each provider call. Cost is only known
 		// after a response, so the worst case is one call that tips over the
 		// budget; we stop before the next.
@@ -408,6 +418,11 @@ func (a *Agent) runLoop(
 
 		reply, err := send(ctx, a.History.Snapshot())
 		if err != nil {
+			// Interrupt during the provider call: finalize cleanly rather than
+			// surfacing context.Canceled as a turn error.
+			if ctx.Err() != nil {
+				return a.finishInterrupted(handler)
+			}
 			if i == 0 {
 				a.History.popLast()
 			}
@@ -459,6 +474,39 @@ func (a *Agent) runLoop(
 	return a.budgetStop(handler, StopReasonMaxTurns, fmt.Sprintf(
 		"[octo] Stopped: reached the max-turns limit (%d). The task may be incomplete — "+
 			"raise --max-turns or send another message to continue.", limit))
+}
+
+// finishInterrupted finalizes a turn cut short by context cancellation
+// (Ctrl-C) so the history stays well-formed for the next turn, then returns
+// context.Canceled so the caller can recognise the interrupt. It restores the
+// user/assistant alternation invariant:
+//
+//   - last message is the unanswered user input → drop it (turn never happened)
+//   - last message is a tool_result (user role) → cap with an assistant note,
+//     so the next user turn doesn't produce two user messages in a row
+//   - last message is already an assistant turn → nothing to do
+//
+// The synthesized tool_result blocks for interrupted tool calls are produced
+// by dispatchTools itself (cancelled executions become is_error results), so
+// every tool_use already has a matching tool_result by the time we get here.
+func (a *Agent) finishInterrupted(handler EventHandler) (Reply, error) {
+	msgs := a.History.Snapshot()
+	if n := len(msgs); n > 0 {
+		last := msgs[n-1]
+		if last.Role == RoleUser {
+			if hasToolResult(last) {
+				a.History.Append(NewAssistantMessage(interruptNote))
+			} else {
+				a.History.popLast()
+			}
+		}
+	}
+	reply := Reply{Content: interruptNote, StopReason: StopReasonInterrupted}
+	if handler != nil {
+		r := reply
+		handler(AgentEvent{Kind: EventTurnDone, Reply: &r})
+	}
+	return reply, context.Canceled
 }
 
 // turnLimit resolves the per-Run loop cap, applying the default when unset.
