@@ -46,6 +46,14 @@ type apiRequest struct {
 	Messages  []apiMessage `json:"messages"`
 	Stream    bool         `json:"stream,omitempty"`
 	Tools     []apiTool    `json:"tools,omitempty"`
+	Thinking  *apiThinking `json:"thinking,omitempty"`
+}
+
+// apiThinking enables extended thinking. Type is "enabled"; BudgetTokens caps
+// the reasoning trace and must be less than the request's max_tokens.
+type apiThinking struct {
+	Type         string `json:"type"` // "enabled"
+	BudgetTokens int    `json:"budget_tokens"`
 }
 
 // apiMessage is one element of apiRequest.Messages.
@@ -74,11 +82,13 @@ type apiResponse struct {
 // For type=="text" only Text is populated; for type=="tool_use" ID, Name, and
 // Input are populated.
 type apiContentBlock struct {
-	Type  string         `json:"type"`
-	Text  string         `json:"text,omitempty"`
-	ID    string         `json:"id,omitempty"`   // tool_use
-	Name  string         `json:"name,omitempty"` // tool_use
-	Input map[string]any `json:"input,omitempty"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
+	ID        string         `json:"id,omitempty"`   // tool_use
+	Name      string         `json:"name,omitempty"` // tool_use
+	Input     map[string]any `json:"input,omitempty"`
+	Thinking  string         `json:"thinking,omitempty"`  // thinking
+	Signature string         `json:"signature,omitempty"` // thinking
 }
 
 // apiUsageBlock is the token-count block Anthropic returns on every message.
@@ -125,6 +135,10 @@ type streamContentBlock struct {
 	Name string `json:"name,omitempty"`
 }
 
+// Note: thinking blocks stream their text via content_block_delta
+// (thinking_delta) and their signature via signature_delta; the
+// content_block_start carries only Type=="thinking".
+
 // streamMessage is the abridged message snapshot inside a message_start event.
 type streamMessage struct {
 	ID    string        `json:"id,omitempty"`
@@ -142,4 +156,7 @@ type streamDelta struct {
 	Text        string `json:"text,omitempty"`
 	PartialJSON string `json:"partial_json,omitempty"`
 	StopReason  string `json:"stop_reason,omitempty"`
+	// thinking_delta carries Thinking; signature_delta carries Signature.
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
 }

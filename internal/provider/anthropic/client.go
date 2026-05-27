@@ -92,6 +92,7 @@ func (c *Client) Send(ctx context.Context, req provider.Request) (provider.Respo
 	if body.MaxTokens <= 0 {
 		body.MaxTokens = DefaultMaxTokens
 	}
+	applyThinking(&body, req.ThinkingBudget)
 
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -240,6 +241,19 @@ func markMessageCacheable(m apiMessage) apiMessage {
 	return m
 }
 
+// applyThinking enables extended thinking on the request when budget > 0.
+// Anthropic requires max_tokens to exceed budget_tokens, so it bumps
+// max_tokens to leave room for the answer on top of the reasoning budget.
+func applyThinking(body *apiRequest, budget int) {
+	if budget <= 0 {
+		return
+	}
+	body.Thinking = &apiThinking{Type: "enabled", BudgetTokens: budget}
+	if body.MaxTokens <= budget {
+		body.MaxTokens = budget + DefaultMaxTokens
+	}
+}
+
 // toAPITools converts []agent.ToolDefinition to []apiTool.
 // Anthropic uses "input_schema" where the agent layer uses "parameters".
 func toAPITools(defs []agent.ToolDefinition) []apiTool {
@@ -306,6 +320,14 @@ func marshalBlocks(blocks []agent.ContentBlock) ([]map[string]any, error) {
 				"type": "text",
 				"text": b.Text,
 			})
+		case "thinking":
+			// Replayed verbatim with its signature; required before tool_use
+			// when thinking is enabled, or the API rejects the request.
+			out = append(out, map[string]any{
+				"type":      "thinking",
+				"thinking":  b.Thinking,
+				"signature": b.Signature,
+			})
 		case "tool_use":
 			m := map[string]any{
 				"type":  "tool_use",
@@ -340,6 +362,8 @@ func fromAPIContentBlocks(blocks []apiContentBlock) []agent.ContentBlock {
 			out = append(out, agent.NewTextBlock(b.Text))
 		case "tool_use":
 			out = append(out, agent.NewToolUseBlock(b.ID, b.Name, b.Input))
+		case "thinking":
+			out = append(out, agent.NewThinkingBlock(b.Thinking, b.Signature))
 		}
 	}
 	return out

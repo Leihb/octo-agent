@@ -64,6 +64,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	maxTurns := fs.Int("max-turns", 0, "Max provider round-trips per message in the agentic loop (0 = default 20)")
 	maxCost := fs.Float64("max-cost", 0, "Stop the session once estimated cost (USD) reaches this; 0 = unlimited")
 	compactThreshold := fs.Int("compact-threshold", 0, "Summarize older history once a turn's input exceeds this many tokens; 0 = disabled")
+	thinkingBudget := fs.Int("thinking-budget", 0, "Enable extended thinking with this token budget (Anthropic/Kimi); 0 = off")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -139,7 +140,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	// A stable per-process cache key lets OpenAI route every turn (and every
 	// tool-loop iteration) of this conversation to the same prompt cache.
-	a := agent.New(providerSender{p: prov, cacheKey: newCacheKey()}, resolvedModel)
+	a := agent.New(providerSender{
+		p:              prov,
+		cacheKey:       newCacheKey(),
+		thinkingBudget: *thinkingBudget,
+		thinkingOut:    stdout,
+	}, resolvedModel)
 	a.System = prompt.Compose(*system, cwd, env)
 	a.MaxTokens = *maxTokens
 	a.MaxTurns = *maxTurns
@@ -282,6 +288,36 @@ type providerSender struct {
 	// constant across a session's turns lets the backend route them to the
 	// same prompt cache. Empty is fine — providers omit the field.
 	cacheKey string
+	// thinkingBudget, when > 0, enables extended thinking (Anthropic) with this
+	// token budget for the reasoning trace.
+	thinkingBudget int
+	// thinkingOut, when non-nil, is where the streamed thinking trace is printed
+	// (dimmed). Nil disables thinking display.
+	thinkingOut io.Writer
+}
+
+// thinkingRenderer returns an OnThinking callback that streams the reasoning
+// trace dimmed, and a close function that ends the dim styling before the
+// visible answer begins. Both are no-ops when thinking display is off.
+func (s providerSender) thinkingRenderer() (onThinking func(string), closeThinking func()) {
+	if s.thinkingOut == nil || s.thinkingBudget <= 0 {
+		return nil, func() {}
+	}
+	var started, closed bool
+	onThinking = func(d string) {
+		if !started {
+			fmt.Fprint(s.thinkingOut, "\x1b[2m\U0001F4AD ")
+			started = true
+		}
+		fmt.Fprint(s.thinkingOut, d)
+	}
+	closeThinking = func() {
+		if started && !closed {
+			fmt.Fprint(s.thinkingOut, "\x1b[0m\n")
+			closed = true
+		}
+	}
+	return onThinking, closeThinking
 }
 
 // newCacheKey returns a random hex token used as the prompt-cache key for one
@@ -300,11 +336,12 @@ func (s providerSender) SendMessages(ctx context.Context, model, system string, 
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
 	}
 	resp, err := s.p.Send(ctx, provider.Request{
-		Model:        model,
-		SystemPrompt: system,
-		Messages:     msgs,
-		MaxTokens:    maxTokens,
-		CacheKey:     s.cacheKey,
+		Model:          model,
+		SystemPrompt:   system,
+		Messages:       msgs,
+		MaxTokens:      maxTokens,
+		CacheKey:       s.cacheKey,
+		ThinkingBudget: s.thinkingBudget,
 	})
 	if err != nil {
 		return agent.Reply{}, err
@@ -329,15 +366,25 @@ func (s providerSender) StreamMessages(
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
 	}
 	req := provider.Request{
-		Model:        model,
-		SystemPrompt: system,
-		Messages:     msgs,
-		MaxTokens:    maxTokens,
-		CacheKey:     s.cacheKey,
+		Model:          model,
+		SystemPrompt:   system,
+		Messages:       msgs,
+		MaxTokens:      maxTokens,
+		CacheKey:       s.cacheKey,
+		ThinkingBudget: s.thinkingBudget,
 	}
 	if sp, ok := s.p.(provider.StreamingProvider); ok {
-		// Text-only path: no tool deltas applicable.
-		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{OnText: onChunk})
+		onThinking, closeThinking := s.thinkingRenderer()
+		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{
+			OnText: func(d string) {
+				closeThinking()
+				if onChunk != nil {
+					onChunk(d)
+				}
+			},
+			OnThinking: onThinking,
+		})
+		closeThinking()
 		if err != nil {
 			return agent.Reply{}, err
 		}
@@ -381,12 +428,13 @@ func (s providerSender) SendMessagesWithTools(
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
 	}
 	resp, err := s.p.Send(ctx, provider.Request{
-		Model:        model,
-		SystemPrompt: system,
-		Messages:     msgs,
-		MaxTokens:    maxTokens,
-		CacheKey:     s.cacheKey,
-		Tools:        tools,
+		Model:          model,
+		SystemPrompt:   system,
+		Messages:       msgs,
+		MaxTokens:      maxTokens,
+		CacheKey:       s.cacheKey,
+		Tools:          tools,
+		ThinkingBudget: s.thinkingBudget,
 	})
 	if err != nil {
 		return agent.Reply{}, err
@@ -410,22 +458,36 @@ func (s providerSender) StreamMessagesWithTools(
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
 	}
 	req := provider.Request{
-		Model:        model,
-		SystemPrompt: system,
-		Messages:     msgs,
-		MaxTokens:    maxTokens,
-		CacheKey:     s.cacheKey,
-		Tools:        tools,
+		Model:          model,
+		SystemPrompt:   system,
+		Messages:       msgs,
+		MaxTokens:      maxTokens,
+		CacheKey:       s.cacheKey,
+		Tools:          tools,
+		ThinkingBudget: s.thinkingBudget,
 	}
 	if sp, ok := s.p.(provider.StreamingProvider); ok {
-		// Both callbacks are forwarded. provider.StreamCallbacks is a
-		// per-event union — text deltas and tool-input deltas can
-		// interleave on the wire (the Anthropic stream actually does that
-		// when the LLM mixes prose with tool calls).
+		// Callbacks are forwarded. provider.StreamCallbacks is a per-event
+		// union — thinking streams first, then text deltas and tool-input
+		// deltas can interleave. closeThinking ends the dimmed trace before
+		// the first visible token of either kind.
+		onThinking, closeThinking := s.thinkingRenderer()
 		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{
-			OnText:      onChunk,
-			OnToolDelta: onToolDelta,
+			OnText: func(d string) {
+				closeThinking()
+				if onChunk != nil {
+					onChunk(d)
+				}
+			},
+			OnToolDelta: func(id, name, j string) {
+				closeThinking()
+				if onToolDelta != nil {
+					onToolDelta(id, name, j)
+				}
+			},
+			OnThinking: onThinking,
 		})
+		closeThinking()
 		if err != nil {
 			return agent.Reply{}, err
 		}

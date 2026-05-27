@@ -25,6 +25,7 @@ type blockAccumulator struct {
 	id        string
 	name      string
 	inputJSON strings.Builder
+	signature strings.Builder // thinking blocks
 }
 
 // SendStream implements provider.StreamingProvider against Anthropic's
@@ -39,6 +40,7 @@ type blockAccumulator struct {
 func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
 	onChunk := cb.OnText
 	onToolDelta := cb.OnToolDelta
+	onThinking := cb.OnThinking
 	if req.Model == "" {
 		return provider.Response{}, errors.New("anthropic: req.Model is required")
 	}
@@ -61,6 +63,7 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 	if body.MaxTokens <= 0 {
 		body.MaxTokens = DefaultMaxTokens
 	}
+	applyThinking(&body, req.ThinkingBudget)
 
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -170,6 +173,13 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 				if onChunk != nil && ev.Delta.Text != "" {
 					onChunk(ev.Delta.Text)
 				}
+			case "thinking_delta":
+				acc.text.WriteString(ev.Delta.Thinking)
+				if onThinking != nil && ev.Delta.Thinking != "" {
+					onThinking(ev.Delta.Thinking)
+				}
+			case "signature_delta":
+				acc.signature.WriteString(ev.Delta.Signature)
 			case "input_json_delta":
 				acc.inputJSON.WriteString(ev.Delta.PartialJSON)
 				// Stream the JSON fragment to the caller; the
@@ -230,6 +240,11 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 			t := acc.text.String()
 			textB.WriteString(t)
 			blocks = append(blocks, agent.NewTextBlock(t))
+		case "thinking":
+			// Thinking text accumulates in acc.text; keep it out of the visible
+			// answer (textB) but preserve the block + signature for the
+			// tool-call round-trip.
+			blocks = append(blocks, agent.NewThinkingBlock(acc.text.String(), acc.signature.String()))
 		case "tool_use":
 			var input map[string]any
 			if s := acc.inputJSON.String(); s != "" {

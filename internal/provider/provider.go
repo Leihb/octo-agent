@@ -36,6 +36,11 @@ type Request struct {
 	// forward it; others (Anthropic, which uses inline cache_control
 	// breakpoints) ignore it. Empty means "no hint".
 	CacheKey string
+
+	// ThinkingBudget, when > 0, enables extended thinking and sets the token
+	// budget for the reasoning trace. Only the Anthropic provider honors it
+	// (Claude / Kimi k2.6 via the thinking request field); others ignore it.
+	ThinkingBudget int
 }
 
 // Response is the assistant reply produced by Send.
@@ -90,6 +95,12 @@ type StreamCallbacks struct {
 	// fragments concatenate to form the final JSON object. toolID and
 	// toolName identify the tool call (both known once the block starts).
 	OnToolDelta func(toolID, toolName, partialJSON string)
+
+	// OnThinking is invoked for each fragment of a reasoning model's
+	// extended-thinking trace (Anthropic thinking_delta). Fragments concatenate
+	// to form the full trace. Fires before any OnText/OnToolDelta for the turn,
+	// since the thinking block streams first. Nil-safe.
+	OnThinking func(thinkingDelta string)
 }
 
 // StreamingProvider extends Provider with the ability to stream the
