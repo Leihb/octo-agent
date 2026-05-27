@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -107,6 +106,78 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 }
 
+func TestSave_AppendsIncrementally(t *testing.T) {
+	setTempHome(t)
+
+	s := NewSession("m", "sys")
+	s.Messages = []Message{NewUserMessage("u1"), NewAssistantMessage("a1")}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	// Add a second turn and save again — should append, not rewrite.
+	s.Messages = append(s.Messages, NewUserMessage("u2"), NewAssistantMessage("a2"))
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 4 {
+		t.Fatalf("loaded %d messages, want 4", len(got.Messages))
+	}
+	for i, want := range []string{"u1", "a1", "u2", "a2"} {
+		if got.Messages[i].Content != want {
+			t.Errorf("Messages[%d] = %q, want %q", i, got.Messages[i].Content, want)
+		}
+	}
+}
+
+func TestSave_RewritesWhenHistoryShrinks(t *testing.T) {
+	// Simulates compaction: history is rewritten to fewer messages. Save must
+	// rewrite the file from scratch, not append, so the load reflects the
+	// shrunk history.
+	setTempHome(t)
+
+	s := NewSession("m", "")
+	for i := 0; i < 6; i++ {
+		s.Messages = append(s.Messages, NewUserMessage("x"))
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Compaction replaces the 6 with a summary + 1 kept.
+	s.Messages = []Message{NewUserMessage("[summary]"), NewAssistantMessage("kept")}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 2 {
+		t.Fatalf("loaded %d messages, want 2 (file should have been rewritten)", len(got.Messages))
+	}
+	if got.Messages[0].Content != "[summary]" {
+		t.Errorf("Messages[0] = %q, want '[summary]'", got.Messages[0].Content)
+	}
+}
+
+func TestSavePath_IsJSONL(t *testing.T) {
+	setTempHome(t)
+	s := NewSession("m", "")
+	path, err := s.SavePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Ext(path) != ".jsonl" {
+		t.Errorf("SavePath ext = %q, want .jsonl", filepath.Ext(path))
+	}
+}
+
 func TestLoadSession_NotFound(t *testing.T) {
 	setTempHome(t)
 
@@ -134,22 +205,21 @@ func TestLoadSession_StripDotJSON(t *testing.T) {
 }
 
 func TestListSessions(t *testing.T) {
-	tmp := setTempHome(t)
+	setTempHome(t)
 
-	// Write 3 sessions with distinct UpdatedAt so ordering is deterministic.
+	// Save 3 sessions, then stamp distinct file mtimes so ordering (newest
+	// first, by mtime) is deterministic.
+	ids := make([]string, 3)
+	base := time.Now()
 	for i := 0; i < 3; i++ {
-		s := &Session{
-			ID:        "20260101-00000" + string(rune('0'+i)),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now().Add(time.Duration(i) * time.Second),
-			Model:     "m",
-		}
-		dir := filepath.Join(tmp, ".octo", "sessions")
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		s := &Session{ID: "20260101-00000" + string(rune('0'+i)), CreatedAt: base, Model: "m"}
+		if err := s.Save(); err != nil {
 			t.Fatal(err)
 		}
-		data, _ := json.Marshal(s)
-		if err := os.WriteFile(filepath.Join(dir, s.ID+".json"), data, 0o600); err != nil {
+		ids[i] = s.ID
+		path, _ := s.SavePath()
+		mod := base.Add(time.Duration(i) * time.Hour)
+		if err := os.Chtimes(path, mod, mod); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -161,28 +231,20 @@ func TestListSessions(t *testing.T) {
 	if len(sessions) != 3 {
 		t.Fatalf("got %d sessions, want 3", len(sessions))
 	}
-	// Newest first — UpdatedAt +2s is index 2 in creation but index 0 in list.
-	if sessions[0].ID != "20260101-000002" {
-		t.Errorf("sessions[0].ID = %q, want %q", sessions[0].ID, "20260101-000002")
+	// Newest mtime first → the last-stamped (index 2) leads.
+	if sessions[0].ID != ids[2] {
+		t.Errorf("sessions[0].ID = %q, want %q (newest mtime)", sessions[0].ID, ids[2])
 	}
 }
 
 func TestListSessions_Limit(t *testing.T) {
-	tmp := setTempHome(t)
+	setTempHome(t)
 
-	dir := filepath.Join(tmp, ".octo", "sessions")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
 	for i := 0; i < 5; i++ {
-		s := &Session{
-			ID:        "20260101-00000" + string(rune('0'+i)),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-			Model:     "m",
+		s := &Session{ID: "20260101-00000" + string(rune('0'+i)), CreatedAt: time.Now(), Model: "m"}
+		if err := s.Save(); err != nil {
+			t.Fatal(err)
 		}
-		data, _ := json.Marshal(s)
-		os.WriteFile(filepath.Join(dir, s.ID+".json"), data, 0o600)
 	}
 
 	sessions, err := ListSessions(3)
