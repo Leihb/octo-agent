@@ -22,9 +22,9 @@ GOFLAGS ?=
 # pollute the reported version. Dev builds say "<next>-dev"; release builds
 # should set VERSION explicitly:
 #
-#   VERSION=0.4.0 make build
+#   VERSION=0.5.0 make build
 #
-VERSION ?= 0.4.0-dev
+VERSION ?= 0.5.0-dev
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X github.com/Leihb/octo-agent/internal/version.Version=$(VERSION) \
            -X github.com/Leihb/octo-agent/internal/version.Commit=$(COMMIT)
