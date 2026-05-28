@@ -300,6 +300,22 @@ summary 注入。
   父调用 `Store.WriteSummary` 写盘（保留 v1 marker + commit 处理）。无 spawner 或
   sub-agent 报错时落回 `ConsolidateMemory` side-call。对标 Codex Phase 2 consolidation
   agent 但克制：sub-agent 不写文件（避免绕开 v1 marker / git commit），只输出文本。
+- **D16（Phase 2 memoryd 落地, PR #115–#117）**：`internal/memoryd` 包 + `octo memoryd
+  start|stop|status` 命令。手动启动 foreground 进程,PID 文件 `~/.octo/memoryd.pid` +
+  SIGTERM 优雅退出。Per-tick 工作：扫描 `~/.octo/sessions/` 找 idle (mtime >
+  15min 默认阈值) + 未提取的会话,跑 `ExtractMemory` + `consolidateIfDue`。Provider
+  从 env (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OCTO_MEMORYD_PROVIDER`)
+  独立读取；缺配置时启动失败。Chat 路径在 `memorydAlive()` 时跳过 startup
+  memory pass —— daemon 在线 = chat 启动即时,不阻塞 LLM 调用。Windows 整体
+  fail-soft（IsRunning structurally 返 false → chat 始终走 Phase 1）。
+- **D17（Phase 3 hook 机制落地, PR #118）**：`internal/hooks` 包 + 两个 env-var
+  钩子点。`OCTO_HOOK_PRE_TURN` 在每 turn 之前 shell out（用户输入 → stdin JSON,
+  stdout 文本 / `{additional_context}` JSON → 拼到 user message 后面）；
+  `OCTO_HOOK_POST_TURN` 在 turn 成功后 fire-and-forget（user + reply → stdin,
+  stdout 忽略）。`OCTO_HOOK_TIMEOUT` 5s 默认 / 30s 上限 / `WaitDelay 1s` 兜底
+  防 child sleep 拖住 pipe。错误降级为 stderr 一行 `↳ ... hook: <err>`,
+  turn 继续。形态与 CC `UserPromptSubmit` hook 一致 —— Hindsight 等检索层
+  脚本直接复用（详见 `c9-phase3-hindsight.md`）。
 
 ## 10. 分阶段与切片
 
@@ -322,16 +338,22 @@ summary 注入。
 | 13 | M10 — sub-agent tool（launch_agent + 父子 token rollup + 并行 dispatch） | #104 |
 | 14 | 整合用 sub-agent 执行（M10-backed，read-only 工具白名单 + 落回 side-call） | #105 |
 
-**Phase 2（常驻 daemon，单独 PR）—— 设计完成,实现待启动**
+**Phase 2（常驻 daemon）—— ✅ 已完成**
 
-15. `octo memoryd`：start/stop/status + PID 文件 + SIGTERM 优雅关闭；sessions mtime idle
-    检测 → 异步提取/整合；fallback 协调（daemon 在线时 chat 跳过启动时路径）。+ 测试。
-16. 跨平台托管：launchd / systemd 单元（可选 `octo memoryd install`）；Windows 降级。
+| # | 内容 | PR |
+|---|---|---|
+| 15 | `internal/memoryd` daemon core: PID 文件 / start-stop-status / SIGTERM 优雅退出 / Windows fail-soft | #115 |
+| 16 | Per-tick 工作循环: scan sessions for idle+unextracted → ExtractMemory + consolidateIfDue. Provider 从 env 独立读, fail-fast on missing key | #116 |
+| 17 | Chat 协调: `memorydAlive()` 时跳过 startup memory pass, daemon 接管 | #117 |
+| — | 跨平台托管 (launchd / systemd unit files): 留作可选,MVP 手动 `octo memoryd start` ([design §7 决定](#7-phase-2--常驻-memory-daemon)) | — |
 
-**Phase 3（插件 + Hindsight，单独 PR/里程碑）**
+**Phase 3（插件 + Hindsight）—— ✅ 已完成**
 
-17. 记忆插件机制（pre-turn / post-turn hook 点；形态 hook vs MCP 评审定）。
-18. Hindsight 参考集成 + 文档。
+| # | 内容 | PR |
+|---|---|---|
+| 18 | `internal/hooks` pre-turn / post-turn hook 机制: env-var 配置, sh-c 执行, JSON / 文本双格式, 5s 默认 timeout + WaitDelay 防 stuck-child | #118 |
+| 19 | Hindsight 参考集成 + 文档: `dev-docs/c9-phase3-hindsight.md` 含 recall/retain 脚本样板 + 其他检索层接入指南 | #119 |
+| — | MCP client 路径: 留作 future milestone, hook 已够 Hindsight 用 | — |
 
 每步 `make vet && make test`（race）+ gofmt；跨 OS `GOOS=linux/windows go build ./...`。
 
