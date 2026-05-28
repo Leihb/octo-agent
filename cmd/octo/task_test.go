@@ -149,6 +149,45 @@ func TestJoinInts(t *testing.T) {
 	}
 }
 
+func TestRunTaskRun_RequiresTaskID(t *testing.T) {
+	withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	var out, errBuf bytes.Buffer
+	code := runTask([]string{"run"}, nil, &out, &errBuf)
+	if code != 2 {
+		t.Errorf("missing id exit = %d, want 2", code)
+	}
+	if !strings.Contains(errBuf.String(), "task id is required") {
+		t.Errorf("expected 'task id is required' note, got:\n%s", errBuf.String())
+	}
+}
+
+func TestRunTaskRun_UnknownTaskID(t *testing.T) {
+	withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	var out, errBuf bytes.Buffer
+	code := runTask([]string{"run", "20990101-000000-deadbeef"}, nil, &out, &errBuf)
+	if code != 1 {
+		t.Errorf("unknown id exit = %d, want 1; stderr=%q", code, errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "octo task run") {
+		t.Errorf("error should be tagged with 'octo task run':\n%s", errBuf.String())
+	}
+}
+
+func TestRunTaskRun_MissingAPIKey(t *testing.T) {
+	withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	var out, errBuf bytes.Buffer
+	code := runTask([]string{"run", "any-id"}, nil, &out, &errBuf)
+	if code != 1 {
+		t.Errorf("missing key exit = %d, want 1; stderr=%q", code, errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "ANTHROPIC_API_KEY") {
+		t.Errorf("stderr should name the missing env var: %q", errBuf.String())
+	}
+}
+
 // Smoke test that the planner-to-store conversion preserves IDs and the
 // taskgraph layer accepts what the planner emits. Doesn't hit the LLM —
 // it constructs the equivalent subtasks directly and checks they round-

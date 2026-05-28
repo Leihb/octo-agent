@@ -5,10 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/prompt"
 	"github.com/Leihb/octo-agent/internal/taskgraph"
+	"github.com/Leihb/octo-agent/internal/tools"
 )
 
 // runTask handles `octo task <subcommand>`. PR2 (this file) wires only
@@ -25,6 +28,8 @@ func runTask(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "start":
 		return runTaskStart(args[1:], stdout, stderr)
+	case "run":
+		return runTaskRun(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		printTaskUsage(stdout)
 		return 0
@@ -42,8 +47,9 @@ func printTaskUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Subcommands:")
 	fmt.Fprintln(w, "  start \"<goal>\"   Decompose a goal into a subtask DAG and persist it")
+	fmt.Fprintln(w, "  run <id>         Execute the planned DAG: dispatch one sub-agent per subtask")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Coming in later PRs: run, list, status, show, resume, cancel.")
+	fmt.Fprintln(w, "Coming in later PRs: list, status, show, resume, cancel.")
 }
 
 // runTaskStart handles `octo task start "<goal>" [flags]`. It runs the
@@ -168,3 +174,92 @@ func joinInts(in []int) string {
 // planMaxTokens inside agent.PlanTask, but the agent struct still wants
 // a sensible value.
 const defaultMaxTokensForPlanner = 4096
+
+// runTaskRun handles `octo task run <id> [flags]`. It loads the persisted
+// task, wires an M10-backed Executor, hands them to taskgraph.Scheduler,
+// and exits with 0 on success / 1 on failure / 2 on bad args. Mirrors the
+// loop semantics already covered by scheduler_test.go — this is mostly
+// CLI plumbing.
+func runTaskRun(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("task run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	providerName := fs.String("provider", providerAnthropic, "Provider: anthropic | openai")
+	model := fs.String("model", "", "Model name (defaults to the provider's cheapest reasoning model)")
+	fs.Usage = func() {
+		fmt.Fprintln(stderr, "Usage: octo task run <id> [--provider …] [--model …]")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() < 1 {
+		fmt.Fprintln(stderr, "octo task run: task id is required (try `octo task list` once that lands)")
+		return 2
+	}
+	id := fs.Arg(0)
+
+	resolvedModel := *model
+	if resolvedModel == "" {
+		resolvedModel = defaultModels[*providerName]
+	}
+	if resolvedModel == "" {
+		fmt.Fprintf(stderr, "octo task run: unknown provider %q (use 'anthropic' or 'openai')\n", *providerName)
+		return 2
+	}
+
+	prov, err := buildProvider(*providerName, stderr)
+	if err != nil {
+		return 1
+	}
+
+	// Parent agent acts as the spawner's anchor — it owns the Sender, the
+	// system prompt every sub-agent inherits, and the token counter the
+	// children roll back into. We're not running an interactive loop here,
+	// but the sub_agent.go spawner closure needs an *agent.Agent to attach
+	// to.
+	parent := agent.New(providerSender{
+		p:        prov,
+		cacheKey: newCacheKey(),
+	}, resolvedModel)
+	parent.MaxTokens = defaultMaxTokensForPlanner
+	cwd, _ := os.Getwd()
+	parent.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "")
+
+	executor := tools.NewDefaultRegistry()
+	tools.SetSpawner(newAgentSpawner(parent, executor, tools.DefaultTools))
+	defer tools.SetSpawner(nil)
+
+	store, err := taskgraph.NewStore()
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task run: %v\n", err)
+		return 1
+	}
+	sch := taskgraph.NewScheduler(store, &spawnerExecutor{}, stdout)
+	if err := sch.Run(context.Background(), id); err != nil {
+		fmt.Fprintf(stderr, "octo task run: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// spawnerExecutor adapts the package-global tools.ActiveSpawner into the
+// taskgraph.Executor interface. Each subtask becomes one launch_agent
+// invocation: the child sees the subtask description as its prompt, has
+// the parent's full tool catalog (minus launch_agent so it can't recurse),
+// and reports back a single final text reply.
+type spawnerExecutor struct{}
+
+func (spawnerExecutor) Execute(ctx context.Context, description string) (string, error) {
+	sp := tools.ActiveSpawner()
+	if sp == nil {
+		return "", fmt.Errorf("task run: no Spawner configured")
+	}
+	res, err := sp.Spawn(ctx, tools.SpawnRequest{
+		Description: oneLine(description),
+		Prompt:      description,
+	})
+	if err != nil {
+		return "", err
+	}
+	return res.Reply, nil
+}
