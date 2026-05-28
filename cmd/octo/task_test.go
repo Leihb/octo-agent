@@ -188,6 +188,269 @@ func TestRunTaskRun_MissingAPIKey(t *testing.T) {
 	}
 }
 
+// ── list / status / show / resume / cancel ──────────────────────────────
+
+// seedTask creates one task in the fake-home store and returns it. Helper
+// for the inspection-command tests.
+func seedTask(t *testing.T) *taskgraph.Task {
+	t.Helper()
+	store, err := taskgraph.NewStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := store.Create("test goal", []taskgraph.Subtask{
+		{ID: 1, Description: "do A", Status: taskgraph.SubtaskPending},
+		{ID: 2, Description: "do B", BlockedBy: []int{1}, Status: taskgraph.SubtaskPending},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tk
+}
+
+func TestRunTaskList_EmptyShowsNotice(t *testing.T) {
+	withFakeHome(t)
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"list"}, nil, &out, &errBuf); code != 0 {
+		t.Errorf("empty list exit = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "No tasks yet") {
+		t.Errorf("empty list should print notice:\n%s", out.String())
+	}
+}
+
+func TestRunTaskList_LsAlias(t *testing.T) {
+	// `ls` is the alias for `list` (vim users / unix muscle memory).
+	withFakeHome(t)
+	var out bytes.Buffer
+	if code := runTask([]string{"ls"}, nil, &out, &out); code != 0 {
+		t.Errorf("ls alias exit = %d, want 0", code)
+	}
+}
+
+func TestRunTaskList_ShowsAllTasks(t *testing.T) {
+	withFakeHome(t)
+	t1 := seedTask(t)
+	t2 := seedTask(t)
+
+	var out bytes.Buffer
+	if code := runTask([]string{"list"}, nil, &out, &out); code != 0 {
+		t.Fatalf("list exit = %d", code)
+	}
+	got := out.String()
+	// Ordering is descending-by-ID (proved at the store layer in
+	// internal/taskgraph; here we just confirm the CLI passes everything
+	// through with status + goal columns).
+	for _, want := range []string{t1.ID, t2.ID, "pending", "test goal"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("list output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRunTaskStatus_RequiresID(t *testing.T) {
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"status"}, nil, &out, &errBuf); code != 2 {
+		t.Errorf("missing id exit = %d, want 2", code)
+	}
+	if !strings.Contains(errBuf.String(), "octo task status <id>") {
+		t.Errorf("missing-id error should print usage, got:\n%s", errBuf.String())
+	}
+}
+
+func TestRunTaskStatus_UnknownIDErrors(t *testing.T) {
+	withFakeHome(t)
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"status", "missing"}, nil, &out, &errBuf); code != 1 {
+		t.Errorf("unknown id exit = %d, want 1; stderr=%q", code, errBuf.String())
+	}
+}
+
+func TestRunTaskStatus_RendersDAG(t *testing.T) {
+	withFakeHome(t)
+	tk := seedTask(t)
+
+	var out bytes.Buffer
+	if code := runTask([]string{"status", tk.ID}, nil, &out, &out); code != 0 {
+		t.Fatalf("status exit = %d", code)
+	}
+	for _, want := range []string{"Task " + tk.ID, "Goal: test goal", "○ #1", "○ #2", "blocked_by: #1"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("status output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestRunTaskShow_RequiresIDAndSubID(t *testing.T) {
+	withFakeHome(t)
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"show"}, nil, &out, &errBuf); code != 2 {
+		t.Error("missing id should exit 2")
+	}
+	if code := runTask([]string{"show", "abc"}, nil, &out, &errBuf); code != 2 {
+		t.Error("missing subtask-id should exit 2")
+	}
+}
+
+func TestRunTaskShow_RejectsNonIntSubID(t *testing.T) {
+	withFakeHome(t)
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"show", "abc", "two"}, nil, &out, &errBuf); code != 2 {
+		t.Errorf("non-int subtask-id exit = %d, want 2", code)
+	}
+	if !strings.Contains(errBuf.String(), "invalid subtask-id") {
+		t.Errorf("expected 'invalid subtask-id' note, got:\n%s", errBuf.String())
+	}
+}
+
+func TestRunTaskShow_UnknownSubtaskErrors(t *testing.T) {
+	withFakeHome(t)
+	tk := seedTask(t)
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"show", tk.ID, "99"}, nil, &out, &errBuf); code != 1 {
+		t.Errorf("unknown subtask-id exit = %d, want 1", code)
+	}
+}
+
+func TestRunTaskShow_RendersFullSubtask(t *testing.T) {
+	withFakeHome(t)
+	tk := seedTask(t)
+
+	// Mark subtask 1 Done with a result so the formatter has content
+	// to render.
+	store, _ := taskgraph.NewStore()
+	_, _ = store.Update(tk.ID, func(t *taskgraph.Task) error {
+		s := t.Find(1)
+		s.Status = taskgraph.SubtaskDone
+		s.Result = "found the cache layer"
+		return nil
+	})
+
+	var out bytes.Buffer
+	if code := runTask([]string{"show", tk.ID, "1"}, nil, &out, &out); code != 0 {
+		t.Fatalf("show exit = %d", code)
+	}
+	for _, want := range []string{"subtask #1", "done", "do A", "found the cache layer"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("show output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestRunTaskCancel_RequiresID(t *testing.T) {
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"cancel"}, nil, &out, &errBuf); code != 2 {
+		t.Errorf("missing id exit = %d, want 2", code)
+	}
+}
+
+func TestRunTaskCancel_MarksTaskCancelled(t *testing.T) {
+	withFakeHome(t)
+	tk := seedTask(t)
+	var out bytes.Buffer
+	if code := runTask([]string{"cancel", tk.ID}, nil, &out, &out); code != 0 {
+		t.Fatalf("cancel exit = %d", code)
+	}
+	store, _ := taskgraph.NewStore()
+	got, _ := store.Get(tk.ID)
+	if got.Status != taskgraph.TaskCancelled {
+		t.Errorf("task status after cancel = %q, want %q", got.Status, taskgraph.TaskCancelled)
+	}
+}
+
+func TestRunTaskCancel_RefusesDoneTask(t *testing.T) {
+	withFakeHome(t)
+	tk := seedTask(t)
+	store, _ := taskgraph.NewStore()
+	_, _ = store.Update(tk.ID, func(t *taskgraph.Task) error {
+		t.Status = taskgraph.TaskDone
+		return nil
+	})
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"cancel", tk.ID}, nil, &out, &errBuf); code != 1 {
+		t.Errorf("cancel on done exit = %d, want 1", code)
+	}
+}
+
+func TestRunTaskResume_RequiresID(t *testing.T) {
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"resume"}, nil, &out, &errBuf); code != 2 {
+		t.Errorf("missing id exit = %d, want 2", code)
+	}
+}
+
+func TestRunTaskResume_ResetsFailedAndSkippedToPending(t *testing.T) {
+	// Resume mutates state but then tries to actually re-run via the LLM —
+	// we don't want to call the real provider in unit tests. So we set up
+	// the task, run resume (which will fail at the provider build step
+	// because there's no API key), and verify the state reset still happened
+	// before the failure.
+	withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	tk := seedTask(t)
+
+	store, _ := taskgraph.NewStore()
+	_, _ = store.Update(tk.ID, func(t *taskgraph.Task) error {
+		t.Status = taskgraph.TaskFailed
+		t.Subtasks[0].Status = taskgraph.SubtaskFailed
+		t.Subtasks[0].Error = "old error"
+		t.Subtasks[1].Status = taskgraph.SubtaskSkipped
+		return nil
+	})
+
+	var out, errBuf bytes.Buffer
+	// We expect exit 1 (provider build will fail), but the state mutation
+	// happens FIRST so it must persist.
+	runTask([]string{"resume", tk.ID}, nil, &out, &errBuf)
+
+	got, _ := store.Get(tk.ID)
+	if got.Status != taskgraph.TaskPending {
+		t.Errorf("task status after resume = %q, want %q", got.Status, taskgraph.TaskPending)
+	}
+	if got.Subtasks[0].Status != taskgraph.SubtaskPending {
+		t.Errorf("failed subtask not reset: %q", got.Subtasks[0].Status)
+	}
+	if got.Subtasks[0].Error != "" {
+		t.Errorf("failed subtask error not cleared: %q", got.Subtasks[0].Error)
+	}
+	if got.Subtasks[1].Status != taskgraph.SubtaskPending {
+		t.Errorf("skipped subtask not reset: %q", got.Subtasks[1].Status)
+	}
+}
+
+func TestRunTaskResume_RejectsDoneTask(t *testing.T) {
+	withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	tk := seedTask(t)
+
+	store, _ := taskgraph.NewStore()
+	_, _ = store.Update(tk.ID, func(t *taskgraph.Task) error {
+		t.Status = taskgraph.TaskDone
+		return nil
+	})
+
+	var out, errBuf bytes.Buffer
+	if code := runTask([]string{"resume", tk.ID}, nil, &out, &errBuf); code != 1 {
+		t.Errorf("resume on done task exit = %d, want 1; stderr=%q", code, errBuf.String())
+	}
+}
+
+func TestSubtaskGlyph(t *testing.T) {
+	cases := map[taskgraph.SubtaskStatus]string{
+		taskgraph.SubtaskRunning:         "▶",
+		taskgraph.SubtaskPending:         "○",
+		taskgraph.SubtaskDone:            "✓",
+		taskgraph.SubtaskFailed:          "✗",
+		taskgraph.SubtaskSkipped:         "⊘",
+		taskgraph.SubtaskStatus("bogus"): "·",
+	}
+	for in, want := range cases {
+		if got := subtaskGlyph(in); got != want {
+			t.Errorf("subtaskGlyph(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // Smoke test that the planner-to-store conversion preserves IDs and the
 // taskgraph layer accepts what the planner emits. Doesn't hit the LLM —
 // it constructs the equivalent subtasks directly and checks they round-

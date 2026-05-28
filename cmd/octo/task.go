@@ -30,6 +30,16 @@ func runTask(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return runTaskStart(args[1:], stdout, stderr)
 	case "run":
 		return runTaskRun(args[1:], stdout, stderr)
+	case "list", "ls":
+		return runTaskList(args[1:], stdout, stderr)
+	case "status":
+		return runTaskStatus(args[1:], stdout, stderr)
+	case "show":
+		return runTaskShow(args[1:], stdout, stderr)
+	case "resume":
+		return runTaskResume(args[1:], stdout, stderr)
+	case "cancel":
+		return runTaskCancel(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		printTaskUsage(stdout)
 		return 0
@@ -46,10 +56,13 @@ func printTaskUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: octo task <subcommand> [args...]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Subcommands:")
-	fmt.Fprintln(w, "  start \"<goal>\"   Decompose a goal into a subtask DAG and persist it")
-	fmt.Fprintln(w, "  run <id>         Execute the planned DAG: dispatch one sub-agent per subtask")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Coming in later PRs: list, status, show, resume, cancel.")
+	fmt.Fprintln(w, "  start \"<goal>\" [--plan-only]   Plan + run a goal end-to-end (or just plan).")
+	fmt.Fprintln(w, "  run <id>                       Execute a previously planned task.")
+	fmt.Fprintln(w, "  list                           List every task, newest first.")
+	fmt.Fprintln(w, "  status <id>                    Show one task's DAG state (status per subtask).")
+	fmt.Fprintln(w, "  show <id> <subtask-id>         Show one subtask's full result / error / timing.")
+	fmt.Fprintln(w, "  resume <id>                    Re-run failed / skipped / cancelled subtasks.")
+	fmt.Fprintln(w, "  cancel <id>                    Mark a task cancelled (any in-flight `run` honors ctx separately).")
 }
 
 // runTaskStart handles `octo task start "<goal>" [flags]`. It runs the
@@ -62,8 +75,9 @@ func runTaskStart(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	providerName := fs.String("provider", providerAnthropic, "Provider: anthropic | openai")
 	model := fs.String("model", "", "Model name (defaults to the provider's cheapest reasoning model)")
+	planOnly := fs.Bool("plan-only", false, "Plan the DAG and exit — don't run subtasks yet (use `octo task run <id>` later)")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: octo task start \"<goal>\" [--provider …] [--model …]")
+		fmt.Fprintln(stderr, "Usage: octo task start \"<goal>\" [--provider …] [--model …] [--plan-only]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -95,6 +109,8 @@ func runTaskStart(args []string, stdout, stderr io.Writer) int {
 		cacheKey: newCacheKey(),
 	}, resolvedModel)
 	a.MaxTokens = defaultMaxTokensForPlanner
+	cwd, _ := os.Getwd()
+	a.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "")
 
 	fmt.Fprintf(stdout, "Planning…  goal: %s\n", oneLine(goal))
 	res, err := a.PlanTask(context.Background(), goal)
@@ -131,7 +147,24 @@ func runTaskStart(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Created task %s\n\n", task.ID)
 	printPlannedDAG(stdout, task)
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "Next: `octo task run "+task.ID+"` (coming in PR3) — for now the DAG is on disk and resumable.")
+
+	if *planOnly {
+		fmt.Fprintln(stdout, "Plan-only mode. Run with: octo task run "+task.ID)
+		return 0
+	}
+
+	// Chain into the scheduler reusing the agent + provider we already
+	// built — avoids a second provider handshake.
+	fmt.Fprintln(stdout, "Running…")
+	executor := tools.NewDefaultRegistry()
+	tools.SetSpawner(newAgentSpawner(a, executor, tools.DefaultTools))
+	defer tools.SetSpawner(nil)
+
+	sch := taskgraph.NewScheduler(store, &spawnerExecutor{}, stdout)
+	if err := sch.Run(context.Background(), task.ID); err != nil {
+		fmt.Fprintf(stderr, "octo task start: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
@@ -239,6 +272,254 @@ func runTaskRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "octo task run: %v\n", err)
 		return 1
 	}
+	return 0
+}
+
+// runTaskList prints every task on disk, newest first, in a compact table.
+func runTaskList(_ []string, stdout, stderr io.Writer) int {
+	store, err := taskgraph.NewStore()
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task list: %v\n", err)
+		return 1
+	}
+	tasks, err := store.List()
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task list: %v\n", err)
+		return 1
+	}
+	if len(tasks) == 0 {
+		fmt.Fprintln(stdout, "No tasks yet. Try `octo task start \"<goal>\"`.")
+		return 0
+	}
+	for _, t := range tasks {
+		fmt.Fprintf(stdout, "%s  %-9s  %s\n", t.ID, t.Status, oneLine(t.Goal))
+	}
+	return 0
+}
+
+// runTaskStatus prints one task's full DAG state — every subtask with its
+// status, dependencies, and one-line result snippet for completed work.
+func runTaskStatus(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "Usage: octo task status <id>")
+		return 2
+	}
+	store, err := taskgraph.NewStore()
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task status: %v\n", err)
+		return 1
+	}
+	t, err := store.Get(args[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task status: %v\n", err)
+		return 1
+	}
+	printTaskStatus(stdout, t)
+	return 0
+}
+
+// printTaskStatus is the formatter shared between `octo task status` and
+// the no-args summary `start` and `run` might print on completion later.
+func printTaskStatus(w io.Writer, t *taskgraph.Task) {
+	fmt.Fprintf(w, "Task %s — %s\n", t.ID, t.Status)
+	fmt.Fprintf(w, "Goal: %s\n\n", t.Goal)
+	for _, sub := range t.Subtasks {
+		fmt.Fprintf(w, "  %s #%-2d %s\n", subtaskGlyph(sub.Status), sub.ID, sub.Description)
+		if len(sub.BlockedBy) > 0 {
+			fmt.Fprintf(w, "      ↳ blocked_by: %s\n", joinInts(sub.BlockedBy))
+		}
+		if sub.Status == taskgraph.SubtaskFailed && sub.Error != "" {
+			fmt.Fprintf(w, "      ✗ %s\n", oneLine(sub.Error))
+		}
+		if sub.Status == taskgraph.SubtaskDone && sub.Result != "" {
+			fmt.Fprintf(w, "      ↳ %s\n", oneLine(sub.Result))
+		}
+	}
+}
+
+// subtaskGlyph returns the same single-rune markers task_manager uses, so
+// the visual language is consistent across the two task layers.
+func subtaskGlyph(s taskgraph.SubtaskStatus) string {
+	switch s {
+	case taskgraph.SubtaskRunning:
+		return "▶"
+	case taskgraph.SubtaskPending:
+		return "○"
+	case taskgraph.SubtaskDone:
+		return "✓"
+	case taskgraph.SubtaskFailed:
+		return "✗"
+	case taskgraph.SubtaskSkipped:
+		return "⊘"
+	}
+	return "·"
+}
+
+// runTaskShow prints one subtask's full result / error / timestamps —
+// useful when `octo task status` shows a Failed or interesting Done node
+// and the user wants the verbatim payload.
+func runTaskShow(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 2 {
+		fmt.Fprintln(stderr, "Usage: octo task show <id> <subtask-id>")
+		return 2
+	}
+	subID := 0
+	if _, err := fmt.Sscanf(args[1], "%d", &subID); err != nil || subID < 1 {
+		fmt.Fprintf(stderr, "octo task show: invalid subtask-id %q (want a positive integer)\n", args[1])
+		return 2
+	}
+	store, err := taskgraph.NewStore()
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task show: %v\n", err)
+		return 1
+	}
+	t, err := store.Get(args[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task show: %v\n", err)
+		return 1
+	}
+	sub := t.Find(subID)
+	if sub == nil {
+		fmt.Fprintf(stderr, "octo task show: no subtask #%d in task %s\n", subID, args[0])
+		return 1
+	}
+	fmt.Fprintf(stdout, "Task %s · subtask #%d (%s)\n", t.ID, sub.ID, sub.Status)
+	fmt.Fprintf(stdout, "Description:\n  %s\n\n", sub.Description)
+	if len(sub.BlockedBy) > 0 {
+		fmt.Fprintf(stdout, "Blocked by: %s\n", joinInts(sub.BlockedBy))
+	}
+	if sub.Started != nil {
+		fmt.Fprintf(stdout, "Started:  %s\n", sub.Started.Format("2006-01-02 15:04:05 UTC"))
+	}
+	if sub.Finished != nil {
+		fmt.Fprintf(stdout, "Finished: %s\n", sub.Finished.Format("2006-01-02 15:04:05 UTC"))
+		if sub.Started != nil {
+			fmt.Fprintf(stdout, "Duration: %s\n", sub.Finished.Sub(*sub.Started).Round(100_000_000)) // 0.1s precision
+		}
+	}
+	if sub.Error != "" {
+		fmt.Fprintf(stdout, "\nError:\n%s\n", sub.Error)
+	}
+	if sub.Result != "" {
+		fmt.Fprintf(stdout, "\nResult:\n%s\n", sub.Result)
+	}
+	return 0
+}
+
+// runTaskResume re-runs a stalled task. Resets Failed / Skipped /
+// Cancelled subtasks back to Pending so the scheduler picks them up; the
+// task itself moves Failed/Cancelled → Pending. Done subtasks (and their
+// results) are preserved.
+func runTaskResume(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("task resume", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	providerName := fs.String("provider", providerAnthropic, "Provider: anthropic | openai")
+	model := fs.String("model", "", "Model name (defaults to the provider's cheapest reasoning model)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() < 1 {
+		fmt.Fprintln(stderr, "Usage: octo task resume <id>")
+		return 2
+	}
+	id := fs.Arg(0)
+
+	store, err := taskgraph.NewStore()
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task resume: %v\n", err)
+		return 1
+	}
+
+	t, err := store.Update(id, func(t *taskgraph.Task) error {
+		if t.Status == taskgraph.TaskDone {
+			return fmt.Errorf("task %s is already done — nothing to resume", t.ID)
+		}
+		for i := range t.Subtasks {
+			switch t.Subtasks[i].Status {
+			case taskgraph.SubtaskFailed, taskgraph.SubtaskSkipped:
+				t.Subtasks[i].Status = taskgraph.SubtaskPending
+				t.Subtasks[i].Error = ""
+				t.Subtasks[i].Started = nil
+				t.Subtasks[i].Finished = nil
+			}
+		}
+		t.Status = taskgraph.TaskPending
+		return nil
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task resume: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Resumed task %s — re-running pending subtasks…\n", t.ID)
+
+	// Then drive Scheduler.Run the same way `run` does.
+	return resumeAndRun(t, *providerName, *model, stdout, stderr)
+}
+
+// resumeAndRun is the shared "build provider+spawner, hand to Scheduler"
+// path used by resume (and potentially by future commands). Returns the
+// CLI exit code.
+func resumeAndRun(t *taskgraph.Task, providerName, model string, stdout, stderr io.Writer) int {
+	resolvedModel := model
+	if resolvedModel == "" {
+		resolvedModel = defaultModels[providerName]
+	}
+	if resolvedModel == "" {
+		fmt.Fprintf(stderr, "unknown provider %q (use 'anthropic' or 'openai')\n", providerName)
+		return 2
+	}
+	prov, err := buildProvider(providerName, stderr)
+	if err != nil {
+		return 1
+	}
+	parent := agent.New(providerSender{p: prov, cacheKey: newCacheKey()}, resolvedModel)
+	parent.MaxTokens = defaultMaxTokensForPlanner
+	cwd, _ := os.Getwd()
+	parent.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "")
+
+	executor := tools.NewDefaultRegistry()
+	tools.SetSpawner(newAgentSpawner(parent, executor, tools.DefaultTools))
+	defer tools.SetSpawner(nil)
+
+	store, err := taskgraph.NewStore()
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	sch := taskgraph.NewScheduler(store, &spawnerExecutor{}, stdout)
+	if err := sch.Run(context.Background(), t.ID); err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// runTaskCancel marks a task Cancelled. Does NOT signal a concurrently-
+// running scheduler — in v1 the scheduler is foreground-only, so cancel
+// is mostly useful for tasks the user abandoned (Ctrl-C'd) so they don't
+// get accidentally resumed.
+func runTaskCancel(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "Usage: octo task cancel <id>")
+		return 2
+	}
+	store, err := taskgraph.NewStore()
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task cancel: %v\n", err)
+		return 1
+	}
+	t, err := store.Update(args[0], func(t *taskgraph.Task) error {
+		if t.Status == taskgraph.TaskDone {
+			return fmt.Errorf("task %s is done — nothing to cancel", t.ID)
+		}
+		t.Status = taskgraph.TaskCancelled
+		return nil
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "octo task cancel: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Cancelled task %s.\n", t.ID)
 	return 0
 }
 
