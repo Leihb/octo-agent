@@ -22,6 +22,8 @@ func printCommandHelp(name string, w io.Writer) bool {
 		initHelp(w)
 	case "memoryd":
 		memorydHelp(w)
+	case "completion":
+		completionHelp(w)
 	default:
 		return false
 	}
