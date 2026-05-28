@@ -18,3 +18,4 @@ coverage.html
 # Local agent / config
 /.claude/settings.local.json
 .codegraph/
+/.claude/scheduled_tasks.lock
