@@ -167,8 +167,10 @@ func TestRunTaskRun_UnknownTaskID(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 	var out, errBuf bytes.Buffer
 	code := runTask([]string{"run", "20990101-000000-deadbeef"}, nil, &out, &errBuf)
-	if code != 1 {
-		t.Errorf("unknown id exit = %d, want 1; stderr=%q", code, errBuf.String())
+	// Exit code 2: unknown-ID is a user input error, not a runtime fault.
+	// (Was 1 before UX-2; the resolver classifies "no match" as 2.)
+	if code != 2 {
+		t.Errorf("unknown id exit = %d, want 2; stderr=%q", code, errBuf.String())
 	}
 	if !strings.Contains(errBuf.String(), "octo task run") {
 		t.Errorf("error should be tagged with 'octo task run':\n%s", errBuf.String())
@@ -240,8 +242,9 @@ func TestRunTaskList_ShowsAllTasks(t *testing.T) {
 	got := out.String()
 	// Ordering is descending-by-ID (proved at the store layer in
 	// internal/taskgraph; here we just confirm the CLI passes everything
-	// through with status + goal columns).
-	for _, want := range []string{t1.ID, t2.ID, "pending", "test goal"} {
+	// through with status + goal columns. Display switched to 8-char short
+	// IDs in UX-2 so we compare against the short form, not the full ID.)
+	for _, want := range []string{t1.ShortID(), t2.ShortID(), "pending", "test goal"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("list output missing %q:\n%s", want, got)
 		}
@@ -261,8 +264,13 @@ func TestRunTaskStatus_RequiresID(t *testing.T) {
 func TestRunTaskStatus_UnknownIDErrors(t *testing.T) {
 	withFakeHome(t)
 	var out, errBuf bytes.Buffer
-	if code := runTask([]string{"status", "missing"}, nil, &out, &errBuf); code != 1 {
-		t.Errorf("unknown id exit = %d, want 1; stderr=%q", code, errBuf.String())
+	// Exit code is 2: a user-typed ID that doesn't match anything is a
+	// command-line error (like missing required arg), not a runtime error.
+	if code := runTask([]string{"status", "missing"}, nil, &out, &errBuf); code != 2 {
+		t.Errorf("unknown id exit = %d, want 2; stderr=%q", code, errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "no task matches") {
+		t.Errorf("expected 'no task matches' error, got:\n%s", errBuf.String())
 	}
 }
 

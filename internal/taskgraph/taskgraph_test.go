@@ -370,3 +370,106 @@ func sameSet(a, b []string) bool {
 	}
 	return true
 }
+
+func TestTask_ShortID(t *testing.T) {
+	if got := (&Task{ID: "20260528-171234-a3b2c1d4"}).ShortID(); got != "a3b2c1d4" {
+		t.Errorf("ShortID = %q, want %q", got, "a3b2c1d4")
+	}
+	if got := (&Task{ID: "abc"}).ShortID(); got != "abc" {
+		t.Errorf("short ID for short input = %q, want %q", got, "abc")
+	}
+}
+
+// seedTaskID creates a task with a synthetic ID we control. Returns the
+// stored ID. ResolveID isn't called by Store.Create — it stamps a fresh
+// timestamped ID — so we hand-craft the file to test resolver paths
+// against known prefixes/suffixes.
+func seedTaskID(t *testing.T, s *Store, id string) string {
+	t.Helper()
+	task := &Task{
+		ID:       id,
+		Goal:     "synthetic",
+		Status:   TaskPending,
+		Subtasks: validSubs(),
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.persistLocked(task); err != nil {
+		t.Fatalf("seed persist: %v", err)
+	}
+	return id
+}
+
+func TestResolveID_ExactFullID(t *testing.T) {
+	s := makeStore(t)
+	id := seedTaskID(t, s, "20260528-171234-a3b2c1d4")
+	got, err := s.ResolveID(id)
+	if err != nil {
+		t.Fatalf("ResolveID(exact): %v", err)
+	}
+	if got != id {
+		t.Errorf("got %q, want %q", got, id)
+	}
+}
+
+func TestResolveID_SubstringUnique(t *testing.T) {
+	s := makeStore(t)
+	seedTaskID(t, s, "20260101-000000-aaaaaaaa")
+	expect := seedTaskID(t, s, "20260201-000000-bbbbbbbb")
+	got, err := s.ResolveID("bbbbbbbb")
+	if err != nil {
+		t.Fatalf("ResolveID(substring): %v", err)
+	}
+	if got != expect {
+		t.Errorf("got %q, want %q", got, expect)
+	}
+}
+
+func TestResolveID_LastNewest(t *testing.T) {
+	s := makeStore(t)
+	seedTaskID(t, s, "20260101-000000-aaaaaaaa")
+	newest := seedTaskID(t, s, "20260601-000000-bbbbbbbb")
+	got, err := s.ResolveID("last")
+	if err != nil {
+		t.Fatalf("ResolveID(last): %v", err)
+	}
+	// Newest by reverse lex sort over the timestamp-prefixed ID.
+	if got != newest {
+		t.Errorf("got %q, want %q (newest)", got, newest)
+	}
+}
+
+func TestResolveID_LastEmptyStore(t *testing.T) {
+	s := makeStore(t)
+	if _, err := s.ResolveID("last"); err == nil {
+		t.Fatal("expected error for 'last' against empty store")
+	}
+}
+
+func TestResolveID_Ambiguous(t *testing.T) {
+	s := makeStore(t)
+	seedTaskID(t, s, "20260528-100000-aaaaaaaa")
+	seedTaskID(t, s, "20260528-110000-aaaaaabb")
+	_, err := s.ResolveID("aaaaaa")
+	if err == nil {
+		t.Fatal("expected ambiguous error")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("missing 'ambiguous': %v", err)
+	}
+}
+
+func TestResolveID_NoMatch(t *testing.T) {
+	s := makeStore(t)
+	seedTaskID(t, s, "20260528-100000-aaaaaaaa")
+	if _, err := s.ResolveID("zzzzzz"); err == nil {
+		t.Fatal("expected no-match error")
+	}
+}
+
+func TestResolveID_EmptyInput(t *testing.T) {
+	s := makeStore(t)
+	if _, err := s.ResolveID("  "); err == nil {
+		t.Fatal("expected empty-input error")
+	}
+}

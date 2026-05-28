@@ -446,15 +446,32 @@ func printSessions(w io.Writer) error {
 		return nil
 	}
 	fmt.Fprintln(w, "Recent sessions (newest first):")
+	fmt.Fprintln(w, formatSessionList(sessions))
+	return nil
+}
+
+// formatSessionList renders the rightmost columns the user cares about for a
+// "pick one to resume" overview: 8-char short ID (the thing they paste back
+// into `octo chat -c`), a human-readable created-at, the model, and the
+// turn count. Shared between `octo chat --list-sessions` and REPL /sessions
+// so both views agree on shape.
+func formatSessionList(sessions []*agent.Session) string {
+	var b strings.Builder
 	for _, s := range sessions {
 		turns := s.TurnCount()
-		fmt.Fprintf(w, "  %s  %-30s  %d turn", s.ID, s.Model, turns)
-		if turns != 1 {
-			fmt.Fprint(w, "s")
+		plural := "s"
+		if turns == 1 {
+			plural = ""
 		}
-		fmt.Fprintln(w)
+		when := s.CreatedAt.Local().Format("2006-01-02 15:04")
+		fmt.Fprintf(&b, "  %s  %s  %-30s  %d turn%s\n",
+			s.ShortID(), when, s.Model, turns, plural)
 	}
-	return nil
+	// strings.Builder result has no trailing newline trimmed — printSessions
+	// uses Fprintln below which would add one if we kept it. Drop the final
+	// "\n" we just emitted so the outer caller controls spacing.
+	out := b.String()
+	return strings.TrimRight(out, "\n")
 }
 
 // replToolEventHandler returns an EventHandler that paints tool activity

@@ -58,8 +58,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	system := fs.String("system", "", "System prompt (optional)")
 	maxTokens := fs.Int("max-tokens", 0, "max_tokens for the response (0 = provider default)")
 	stream := fs.Bool("stream", true, "Stream the reply (chunks printed as they arrive); --stream=false buffers")
-	continueID := fs.String("c", "", "Session ID to resume (short flag)")
-	continueIDLong := fs.String("continue", "", "Session ID to resume")
+	continueID := fs.String("c", "", "Resume a session — accepts 'last', a short ID, or a substring of an ID")
+	continueIDLong := fs.String("continue", "", "Resume a session — accepts 'last', a short ID, or a substring of an ID")
 	noSave := fs.Bool("no-save", false, "Disable auto-save in REPL mode")
 	listSessions := fs.Bool("list-sessions", false, "Print the 10 most recent sessions and exit")
 	listSkills := fs.Bool("list-skills", false, "Print available skills (user + project) and exit")
@@ -102,14 +102,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 0
 		}
 		fmt.Fprintln(stdout, "Recent sessions (newest first):")
-		for _, s := range sessions {
-			turns := s.TurnCount()
-			plural := "s"
-			if turns == 1 {
-				plural = ""
-			}
-			fmt.Fprintf(stdout, "  %s  %-36s  %d turn%s\n", s.ID, s.Model, turns, plural)
-		}
+		fmt.Fprintln(stdout, formatSessionList(sessions))
 		return 0
 	}
 
@@ -150,6 +143,19 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if !isREPL && resumeID != "" {
 		fmt.Fprintln(stderr, "octo chat: -c/--continue requires interactive mode (omit the message argument)")
 		return 2
+	}
+
+	// Resolve -c shortcuts ("last", short ID, prefix/substring) against the
+	// on-disk session store. The legacy full-ID path still works because
+	// ResolveSessionID short-circuits on an exact filename match before
+	// falling back to substring matching.
+	if resumeID != "" {
+		resolved, err := agent.ResolveSessionID(resumeID)
+		if err != nil {
+			fmt.Fprintf(stderr, "octo chat: %v\n", err)
+			return 2
+		}
+		resumeID = resolved
 	}
 
 	prov, err := buildProvider(*providerName, stderr)

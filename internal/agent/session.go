@@ -302,6 +302,98 @@ func ListSessions(n int) ([]*Session, error) {
 	return out, nil
 }
 
+// ShortID returns the 8-character abbreviation suitable for CLI display.
+// It's the trailing hex suffix of the full ID — the random part — since the
+// timestamp prefix repeats across same-second sessions and uniqueness comes
+// from the suffix. Same idea as git's short SHA.
+func (s *Session) ShortID() string { return shortSessionID(s.ID) }
+
+func shortSessionID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[len(id)-8:]
+}
+
+// listSessionIDs returns every session ID on disk, newest first. Lexicographic
+// reverse sort matches chronological order because IDs are timestamp-prefixed.
+// Cheap — reads the directory listing, never opens the JSONL bodies.
+func listSessionIDs() ([]string, error) {
+	dir, err := sessionsDir()
+	if err != nil {
+		return nil, err
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("session: readdir %s: %w", dir, err)
+	}
+	var ids []string
+	for _, e := range ents {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".jsonl") {
+			continue
+		}
+		ids = append(ids, strings.TrimSuffix(n, ".jsonl"))
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(ids)))
+	return ids, nil
+}
+
+// ResolveSessionID maps a user-typed identifier to a full session ID.
+// Accepted shapes:
+//
+//   - "last"                  → the most-recently-modified session
+//   - the full session ID     → returned as-is (fast path; never walks the dir)
+//   - any substring of an ID  → unique match required
+//
+// On zero matches returns a "no session matches" error; on multiple, an
+// ambiguity error listing the candidates so the user can re-disambiguate.
+// The returned ID is suitable for passing to LoadSession.
+func ResolveSessionID(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", fmt.Errorf("session id is empty")
+	}
+	if input == "last" {
+		sessions, err := ListSessions(1)
+		if err != nil {
+			return "", err
+		}
+		if len(sessions) == 0 {
+			return "", fmt.Errorf("no saved sessions to resume")
+		}
+		return sessions[0].ID, nil
+	}
+	// Fast path: exact filename hit. Skips the directory walk when the
+	// user pasted a full ID.
+	if path, err := resolveSessionPath(input); err == nil {
+		if _, err := os.Stat(path); err == nil {
+			return strings.TrimSuffix(filepath.Base(path), ".jsonl"), nil
+		}
+	}
+	ids, err := listSessionIDs()
+	if err != nil {
+		return "", err
+	}
+	var matches []string
+	for _, id := range ids {
+		if strings.Contains(id, input) {
+			matches = append(matches, id)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("no session matches %q", input)
+	case 1:
+		return matches[0], nil
+	}
+	return "", fmt.Errorf("ambiguous session %q matches %d sessions:\n  %s",
+		input, len(matches), strings.Join(matches, "\n  "))
+}
+
 // ToHistory converts the session's message slice into an agent History.
 func (s *Session) ToHistory() *History {
 	h := NewHistory()

@@ -284,3 +284,107 @@ func TestToHistory(t *testing.T) {
 		t.Errorf("snap[0].Content = %q, want %q", snap[0].Content, "a")
 	}
 }
+
+func TestShortID(t *testing.T) {
+	s := &Session{ID: "20260528-171234-a3b2c1d4"}
+	if got := s.ShortID(); got != "a3b2c1d4" {
+		t.Errorf("ShortID = %q, want %q", got, "a3b2c1d4")
+	}
+	// Degenerate IDs (shorter than 8 chars) round-trip whole.
+	short := &Session{ID: "abc"}
+	if got := short.ShortID(); got != "abc" {
+		t.Errorf("ShortID = %q, want %q", got, "abc")
+	}
+}
+
+// seedSession creates and saves a session with a synthetic ID we control,
+// so resolver tests can target known prefixes/suffixes.
+func seedSession(t *testing.T, id string) *Session {
+	t.Helper()
+	s := &Session{ID: id, CreatedAt: time.Now(), Model: "test-model"}
+	s.Messages = []Message{{Role: "user", Content: "hi"}}
+	if err := s.Save(); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+	return s
+}
+
+func TestResolveSessionID_Last(t *testing.T) {
+	setTempHome(t)
+	if _, err := ResolveSessionID("last"); err == nil {
+		t.Fatal("expected error when no sessions exist")
+	}
+	seedSession(t, "20260101-000000-aaaaaaaa")
+	// Sleep so mtimes are distinguishable across the two files.
+	time.Sleep(20 * time.Millisecond)
+	newest := seedSession(t, "20260201-000000-bbbbbbbb")
+
+	got, err := ResolveSessionID("last")
+	if err != nil {
+		t.Fatalf("ResolveSessionID(last): %v", err)
+	}
+	if got != newest.ID {
+		t.Errorf("got %q, want %q (newest)", got, newest.ID)
+	}
+}
+
+func TestResolveSessionID_SubstringUnique(t *testing.T) {
+	setTempHome(t)
+	a := seedSession(t, "20260101-000000-aaaaaaaa")
+	seedSession(t, "20260201-000000-bbbbbbbb")
+
+	got, err := ResolveSessionID("aaaaaaaa")
+	if err != nil {
+		t.Fatalf("substring resolve: %v", err)
+	}
+	if got != a.ID {
+		t.Errorf("got %q, want %q", got, a.ID)
+	}
+}
+
+func TestResolveSessionID_Ambiguous(t *testing.T) {
+	setTempHome(t)
+	seedSession(t, "20260528-100000-aaaaaaaa")
+	seedSession(t, "20260528-110000-aaaaaabb")
+
+	// "aaaaaa" is a substring of both hex suffixes.
+	_, err := ResolveSessionID("aaaaaa")
+	if err == nil {
+		t.Fatal("expected ambiguity error")
+	}
+	msg := err.Error()
+	if !contains(msg, "ambiguous") {
+		t.Errorf("expected 'ambiguous' in error, got: %s", msg)
+	}
+}
+
+func TestResolveSessionID_ExactFullIDFastPath(t *testing.T) {
+	setTempHome(t)
+	s := seedSession(t, "20260528-171234-a3b2c1d4")
+	got, err := ResolveSessionID(s.ID)
+	if err != nil {
+		t.Fatalf("exact resolve: %v", err)
+	}
+	if got != s.ID {
+		t.Errorf("got %q, want %q", got, s.ID)
+	}
+}
+
+func TestResolveSessionID_NoMatch(t *testing.T) {
+	setTempHome(t)
+	seedSession(t, "20260528-100000-aaaaaaaa")
+	if _, err := ResolveSessionID("not-a-real-suffix"); err == nil {
+		t.Fatal("expected no-match error")
+	}
+}
+
+// contains is a tiny local helper so the resolver tests don't pull in
+// strings.Contains via a new import block. Keeps the test additions minimal.
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

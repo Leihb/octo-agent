@@ -301,6 +301,83 @@ func (s *Store) List() ([]*Task, error) {
 	return out, nil
 }
 
+// ShortID returns the 8-character abbreviation of t.ID, suitable for display
+// in CLI lists. Same rule as agent.Session.ShortID — the trailing hex suffix.
+func (t *Task) ShortID() string { return shortTaskID(t.ID) }
+
+func shortTaskID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[len(id)-8:]
+}
+
+// listIDsLocked enumerates every task ID under s.dir, newest first.
+// Caller must hold s.mu.
+func (s *Store) listIDsLocked() ([]string, error) {
+	ents, err := os.ReadDir(s.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var ids []string
+	for _, e := range ents {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".json") {
+			continue
+		}
+		ids = append(ids, strings.TrimSuffix(n, ".json"))
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(ids)))
+	return ids, nil
+}
+
+// ResolveID maps a user-typed identifier to a stored task ID.
+// Accepts: "last" (most recent), the exact full ID, or any substring of
+// an ID (unique match required). Ambiguity surfaces as an error listing
+// the candidates so the user can re-disambiguate.
+func (s *Store) ResolveID(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", errors.New("task id is empty")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Fast path: exact filename hit. Avoids the directory walk when the
+	// caller pasted a full ID.
+	if input != "last" {
+		if _, err := os.Stat(s.path(input)); err == nil {
+			return input, nil
+		}
+	}
+	ids, err := s.listIDsLocked()
+	if err != nil {
+		return "", err
+	}
+	if input == "last" {
+		if len(ids) == 0 {
+			return "", errors.New("no tasks to reference with 'last'")
+		}
+		return ids[0], nil
+	}
+	var matches []string
+	for _, id := range ids {
+		if strings.Contains(id, input) {
+			matches = append(matches, id)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("no task matches %q", input)
+	case 1:
+		return matches[0], nil
+	}
+	return "", fmt.Errorf("ambiguous task %q matches %d tasks:\n  %s",
+		input, len(matches), strings.Join(matches, "\n  "))
+}
+
 // path returns the on-disk JSON file for a given task id.
 func (s *Store) path(id string) string {
 	return filepath.Join(s.dir, id+".json")
