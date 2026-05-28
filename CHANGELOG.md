@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased — 0.4.0-dev]
+## [Unreleased — 0.5.0-dev]
+
+_Nothing yet — next milestone work (M8 web server, M9 IM bridge, MCP follow-ups like notifications / Auth Code+PKCE, or further roadmap items) will accumulate here._
+
+## [0.4.0] — 2026-05-28
+
+**MCP client release.** Adds a full Model Context Protocol client — stdio + Streamable HTTP transports, tools/resources/prompts surfaces, and Device Authorization Grant OAuth so spec-compliant remote servers (Lark Project's MCP server is the smoke-test target) work end-to-end without manual token wrangling. Disk format and existing CLI surface stay unchanged from 0.3.0 — drop a `~/.octo/mcp.json` in and you're set.
 
 ### Fixed
 - **Resume without `--tools` no longer produces garbled XML tool calls.** When a tool-enabled session was resumed without re-passing `--tools`, the model saw prior `tool_use` blocks in history but no tools array in the new request, and fell back to emitting tool calls as text (a wall of `<tool_calls><invoke name="terminal"><parameter name="command">…`). `octo chat -c <id>` now pre-loads the session, checks for any `tool_use` block, and auto-enables `--tools` with a one-line notice. Plain (no-tools) sessions resume unchanged.
