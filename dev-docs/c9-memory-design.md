@@ -150,30 +150,40 @@ prompt，token 计入会话预算。
   - rollout_summary → `rollout_summaries/<timestamp>-<slug>.md` + commit("rollout-summary: <slug>")。
   - 模型返空 slug 时,fallback 用 session id。空 summary → 不写文件（no-op）。
 
-## 5. Manage — 整合（daemon idle / 启动时按需）+ git baseline
+## 5. Manage — 整合（daemon idle / 启动时按需）+ sub-agent + git baseline
 
-随会话累积，`<slug>.md` 会重复/过时。整合是另一次 side-call,读 MEMORY.md + 相关条目，
+随会话累积，`<slug>.md` 会重复/过时。整合是另一次 LLM 调用,读 MEMORY.md + 相关条目，
 做合并去重、淘汰过期、刷新 `memory_summary.md`，然后**删除已整合的 entry**（git
 history 保留）。
 
 - **触发（Phase 1 已落地）**：启动时按需，累积 ≥ **5** 条新记忆 **且** 距上次整合
   > **24h**（`cmd/octo/memory_extract.go` `consolidateIfDue`）。daemon Phase 2 时改为
   idle 异步。
-- **incremental consolidate**（PR #96 起）：`ConsolidateMemory(priorSummary, newNotes)`
-  把新增 entries 折进现有 summary，不每次重建。priorSummary 空 → INIT 模式（首次）；
-  非空 → INCREMENTAL UPDATE。两 mode 都共用一个 ~10 行 prompt（未来升级到 Codex 880 行
-  的 INIT/INCREMENTAL 分模式 prompt 是 backlog）。
-- **产物**：
-  - 写新 `memory_summary.md` → commit("consolidate: write summary")。
+- **执行路径双轨（PR #105 起,对标 Codex Phase 2 sub-agent 模式）**：
+  - **sub-agent 优先**（REPL 模式默认）：`consolidateViaSubAgent` 经 M10 `launch_agent`
+    spawn 一个受限 sub-agent,只给 `["read_file", "grep", "glob"]` 三件读工具,
+    sub-agent 自己 grep `rollout_summaries/`/读 `<slug>.md`/查 `MEMORY.md`,
+    在隔离 context 里产出新 summary。比单次 side-call 多出"自主翻文件"的能力。
+  - **side-call fallback**：`consolidateViaSubAgent` 返空（无 spawner、或 sub-agent
+    报错），落回 `a.ConsolidateMemory(priorSummary, newNotes)` 的一次性 LLM 调用，
+    与 PR #96 以来一致。
+- **incremental consolidate**（PR #96 起）：两条路径都接受 `(priorSummary, newNotes)`
+  作输入，把新增 entries 折进现有 summary，不每次重建。priorSummary 空 → INIT 模式
+  （首次）；非空 → INCREMENTAL UPDATE。两 mode 共用一个 ~10 行 prompt（升级到 Codex
+  880 行 的 INIT/INCREMENTAL 分模式 prompt 是 backlog）。
+- **产物**（两条路径都走这一步）：
+  - 写新 `memory_summary.md` 经 `Store.WriteSummary`（加 v1 标记 + commit("consolidate:
+    write summary")）。sub-agent 自己不写文件，输出文本回到父调用。
   - `ArchiveAll` 删除已整合的 `<slug>.md` + 重建 MEMORY.md → commit("consolidate: drop
     N entries…")。git history 是 archive（PR #101 起替代旧的 `archive/` 子目录）。
 - **state 三游标**（`.state` JSON,gitignored）：
   - `last_extracted_session` —— 上次跑过提取的 session id,防重复处理。
   - `last_consolidated` —— 上次整合的日期(YYYY-MM-DD),驱动 24h 触发。
-  - `last_consolidated_sha` —— 上次整合 commit 的 SHA（PR #101 起）。M10 sub-agent
-    consolidator 落地后,会用 `Store.WorkspaceDiff(last_consolidated_sha)` 拿"自上次整合
-    以来变更"作上下文。Phase 1 阶段只持久化,未消费。
-- 失败非致命：整合 side-call 失败则保留现状，下次再试（与 maybeCompact 的容错一致）。
+  - `last_consolidated_sha` —— 上次整合 commit 的 SHA。`Store.WorkspaceDiff(SHA)` API
+    已就位，未来 sub-agent 可拿"自上次整合以来 git diff"作上下文（当前 sub-agent 还
+    没消费这个 API,等需求出现再接）。
+- 失败非致命：sub-agent 报错或 side-call 报错都保留现状，下次再试（与 maybeCompact
+  的容错一致）。
 
 ## 6. Read — 注入（summary 进冻结 prefix）+ 按需 rollout_summaries
 
@@ -280,6 +290,16 @@ summary 注入。
   内联标注）+ verify-first（动手前验证路径/函数/flag）+ "user contradicts → user wins"。
   借了 Codex `read_path.md` 130 行的形,但用更轻的内联引用而不是 `<oai-mem-citation>`
   XML block —— 适合 conversational REPL,不适合一次性回答的 ceremony。
+- **D14（M10 sub-agent tool,PR #104）**：`launch_agent` tool 让父 agent 并发派发子任务,
+  child 共享 parent.Sender + parent.System,独立 History,独立 loop budget,token 经
+  `AccrueChildUsage` 回滚到 parent。Recursion guard：context marker + tool-list filter
+  双层防御。多 `launch_agent` 调用并行 dispatch（`launch_agent ∈ readOnlyTools`）。
+- **D15（整合改 sub-agent 执行,PR #105）**：`consolidateViaSubAgent` 在 REPL 启动时
+  spawn 一个 sub-agent，给它 `["read_file", "grep", "glob"]` 三件读工具，sub-agent
+  自己 grep `rollout_summaries/`、读 `<slug>.md` 拿额外上下文,输出新 summary。
+  父调用 `Store.WriteSummary` 写盘（保留 v1 marker + commit 处理）。无 spawner 或
+  sub-agent 报错时落回 `ConsolidateMemory` side-call。对标 Codex Phase 2 consolidation
+  agent 但克制：sub-agent 不写文件（避免绕开 v1 marker / git commit），只输出文本。
 
 ## 10. 分阶段与切片
 
@@ -299,24 +319,19 @@ summary 注入。
 | 10 | `memory_summary.md` v1 协议标记 | #100 |
 | 11 | Git baseline 替换 archive（lazy init / auto-commit / WorkspaceDiff） | #101 |
 | 12 | 三件套 per-rollout 产物（slug + summary + facts） | #102 |
+| 13 | M10 — sub-agent tool（launch_agent + 父子 token rollup + 并行 dispatch） | #104 |
+| 14 | 整合用 sub-agent 执行（M10-backed，read-only 工具白名单 + 落回 side-call） | #105 |
 
 **Phase 2（常驻 daemon，单独 PR）—— 设计完成,实现待启动**
 
-13. `octo memoryd`：start/stop/status + PID 文件 + SIGTERM 优雅关闭；sessions mtime idle
+15. `octo memoryd`：start/stop/status + PID 文件 + SIGTERM 优雅关闭；sessions mtime idle
     检测 → 异步提取/整合；fallback 协调（daemon 在线时 chat 跳过启动时路径）。+ 测试。
-14. 跨平台托管：launchd / systemd 单元（可选 `octo memoryd install`）；Windows 降级。
+16. 跨平台托管：launchd / systemd 单元（可选 `octo memoryd install`）；Windows 降级。
 
 **Phase 3（插件 + Hindsight，单独 PR/里程碑）**
 
-15. 记忆插件机制（pre-turn / post-turn hook 点；形态 hook vs MCP 评审定）。
-16. Hindsight 参考集成 + 文档。
-
-**与 M10 相关的延迟项（依赖 sub-agent tool）**
-
-17. **整合改用 sub-agent 执行**：M10 落地后,把 `ConsolidateMemory` 从 side-call 换成
-    spawn 一个受限 sub-agent（no network / no approvals / local write only）,给它
-    `Store.WorkspaceDiff(LastConsolidatedSHA)` 当上下文,自己决定怎么改文件。当前的
-    plumbing（git baseline + 三件套）已经为这一步铺好。
+17. 记忆插件机制（pre-turn / post-turn hook 点；形态 hook vs MCP 评审定）。
+18. Hindsight 参考集成 + 文档。
 
 每步 `make vet && make test`（race）+ gofmt；跨 OS `GOOS=linux/windows go build ./...`。
 
@@ -455,7 +470,7 @@ frontmatter 字段也更丰富：`description / task / task_group / task_outcome
 | 提取模型 | 主 model（无 override） | 独立小模型 + reasoning effort | open decision §11.5 |
 | 提取 prompt | ~140 行 stage_one 风格（no-op gate / outcome triage / evidence→implication / DO-NOT） | 569 行 | ✅ 形态对齐,prompt 体量小很多 |
 | 写入产物 | **rollout_slug + rollout_summary + facts[]** 三件套（PR #102） | rollout_summary + rollout_slug + raw_memory | ✅ 对齐;facts[] 走 typed 数组,raw_memory 走单 markdown |
-| 整合执行 | side-call 返 string | spawn sub-agent,限权（no net/no approvals/no collab） | 待 M10,plumbing 已就位（PR #101 WorkspaceDiff） |
+| 整合执行 | **sub-agent 优先**（read-only tools；PR #105），失败回 side-call | spawn sub-agent,限权（no net/no approvals/no collab） | ✅ 形态对齐；我们的 sub-agent 不写文件（避免绕开 v1 marker / git commit），只输出文本 |
 | 整合 prompt | ~10 行 incremental | 880 行 INIT/INCREMENTAL 两 mode | open decision §11.9 |
 | 整合产物 | `memory_summary.md` + 删 entries(commit) | summary + MEMORY.md + skills/ + 改 rollout_summaries | skills/ 自动生成是更大 scope,未排期 |
 | 状态管理 | `.state` JSON（last_extracted_session + last_consolidated + last_consolidated_sha） | SQLite state DB（claim/lease/backoff/usage_count/last_usage） | 单进程够用;Phase 2 多 worker 时再升级 |
@@ -475,19 +490,18 @@ frontmatter 字段也更丰富：`description / task / task_group / task_outcome
 | 3 | `memory_summary.md` v1 协议字段 | ✅ done | #100 |
 | 4 | Git baseline 替换 archive（lazy init / auto-commit / WorkspaceDiff） | ✅ done | #101 |
 | 5 | 三件套产物（slug + summary + facts） | ✅ done | #102 |
-| 6 | Memory extensions（可插拔 sources：`ad_hoc`/`prune`） | 未排期 | — |
-| 7 | 整合改为 sub-agent 执行 | **阻塞 on M10** | — |
-| 8 | 升级 consolidate prompt 到 ~880 行 INIT/INCREMENTAL 双 mode | 未排期 | — |
-| 9 | rollout_summaries GC（`max_unused_days` / `last_usage`） | Phase 2 daemon 时一并 | — |
-| 10 | Skills/<name>/SKILL.md 自动生成（Codex 的整合产物之一） | 未排期 | — |
+| 6 | M10 — sub-agent tool（launch_agent） | ✅ done | #104 |
+| 7 | 整合改为 sub-agent 执行（read-only 工具白名单,失败回 side-call） | ✅ done | #105 |
+| 8 | Memory extensions（可插拔 sources：`ad_hoc`/`prune`） | 未排期 | — |
+| 9 | 升级 consolidate prompt 到 ~880 行 INIT/INCREMENTAL 双 mode | 未排期 | — |
+| 10 | rollout_summaries GC（`max_unused_days` / `last_usage`） | Phase 2 daemon 时一并 | — |
+| 11 | Skills/<name>/SKILL.md 自动生成（Codex 的整合产物之一） | 未排期 | — |
 
-Phase 1 的 "Codex 对齐" 工程已基本到位（#1–#5 完成）。剩下的两个大件是：
-- **#7 sub-agent consolidator** —— 需要 M10 先落（roadmap 已规划）。M10 一到位，把
-  `ConsolidateMemory` 从 side-call 切到 spawn 受限 sub-agent,加权限围栏（no net /
-  no approvals / local write only）,给 sub-agent `Store.WorkspaceDiff(LastConsolidatedSHA)`
-  作上下文。当前的 `LastConsolidatedSHA` 持久化 + `WorkspaceDiff` API 已铺路。
-- **#8 consolidate prompt 升级** —— 等 #7 落地时一并设计（sub-agent 拿 diff 自己改文件,
-  prompt 角色从"返字符串"变"指导 agent 编辑",形态变了）。
+Phase 1 的 "Codex 对齐" 工程已全部到位（#1–#7 完成）。当前 Phase 1 与 Codex 在
+read/write 形态、协议字段、git 历史、三件套产物、sub-agent 整合执行这些核心维度上
+基本对齐；剩余差距集中在 prompt 体量（~140 行 vs 569 行 stage_one、~10 行 vs 880 行
+consolidation）、state DB 替代（Phase 2 多 worker 时再升级）、Skills 自动生成
+（#11）、Memory extensions（#8）—— 都不挡 Phase 2 daemon 启动。
 
 ### A.8 验证来源
 
