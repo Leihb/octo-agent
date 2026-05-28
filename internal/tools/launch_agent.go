@@ -57,6 +57,12 @@ var activeSpawner Spawner
 // nil to disable (the tool then doesn't appear in DefaultTools).
 func SetSpawner(s Spawner) { activeSpawner = s }
 
+// ActiveSpawner returns the currently registered Spawner, or nil if none.
+// Used by callers outside the tools package (cmd/octo's memory consolidator)
+// to spawn a sub-agent without going through a LLM-driven tool call. May
+// return nil — caller is responsible for the fallback path.
+func ActiveSpawner() Spawner { return activeSpawner }
+
 func spawnerEnabled() bool { return activeSpawner != nil }
 
 // subAgentCtxKey marks a context as belonging to a sub-agent's run. The

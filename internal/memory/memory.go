@@ -102,6 +102,11 @@ func NewStore() (*Store, error) {
 // Git is NOT enabled by default here — chain .EnableGit() if you need it.
 func NewStoreAt(dir string) *Store { return &Store{dir: dir} }
 
+// Dir returns the on-disk root of this store. Useful when an external caller
+// (the sub-agent consolidator) needs to tell the LLM where the memory files
+// live so it can read them with the filesystem tools.
+func (s *Store) Dir() string { return s.dir }
+
 // EnableGit flips the auto-commit behavior on. Subsequent Save / WriteSummary
 // / DropConsolidated calls will lazily `git init` the dir (if needed) and
 // commit each change. Returns the receiver for fluent construction.

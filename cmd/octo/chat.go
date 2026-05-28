@@ -200,6 +200,17 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	a.MaxCostUSD = *maxCost
 	a.CompactThreshold = *compactThreshold
 
+	// Build the tool executor up-front (REPL mode only — single-turn mode
+	// doesn't dispatch tools) and register the sub-agent dispatcher BEFORE the
+	// startup memory pass runs. This lets maybeProcessMemory's consolidation
+	// step use a sub-agent (M10, #6) with read-only filesystem tools, falling
+	// back to the side-call path when no Spawner is wired.
+	var toolExecutor tools.DefaultRegistry
+	if isREPL {
+		toolExecutor = tools.NewDefaultRegistry()
+		tools.SetSpawner(newAgentSpawner(a, toolExecutor, tools.DefaultTools))
+	}
+
 	// Boundary memory (REPL only): extract durable facts from the previous
 	// session and consolidate if due, BEFORE rendering this session's injection
 	// so freshly captured facts apply immediately rather than a session later.
@@ -247,14 +258,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			memStore: memStore,
 		}
 		if *enableTools {
-			executor := tools.NewDefaultRegistry()
-			// Register sub-agent dispatch BEFORE asking DefaultTools() for the
-			// catalog, so launch_agent appears in the LLM-facing tool list.
-			// The spawner closes over the parent agent so child token usage
-			// rolls back into a's session counters.
-			tools.SetSpawner(newAgentSpawner(a, executor, tools.DefaultTools))
+			// Spawner is already registered above (before the memory pass) so
+			// launch_agent shows up in DefaultTools here. Reuse the executor
+			// built earlier so the spawner and the REPL share the same read
+			// tracker / mutex-guarded state.
 			cfg.tools = tools.DefaultTools()
-			cfg.executor = executor
+			cfg.executor = toolExecutor
 
 			// Build the permission engine that gates every tool call.
 			cwd, _ := os.Getwd()
