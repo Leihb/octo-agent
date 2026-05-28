@@ -19,12 +19,12 @@ GOFLAGS ?=
 #
 # Auto-detection via `git describe` is intentionally avoided here because the
 # repo still carries Ruby-era tags (v0.11.2, v0.11.2-final-ruby) that would
-# pollute the reported version. Dev builds always say "0.12.0-dev". Release
-# builds should set VERSION explicitly:
+# pollute the reported version. Dev builds say "<next>-dev"; release builds
+# should set VERSION explicitly:
 #
-#   VERSION=0.12.0 make build
+#   VERSION=0.2.0 make build
 #
-VERSION ?= 0.1.0-dev
+VERSION ?= 0.2.0-dev
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X github.com/Leihb/octo-agent/internal/version.Version=$(VERSION) \
            -X github.com/Leihb/octo-agent/internal/version.Commit=$(COMMIT)
