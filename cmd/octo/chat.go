@@ -21,6 +21,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/provider/anthropic"
 	"github.com/Leihb/octo-agent/internal/provider/openai"
 	"github.com/Leihb/octo-agent/internal/skills"
+	"github.com/Leihb/octo-agent/internal/tasks"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
@@ -222,6 +223,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		replScanner = bufio.NewScanner(stdin)
 		tools.SetAsker(newREPLAsker(replScanner, stdout))
 		defer tools.SetAsker(nil)
+
+		// Session-scoped task tracker for the task_create / task_update /
+		// task_list tools + the /tasks REPL command. Lost on exit by design
+		// (cross-session persistence is M11 territory).
+		tools.SetTaskStore(tasks.New())
+		defer tools.SetTaskStore(nil)
 	}
 
 	// Boundary memory (REPL only): extract durable facts from the previous

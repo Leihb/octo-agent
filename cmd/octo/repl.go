@@ -174,6 +174,9 @@ func runREPL(cfg replConfig) int {
 			case "/memory":
 				printMemory(cfg.stdout, cfg.memStore)
 				continue
+			case "/tasks":
+				printTasks(cfg.stdout)
+				continue
 			default:
 				fmt.Fprintf(cfg.stdout, "Unknown command %q. Type /help for a list.\n", cmd)
 				continue
@@ -259,6 +262,7 @@ func printReplHelp(w io.Writer) {
 	fmt.Fprintln(w, "  /sessions   List the 10 most recent sessions")
 	fmt.Fprintln(w, "  /skills     List available skills (trigger one with /<name>)")
 	fmt.Fprintln(w, "  /memory     List what's remembered across sessions")
+	fmt.Fprintln(w, "  /tasks      Show the current session's task list")
 	fmt.Fprintln(w, "  /exit       Save and exit  (also: /quit, Ctrl-C, Ctrl-D)")
 }
 
@@ -309,6 +313,19 @@ func pluralEntries(n int) string {
 		return "y"
 	}
 	return "ies"
+}
+
+// printTasks shows the session-scoped task list, reusing the same formatter
+// the task_list tool returns to the model. Distinct from the LLM-facing
+// rendering only in that this runs at the user's command and goes to stdout
+// directly, never through a tool_result.
+func printTasks(w io.Writer) {
+	store := tools.ActiveTaskStore()
+	if store == nil {
+		fmt.Fprintln(w, "Tasks are disabled for this session.")
+		return
+	}
+	fmt.Fprintln(w, tools.FormatTaskList(store.List()))
 }
 
 // reservedReplCommands are the built-in slash commands; a skill may not shadow
