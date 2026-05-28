@@ -8,7 +8,11 @@ import (
 )
 
 // withUserRules points userRulesPath at a temp file containing body, and
-// restores the original afterward.
+// restores the original afterward. It does NOT isolate soulPath/userProfilePath
+// — callers that need a base-only prompt should pair it with useIdentityFiles
+// (identity_test.go) so a real ~/.octo/soul.md or user.md on the dev machine
+// doesn't leak into the test (CI runners have empty homes, so this only bit
+// developers).
 func withUserRules(t *testing.T, body string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -22,6 +26,7 @@ func withUserRules(t *testing.T, body string) {
 }
 
 func TestCompose_UserLayerBetweenEnvAndProject(t *testing.T) {
+	useIdentityFiles(t, "", "") // isolate from real ~/.octo identity files
 	withUserRules(t, "USER_GLOBAL_RULE")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ProjectContextFile), []byte("PROJECT_RULE"), 0o644); err != nil {
@@ -49,10 +54,9 @@ func TestCompose_UserLayerBetweenEnvAndProject(t *testing.T) {
 }
 
 func TestCompose_NoUserFile_NoUserLayer(t *testing.T) {
-	// Point at a non-existent file.
-	orig := userRulesPath
-	userRulesPath = func() string { return filepath.Join(t.TempDir(), "absent.md") }
-	t.Cleanup(func() { userRulesPath = orig })
+	// useIdentityFiles also clears userRulesPath (sets it to a non-existent
+	// path), so this isolates the test from real ~/.octo/{soul,user,octorules}.
+	useIdentityFiles(t, "", "")
 
 	out := Compose("", t.TempDir(), "", "", "")
 	if strings.Contains(out, "octorules.md") {
