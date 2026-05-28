@@ -239,6 +239,23 @@ func resolveSessionPath(id string) (string, error) {
 	return filepath.Join(dir, id+".jsonl"), nil
 }
 
+// SessionMTime returns the file mtime of the session whose id is given.
+// Used by the C9 Phase 2 memory daemon to gate "is this session quiet
+// long enough to safely run boundary extraction" — the chat path
+// updates the session file on every turn, so a recent mtime means the
+// user is still actively chatting and the daemon should defer.
+func SessionMTime(id string) (time.Time, error) {
+	p, err := resolveSessionPath(id)
+	if err != nil {
+		return time.Time{}, err
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
+}
+
 // ListSessions returns up to n most-recently-modified sessions from
 // ~/.octo/sessions/, newest first (by file mtime).
 func ListSessions(n int) ([]*Session, error) {

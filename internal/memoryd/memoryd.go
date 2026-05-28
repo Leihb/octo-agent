@@ -153,20 +153,42 @@ func CheckStatus() (Status, error) {
 	return s, nil
 }
 
-// Daemon is the long-running worker. v1 holds only the config it'll need
-// for the work loop landing in PR2; this PR's Run is a placeholder that
-// just heartbeats so the lifecycle code (start/stop/status) can be
-// exercised end-to-end.
+// WorkFn is the per-tick callback the Daemon invokes. Implementations
+// live outside this package (cmd/octo wires the real one against
+// internal/agent + internal/memory) so memoryd stays free of agent /
+// memory / tools dependencies — same dependency discipline as the M11
+// scheduler's Executor interface.
+//
+// A WorkFn should be short-lived per call (one tick should complete in
+// well under the daemon's tick interval). The daemon doesn't enforce a
+// timeout; the ctx the work receives is the daemon's lifecycle ctx, so
+// a SIGTERM / SIGINT propagates and the work should honor it promptly.
+//
+// Errors are logged via Daemon.Out but don't stop the loop — a
+// transient extract failure shouldn't take down the daemon for the
+// rest of the session.
+type WorkFn func(ctx context.Context) error
+
+// Daemon is the long-running worker. The lifecycle (PID file, signal
+// handler, tick loop) lives here; the actual work — extracting memories
+// from finished sessions, consolidating when due — comes in via Work.
 type Daemon struct {
 	// Tick is the work-loop period. Zero → DefaultTick.
 	Tick time.Duration
 	// IdleThreshold is how long a session must be quiet before its
 	// memories are eligible for extraction. Zero → DefaultIdleThreshold.
+	// Pass-through value — the daemon doesn't consume it directly, but
+	// it's the natural place to keep the config so WorkFn can read it
+	// via the surrounding closure if needed.
 	IdleThreshold time.Duration
-	// Out receives one heartbeat line per Tick when non-nil. nil silences
-	// the daemon (useful for tests that want to assert only on PID file
-	// state). Production passes os.Stdout.
+	// Out receives lifecycle + heartbeat lines (start, stop, tick errors)
+	// when non-nil. nil silences the daemon (useful for tests).
 	Out io.Writer
+	// Work is the per-tick callback. If nil, the daemon emits a heartbeat
+	// only — useful for the PR1-era smoke tests that just exercise the
+	// lifecycle. cmd/octo wires the real extract + consolidate function
+	// in production.
+	Work WorkFn
 }
 
 // Run starts the work loop. Blocks until ctx is done (typically the CLI
@@ -174,8 +196,9 @@ type Daemon struct {
 // the caller's responsibility — Run doesn't touch it so tests can
 // exercise the loop without polluting the real ~/.octo/memoryd.pid.
 //
-// PR1 placeholder: each tick writes a heartbeat line. PR2 replaces the
-// inner body with the extract + consolidate work.
+// The first tick fires immediately so a freshly-started daemon catches
+// up on any quiet-and-unextracted sessions without making the user wait
+// a full Tick interval.
 func (d *Daemon) Run(ctx context.Context) error {
 	tick := d.Tick
 	if tick <= 0 {
@@ -183,9 +206,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	d.logf("memoryd: started (tick=%s, idle_threshold=%s)\n", tick, d.idleThreshold())
 
-	// First tick fires immediately so the user sees the heartbeat without
-	// waiting a full period. Then subsequent ticks honor the interval.
-	d.doTick()
+	d.doTick(ctx)
 	t := time.NewTicker(tick)
 	defer t.Stop()
 
@@ -195,15 +216,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.logf("memoryd: stopping (%v)\n", ctx.Err())
 			return ctx.Err()
 		case <-t.C:
-			d.doTick()
+			d.doTick(ctx)
 		}
 	}
 }
 
-// doTick is the per-tick work. PR1: just heartbeats. PR2: extract +
-// consolidate.
-func (d *Daemon) doTick() {
-	d.logf("memoryd: tick @ %s\n", time.Now().UTC().Format(time.RFC3339))
+// doTick runs one cycle. When Work is nil, just emits a heartbeat (the
+// pre-PR2 behavior, kept for the lifecycle smoke tests). When Work is
+// set, dispatches to it and logs any non-nil error without aborting.
+func (d *Daemon) doTick(ctx context.Context) {
+	if d.Work == nil {
+		d.logf("memoryd: tick @ %s\n", time.Now().UTC().Format(time.RFC3339))
+		return
+	}
+	if err := d.Work(ctx); err != nil && ctx.Err() == nil {
+		d.logf("memoryd: tick error: %v\n", err)
+	}
 }
 
 func (d *Daemon) idleThreshold() time.Duration {

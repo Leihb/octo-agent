@@ -65,6 +65,16 @@ func runMemorydStart(stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// Build the work function BEFORE claiming the PID file so a config
+	// error (missing API key) fails fast and doesn't leave a stale
+	// "started then exited" pidfile to confuse the next start.
+	idleThreshold := memoryd.DefaultIdleThreshold
+	work, err := buildMemorydWork(stderr, idleThreshold)
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+
 	pidPath, err := memoryd.ReserveStart()
 	if err != nil {
 		if memoryd.IsAlreadyRunning(err) {
@@ -84,7 +94,7 @@ func runMemorydStart(stdout, stderr io.Writer) int {
 	ctx, cancel := signalContext(context.Background())
 	defer cancel()
 
-	d := &memoryd.Daemon{Out: stdout}
+	d := &memoryd.Daemon{Out: stdout, IdleThreshold: idleThreshold, Work: work}
 	err = d.Run(ctx)
 	// ctx.Canceled is the graceful path (SIGTERM/SIGINT delivered →
 	// signalContext cancelled the ctx → Run returned ctx.Err()).

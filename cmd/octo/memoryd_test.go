@@ -137,6 +137,10 @@ func TestRunMemorydStart_RefusesIfAlreadyRunning(t *testing.T) {
 		t.Skip("memoryd not supported on this OS")
 	}
 	fakeHomeForMemoryd(t)
+	// Provider check runs first; satisfy it so we reach the PID-file
+	// check this test actually cares about.
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	t.Setenv("OPENAI_API_KEY", "")
 	// Pretend a daemon is already up (our own PID).
 	pidPath, _ := memoryd.PIDFile()
 	if err := memoryd.WritePIDFile(pidPath, os.Getpid()); err != nil {
@@ -148,5 +152,27 @@ func TestRunMemorydStart_RefusesIfAlreadyRunning(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "already running") {
 		t.Errorf("start should refuse with 'already running':\n%s", errBuf.String())
+	}
+}
+
+func TestRunMemorydStart_RefusesWithoutAPIKey(t *testing.T) {
+	if !memoryd.SupportedOnThisOS() {
+		t.Skip("memoryd not supported on this OS")
+	}
+	fakeHomeForMemoryd(t)
+	t.Setenv("OCTO_MEMORYD_PROVIDER", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	var out, errBuf bytes.Buffer
+	if code := runMemoryd([]string{"start"}, nil, &out, &errBuf); code != 1 {
+		t.Errorf("start without keys exit = %d, want 1; stderr=%q", code, errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "ANTHROPIC_API_KEY") {
+		t.Errorf("start should name the missing env var:\n%s", errBuf.String())
+	}
+	// Critically: no PID file should have been written.
+	pidPath, _ := memoryd.PIDFile()
+	if _, err := os.Stat(pidPath); err == nil {
+		t.Errorf("PID file should NOT exist after a config-error refusal")
 	}
 }
