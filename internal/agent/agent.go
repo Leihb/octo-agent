@@ -586,16 +586,26 @@ func emitToolResultEvents(handler EventHandler, useBlocks, resultBlocks []Conten
 	}
 }
 
-// readOnlyTools are the built-in tools with no local side effects. A batch
+// readOnlyTools are the built-in tools safe for concurrent dispatch. A batch
 // composed entirely of these can be executed concurrently (see dispatchTools).
 // Conservative by design: anything that writes, edits, or shells out is absent,
 // so adding a new mutating tool can never accidentally be parallelised.
+//
+// launch_agent is included even though a sub-agent can itself write/edit. The
+// parallelism here is *between* sub-agents — two simultaneous launch_agent
+// calls share only the LLM transport (Sender, safe for concurrent use) and
+// the executor (DefaultRegistry's only shared state is mutex-guarded). The
+// parent prompt is responsible for ensuring the sub-agents don't conflict on
+// shared filesystem targets, the same way the user is responsible when they
+// run two terminals at once. The point of including it is to let the model
+// fire "investigate A and B in parallel" as one batch — Codex/CC's pattern.
 var readOnlyTools = map[string]bool{
-	"read_file":  true,
-	"glob":       true,
-	"grep":       true,
-	"web_fetch":  true,
-	"web_search": true,
+	"read_file":    true,
+	"glob":         true,
+	"grep":         true,
+	"web_fetch":    true,
+	"web_search":   true,
+	"launch_agent": true,
 }
 
 // toolCall pairs a tool_use block with the gate's verdict.
@@ -742,6 +752,16 @@ func (a *Agent) accrueUsage(reply Reply) {
 // turns made so far in this Agent's lifetime.
 func (a *Agent) SessionTokens() (inputTokens, outputTokens int) {
 	return a.sessionInputTokens, a.sessionOutputTokens
+}
+
+// AccrueChildUsage folds tokens spent by a spawned sub-agent into this
+// agent's session totals, so /cost and SessionTokens still report one
+// consolidated number even when the LLM used launch_agent. cache totals are
+// left untouched — the child runs against the same provider but reports its
+// own cache hits internally; the parent only sees the bottom-line counts here.
+func (a *Agent) AccrueChildUsage(inputTokens, outputTokens int) {
+	a.sessionInputTokens += inputTokens
+	a.sessionOutputTokens += outputTokens
 }
 
 // SessionCacheTokens returns the cumulative cache read/write token counts.

@@ -247,8 +247,14 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			memStore: memStore,
 		}
 		if *enableTools {
+			executor := tools.NewDefaultRegistry()
+			// Register sub-agent dispatch BEFORE asking DefaultTools() for the
+			// catalog, so launch_agent appears in the LLM-facing tool list.
+			// The spawner closes over the parent agent so child token usage
+			// rolls back into a's session counters.
+			tools.SetSpawner(newAgentSpawner(a, executor, tools.DefaultTools))
 			cfg.tools = tools.DefaultTools()
-			cfg.executor = tools.NewDefaultRegistry()
+			cfg.executor = executor
 
 			// Build the permission engine that gates every tool call.
 			cwd, _ := os.Getwd()

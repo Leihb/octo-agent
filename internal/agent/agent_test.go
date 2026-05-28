@@ -1078,3 +1078,13 @@ func TestAgent_RunStream_GateDenies_EmitsErrorEvent(t *testing.T) {
 		t.Errorf("expected EventToolError carrying the denial reason")
 	}
 }
+
+func TestAccrueChildUsage_FoldsIntoSessionTotals(t *testing.T) {
+	a := New(nil, "m")
+	a.AccrueChildUsage(100, 50)
+	a.AccrueChildUsage(200, 75)
+	in, out := a.SessionTokens()
+	if in != 300 || out != 125 {
+		t.Errorf("SessionTokens after two AccrueChildUsage = (%d,%d), want (300,125)", in, out)
+	}
+}

@@ -32,6 +32,20 @@ func TestCanParallelize(t *testing.T) {
 			[]toolCall{{block: NewToolUseBlock("a", "write_file", nil), denyReason: "no"}, ro("grep"), ro("glob")},
 			true,
 		},
+		{
+			// launch_agent is in the parallel-safe set even though sub-agents can
+			// have side effects — the LLM is supposed to fan out unrelated
+			// research/sub-tasks via this tool, and the dispatcher running them
+			// concurrently is the whole point. See readOnlyTools' comment.
+			"two launch_agent calls → parallel",
+			[]toolCall{ro("launch_agent"), ro("launch_agent")},
+			true,
+		},
+		{
+			"launch_agent + read_file → parallel",
+			[]toolCall{ro("launch_agent"), ro("read_file")},
+			true,
+		},
 	}
 	for _, tc := range cases {
 		if got := canParallelize(tc.calls); got != tc.want {

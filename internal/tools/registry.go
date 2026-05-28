@@ -31,6 +31,7 @@ var allTools = []tool{
 	WebSearchTool{},
 	SkillTool{},
 	RememberTool{},
+	LaunchAgentTool{},
 }
 
 // DefaultRegistry is the agent.ToolExecutor used when `octo chat --tools` is
@@ -86,19 +87,24 @@ func (r DefaultRegistry) Execute(ctx context.Context, name string, input map[str
 }
 
 // DefaultTools returns the slice of ToolDefinitions sent to the LLM when
-// `--tools` is on. Order matches allTools. The skill tool is withheld unless a
-// skill was discovered (SetSkills), and the remember tool unless memory is
-// enabled (SetMemoryStore) — advertising a tool that can only error wastes a
-// slot and confuses the model.
+// `--tools` is on. Order matches allTools. Each capability-gated tool is
+// withheld unless the corresponding registration call has been made —
+// SkillTool needs SetSkills, RememberTool needs SetMemoryStore, LaunchAgentTool
+// needs SetSpawner. Advertising a tool that can only error wastes a slot and
+// confuses the model.
 func DefaultTools() []agent.ToolDefinition {
 	skillsOn := skillsEnabled()
 	memoryOn := memoryEnabled()
+	spawnerOn := spawnerEnabled()
 	defs := make([]agent.ToolDefinition, 0, len(allTools))
 	for _, t := range allTools {
 		if _, isSkill := t.(SkillTool); isSkill && !skillsOn {
 			continue
 		}
 		if _, isRemember := t.(RememberTool); isRemember && !memoryOn {
+			continue
+		}
+		if _, isLaunch := t.(LaunchAgentTool); isLaunch && !spawnerOn {
 			continue
 		}
 		defs = append(defs, t.Definition())
