@@ -167,8 +167,9 @@ Examples:
   octo memory list --archive         Show entries that have been consolidated into the summary
 
 Layout:
-  ~/.octo/memory/active/<slug>.md    One file per unconsolidated fact
-  ~/.octo/memory/summary.md          The injected summary (loaded into every system prompt)
+  ~/.octo/memory/<slug>.md           One file per unconsolidated fact
+  ~/.octo/memory/memory_summary.md   The injected summary (loaded into every system prompt)
+  ~/.octo/memory/MEMORY.md           Searchable index of slugs
 
 Memory is built up by the in-session 'remember' tool and consolidated at chat
 startup once enough entries accumulate. To disable memory injection for a

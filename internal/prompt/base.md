@@ -27,7 +27,6 @@ You have cross-session memory under `~/.octo/memory/`. Earlier sessions condense
 - **memory_summary.md** — consolidated narrative across sessions; this is what gets injected when present.
 - **`<slug>.md`** — one fact per file with frontmatter (`name / description / type / created`). Types: `user`, `feedback`, `project`, `reference`.
 - **MEMORY.md** — searchable index of slugs.
-- **rollout_summaries/`<timestamp>-<slug>.md`** — per-session narrative references the previous session wrote at exit. NOT auto-injected: grep / read on demand when the user asks "have we worked on X before?", to recover the full context of a past session, or when the consolidated summary is too terse for the question.
 
 The whole directory is a git repo: `cd ~/.octo/memory && git log` shows every change, and the archive of consolidated entries lives in history rather than a sibling folder.
 
