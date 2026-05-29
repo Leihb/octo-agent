@@ -64,10 +64,17 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 		return provider.Response{}, fmt.Errorf("openai: marshal stream request: %w", err)
 	}
 
+	// streamCtx lets the idle watchdog (retry.IdleTimeoutReader, below) abort a
+	// stalled stream by cancelling the request: the HTTP request is built with
+	// streamCtx inside the attempt, so cancelling it tears the connection down
+	// and unblocks the blocked body read.
+	streamCtx, cancelStream := context.WithCancel(ctx)
+	defer cancelStream()
+
 	// Retry only request establishment (build → send → status check). Once the
 	// body below starts streaming we can't retry without duplicating emitted
 	// tokens. On success the attempt returns the open response for scanning.
-	resp, err := retry.Do(ctx, c.policy(), func(ctx context.Context) (*http.Response, retry.Decision, error) {
+	resp, err := retry.Do(streamCtx, c.policy(), func(ctx context.Context) (*http.Response, retry.Decision, error) {
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpointURL(), bytes.NewReader(payload))
 		if err != nil {
 			return nil, retry.Decision{}, fmt.Errorf("openai: build stream request: %w", err)
@@ -108,7 +115,12 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 		toolOrder  []int                      // preserve order
 	)
 
-	scanner := bufio.NewScanner(resp.Body)
+	// Guard the body read against a mid-stream stall: if the server stops
+	// sending for longer than the idle window, cancelStream tears down the
+	// request and the scanner surfaces retry.ErrStreamIdle instead of blocking
+	// forever. The window resets on every received chunk.
+	streamBody := retry.IdleTimeoutReader(resp.Body, c.streamIdleTimeout(), cancelStream)
+	scanner := bufio.NewScanner(streamBody)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 
 	for scanner.Scan() {

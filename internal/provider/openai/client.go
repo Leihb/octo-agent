@@ -31,6 +31,14 @@ const ChatCompletionsPath = "/v1/chat/completions"
 // maximum if omitted); we send 4096 anyway for predictability.
 const DefaultMaxTokens = 4096
 
+// DefaultStreamIdleTimeout bounds how long a streaming response may go silent
+// (no bytes received) before SendStream aborts it as a stall. Chat Completions
+// backends stream chunks continuously while generating, so a healthy stream
+// never idles this long; 120s is generous enough to ride out a slow first token
+// or a briefly congested endpoint while still catching a server that stops
+// sending without closing the connection.
+const DefaultStreamIdleTimeout = 120 * time.Second
+
 // Client talks to an OpenAI-compatible Chat Completions API. Construct via
 // New(); zero values are not valid because APIKey is required.
 //
@@ -43,6 +51,10 @@ type Client struct {
 	BaseURL    string       // optional override; defaults to DefaultBaseURL
 	HTTPClient *http.Client // optional; defaults to http.Client with a 60s timeout
 	Retry      retry.Policy // optional; zero value falls back to retry.Default()
+
+	// StreamIdleTimeout overrides DefaultStreamIdleTimeout for SendStream. Zero
+	// uses the default; a negative value disables the idle guard entirely.
+	StreamIdleTimeout time.Duration
 }
 
 // policy returns the configured retry policy, or the package default when the
@@ -52,6 +64,16 @@ func (c *Client) policy() retry.Policy {
 		return c.Retry
 	}
 	return retry.Default()
+}
+
+// streamIdleTimeout returns the configured streaming idle timeout, or the
+// package default when the caller left Client.StreamIdleTimeout zero. A
+// negative value is passed through to disable the guard.
+func (c *Client) streamIdleTimeout() time.Duration {
+	if c.StreamIdleTimeout != 0 {
+		return c.StreamIdleTimeout
+	}
+	return DefaultStreamIdleTimeout
 }
 
 // New constructs a Client with the given API key and the standard defaults.

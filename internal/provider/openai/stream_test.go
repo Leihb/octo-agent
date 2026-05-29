@@ -3,14 +3,17 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/provider"
+	"github.com/Leihb/octo-agent/internal/provider/retry"
 )
 
 // canonicalOpenAIStream is a realistic Chat Completions SSE transcript:
@@ -139,6 +142,47 @@ func TestSendStream_OpenAI_UsageChunkParsed(t *testing.T) {
 	}
 	if resp.InputTokens != 11 || resp.OutputTokens != 3 {
 		t.Errorf("Usage = (%d, %d), want (11, 3)", resp.InputTokens, resp.OutputTokens)
+	}
+}
+
+// TestSendStream_OpenAI_IdleTimeout verifies that a server which sends a
+// partial stream and then goes silent (without closing) trips the idle guard
+// instead of blocking forever.
+func TestSendStream_OpenAI_IdleTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w,
+			`data: {"id":"c1","object":"chat.completion.chunk","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant"}}]}`+"\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// Stall: stop sending without closing until the client cancels.
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+	c.StreamIdleTimeout = 40 * time.Millisecond
+
+	done := make(chan struct{})
+	var err error
+	go func() {
+		_, err = c.SendStream(context.Background(), provider.Request{
+			Model:    "gpt-4o-mini",
+			Messages: []agent.Message{agent.NewUserMessage("hi")},
+		}, provider.StreamCallbacks{})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SendStream hung past the idle window — idle guard did not fire")
+	}
+	if !errors.Is(err, retry.ErrStreamIdle) {
+		t.Fatalf("err = %v, want retry.ErrStreamIdle", err)
 	}
 }
 

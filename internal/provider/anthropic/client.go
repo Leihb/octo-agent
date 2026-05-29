@@ -35,6 +35,14 @@ const DefaultAPIVersion = "2023-06-01"
 // 4096 is generous for chat-style replies and well below the model ceilings.
 const DefaultMaxTokens = 4096
 
+// DefaultStreamIdleTimeout bounds how long a streaming response may go silent
+// (no bytes received) before SendStream aborts it as a stall. The Messages API
+// emits periodic `ping` events to keep streams alive, so a healthy stream never
+// idles this long; 120s is generous enough to ride out a slow first token or a
+// briefly congested endpoint while still catching a server that stops sending
+// without closing the connection.
+const DefaultStreamIdleTimeout = 120 * time.Second
+
 // Client talks to an Anthropic-compatible Messages API. Construct via New();
 // zero values are not valid because APIKey is required.
 //
@@ -48,6 +56,10 @@ type Client struct {
 	APIVersion string       // optional override; defaults to DefaultAPIVersion
 	HTTPClient *http.Client // optional; defaults to http.Client with a 60s timeout
 	Retry      retry.Policy // optional; zero value falls back to retry.Default()
+
+	// StreamIdleTimeout overrides DefaultStreamIdleTimeout for SendStream. Zero
+	// uses the default; a negative value disables the idle guard entirely.
+	StreamIdleTimeout time.Duration
 }
 
 // policy returns the configured retry policy, or the package default when the
@@ -57,6 +69,16 @@ func (c *Client) policy() retry.Policy {
 		return c.Retry
 	}
 	return retry.Default()
+}
+
+// streamIdleTimeout returns the configured streaming idle timeout, or the
+// package default when the caller left Client.StreamIdleTimeout zero. A
+// negative value is passed through to disable the guard.
+func (c *Client) streamIdleTimeout() time.Duration {
+	if c.StreamIdleTimeout != 0 {
+		return c.StreamIdleTimeout
+	}
+	return DefaultStreamIdleTimeout
 }
 
 // New constructs a Client with the given API key and the standard defaults.
