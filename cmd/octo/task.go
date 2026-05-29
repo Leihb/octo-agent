@@ -15,7 +15,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
-// runTask handles `octo task <subcommand>`. PR2 (this file) wires only
+// runTask handles `octo goal <subcommand>`. PR2 (this file) wires only
 // `start "<goal>"` — it plans the DAG via the LLM and persists to
 // ~/.octo/tasks/<id>.json. The scheduler (`run`), inspection
 // (`list / status / show`), and lifecycle (`resume / cancel`) commands
@@ -45,16 +45,16 @@ func runTask(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		printTaskUsage(stdout)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "octo task: unknown subcommand %q\n", args[0])
+		fmt.Fprintf(stderr, "octo goal: unknown subcommand %q\n", args[0])
 		printTaskUsage(stderr)
 		return 2
 	}
 }
 
 func printTaskUsage(w io.Writer) {
-	fmt.Fprintln(w, "octo task — autonomous task orchestration (M11)")
+	fmt.Fprintln(w, "octo goal — autonomous task orchestration (M11)")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Usage: octo task <subcommand> [args...]")
+	fmt.Fprintln(w, "Usage: octo goal <subcommand> [args...]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Subcommands:")
 	fmt.Fprintln(w, "  start \"<goal>\" [--plan-only]   Plan + run a goal end-to-end (or just plan).")
@@ -66,19 +66,19 @@ func printTaskUsage(w io.Writer) {
 	fmt.Fprintln(w, "  cancel <id>                    Mark a task cancelled (any in-flight `run` honors ctx separately).")
 }
 
-// runTaskStart handles `octo task start "<goal>" [flags]`. It runs the
+// runTaskStart handles `octo goal start "<goal>" [flags]`. It runs the
 // planner side-call against the same provider chain as `octo chat`, then
 // persists the resulting DAG. The scheduler isn't wired yet — this PR's
-// end state is a `pending` task on disk that a later `octo task run <id>`
+// end state is a `pending` task on disk that a later `octo goal run <id>`
 // (PR3) will execute.
 func runTaskStart(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("task start", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	providerName := fs.String("provider", "", "Provider: anthropic | openai (default from `octo config`, else anthropic)")
 	model := fs.String("model", "", "Model name (defaults to the provider's cheapest reasoning model)")
-	planOnly := fs.Bool("plan-only", false, "Plan the DAG and exit — don't run subtasks yet (use `octo task run <id>` later)")
+	planOnly := fs.Bool("plan-only", false, "Plan the DAG and exit — don't run subtasks yet (use `octo goal run <id>` later)")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: octo task start \"<goal>\" [--provider …] [--model …] [--plan-only]")
+		fmt.Fprintln(stderr, "Usage: octo goal start \"<goal>\" [--provider …] [--model …] [--plan-only]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -87,18 +87,18 @@ func runTaskStart(args []string, stdout, stderr io.Writer) int {
 
 	goal := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if goal == "" {
-		fmt.Fprintln(stderr, "octo task start: a goal is required (e.g. octo task start \"migrate the auth middleware\")")
+		fmt.Fprintln(stderr, "octo goal start: a goal is required (e.g. octo goal start \"migrate the auth middleware\")")
 		return 2
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task start: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal start: %v\n", err)
 		return 1
 	}
 	provName, resolvedModel, ok := resolveProviderModel(*providerName, *model, cfg)
 	if !ok {
-		fmt.Fprintf(stderr, "octo task start: unknown provider %q (use 'anthropic' or 'openai')\n", provName)
+		fmt.Fprintf(stderr, "octo goal start: unknown provider %q (use 'anthropic' or 'openai')\n", provName)
 		return 2
 	}
 
@@ -118,11 +118,11 @@ func runTaskStart(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Planning…  goal: %s\n", oneLine(goal))
 	res, err := a.PlanTask(context.Background(), goal)
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task start: planner: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal start: planner: %v\n", err)
 		return 1
 	}
 	if len(res.Subtasks) == 0 {
-		fmt.Fprintln(stderr, "octo task start: planner returned no subtasks — refine the goal and try again")
+		fmt.Fprintln(stderr, "octo goal start: planner returned no subtasks — refine the goal and try again")
 		return 1
 	}
 
@@ -138,12 +138,12 @@ func runTaskStart(args []string, stdout, stderr io.Writer) int {
 
 	store, err := taskgraph.NewStore()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task start: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal start: %v\n", err)
 		return 1
 	}
 	task, err := store.Create(goal, subs)
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task start: persist: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal start: persist: %v\n", err)
 		return 1
 	}
 
@@ -152,7 +152,7 @@ func runTaskStart(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout)
 
 	if *planOnly {
-		fmt.Fprintln(stdout, "Plan-only mode. Run with: octo task run "+task.ID)
+		fmt.Fprintln(stdout, "Plan-only mode. Run with: octo goal run "+task.ID)
 		return 0
 	}
 
@@ -165,7 +165,7 @@ func runTaskStart(args []string, stdout, stderr io.Writer) int {
 
 	sch := taskgraph.NewScheduler(store, &spawnerExecutor{}, stdout)
 	if err := sch.Run(context.Background(), task.ID); err != nil {
-		fmt.Fprintf(stderr, "octo task start: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal start: %v\n", err)
 		return 1
 	}
 	return 0
@@ -211,7 +211,7 @@ func joinInts(in []int) string {
 // a sensible value.
 const defaultMaxTokensForPlanner = 4096
 
-// runTaskRun handles `octo task run <id> [flags]`. It loads the persisted
+// runTaskRun handles `octo goal run <id> [flags]`. It loads the persisted
 // task, wires an M10-backed Executor, hands them to taskgraph.Scheduler,
 // and exits with 0 on success / 1 on failure / 2 on bad args. Mirrors the
 // loop semantics already covered by scheduler_test.go — this is mostly
@@ -222,26 +222,26 @@ func runTaskRun(args []string, stdout, stderr io.Writer) int {
 	providerName := fs.String("provider", "", "Provider: anthropic | openai (default from `octo config`, else anthropic)")
 	model := fs.String("model", "", "Model name (defaults to the provider's cheapest reasoning model)")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: octo task run <id> [--provider …] [--model …]")
+		fmt.Fprintln(stderr, "Usage: octo goal run <id> [--provider …] [--model …]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() < 1 {
-		fmt.Fprintln(stderr, "octo task run: task id is required (try `octo task list` once that lands)")
+		fmt.Fprintln(stderr, "octo goal run: task id is required (try `octo goal list` once that lands)")
 		return 2
 	}
 	id := fs.Arg(0)
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task run: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal run: %v\n", err)
 		return 1
 	}
 	provName, resolvedModel, ok := resolveProviderModel(*providerName, *model, cfg)
 	if !ok {
-		fmt.Fprintf(stderr, "octo task run: unknown provider %q (use 'anthropic' or 'openai')\n", provName)
+		fmt.Fprintf(stderr, "octo goal run: unknown provider %q (use 'anthropic' or 'openai')\n", provName)
 		return 2
 	}
 
@@ -269,18 +269,18 @@ func runTaskRun(args []string, stdout, stderr io.Writer) int {
 
 	store, err := taskgraph.NewStore()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task run: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal run: %v\n", err)
 		return 1
 	}
 	resolvedID, err := store.ResolveID(id)
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task run: %v\n", err)
-		fmt.Fprintln(stderr, "Run `octo task list` to see what's available.")
+		fmt.Fprintf(stderr, "octo goal run: %v\n", err)
+		fmt.Fprintln(stderr, "Run `octo goal list` to see what's available.")
 		return 2
 	}
 	sch := taskgraph.NewScheduler(store, &spawnerExecutor{}, stdout)
 	if err := sch.Run(context.Background(), resolvedID); err != nil {
-		fmt.Fprintf(stderr, "octo task run: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal run: %v\n", err)
 		return 1
 	}
 	return 0
@@ -290,16 +290,16 @@ func runTaskRun(args []string, stdout, stderr io.Writer) int {
 func runTaskList(_ []string, stdout, stderr io.Writer) int {
 	store, err := taskgraph.NewStore()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task list: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal list: %v\n", err)
 		return 1
 	}
 	tasks, err := store.List()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task list: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal list: %v\n", err)
 		return 1
 	}
 	if len(tasks) == 0 {
-		fmt.Fprintln(stdout, "No tasks yet. Try `octo task start \"<goal>\"`.")
+		fmt.Fprintln(stdout, "No tasks yet. Try `octo goal start \"<goal>\"`.")
 		return 0
 	}
 	for _, t := range tasks {
@@ -313,30 +313,30 @@ func runTaskList(_ []string, stdout, stderr io.Writer) int {
 // status, dependencies, and one-line result snippet for completed work.
 func runTaskStatus(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "Usage: octo task status <id>")
+		fmt.Fprintln(stderr, "Usage: octo goal status <id>")
 		return 2
 	}
 	store, err := taskgraph.NewStore()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task status: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal status: %v\n", err)
 		return 1
 	}
 	id, err := store.ResolveID(args[0])
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task status: %v\n", err)
-		fmt.Fprintln(stderr, "Run `octo task list` to see what's available.")
+		fmt.Fprintf(stderr, "octo goal status: %v\n", err)
+		fmt.Fprintln(stderr, "Run `octo goal list` to see what's available.")
 		return 2
 	}
 	t, err := store.Get(id)
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task status: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal status: %v\n", err)
 		return 1
 	}
 	printTaskStatus(stdout, t)
 	return 0
 }
 
-// printTaskStatus is the formatter shared between `octo task status` and
+// printTaskStatus is the formatter shared between `octo goal status` and
 // the no-args summary `start` and `run` might print on completion later.
 func printTaskStatus(w io.Writer, t *taskgraph.Task) {
 	fmt.Fprintf(w, "Task %s — %s\n", t.ID, t.Status)
@@ -374,37 +374,37 @@ func subtaskGlyph(s taskgraph.SubtaskStatus) string {
 }
 
 // runTaskShow prints one subtask's full result / error / timestamps —
-// useful when `octo task status` shows a Failed or interesting Done node
+// useful when `octo goal status` shows a Failed or interesting Done node
 // and the user wants the verbatim payload.
 func runTaskShow(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
-		fmt.Fprintln(stderr, "Usage: octo task show <id> <subtask-id>")
+		fmt.Fprintln(stderr, "Usage: octo goal show <id> <subtask-id>")
 		return 2
 	}
 	subID := 0
 	if _, err := fmt.Sscanf(args[1], "%d", &subID); err != nil || subID < 1 {
-		fmt.Fprintf(stderr, "octo task show: invalid subtask-id %q (want a positive integer)\n", args[1])
+		fmt.Fprintf(stderr, "octo goal show: invalid subtask-id %q (want a positive integer)\n", args[1])
 		return 2
 	}
 	store, err := taskgraph.NewStore()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task show: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal show: %v\n", err)
 		return 1
 	}
 	id, err := store.ResolveID(args[0])
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task show: %v\n", err)
-		fmt.Fprintln(stderr, "Run `octo task list` to see what's available.")
+		fmt.Fprintf(stderr, "octo goal show: %v\n", err)
+		fmt.Fprintln(stderr, "Run `octo goal list` to see what's available.")
 		return 2
 	}
 	t, err := store.Get(id)
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task show: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal show: %v\n", err)
 		return 1
 	}
 	sub := t.Find(subID)
 	if sub == nil {
-		fmt.Fprintf(stderr, "octo task show: no subtask #%d in task %s\n", subID, t.ID)
+		fmt.Fprintf(stderr, "octo goal show: no subtask #%d in task %s\n", subID, t.ID)
 		return 1
 	}
 	fmt.Fprintf(stdout, "Task %s · subtask #%d (%s)\n", t.ID, sub.ID, sub.Status)
@@ -430,6 +430,27 @@ func runTaskShow(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// resetForResume flips a task's Failed / Skipped subtasks back to Pending so
+// the scheduler re-picks them and moves the task itself back to Pending. Shared
+// by `octo goal resume` (CLI) and the TUI's /goal resume so the two can't drift.
+// Done subtasks (and their results) are preserved.
+func resetForResume(t *taskgraph.Task) error {
+	if t.Status == taskgraph.TaskDone {
+		return fmt.Errorf("task %s is already done — nothing to resume", t.ShortID())
+	}
+	for i := range t.Subtasks {
+		switch t.Subtasks[i].Status {
+		case taskgraph.SubtaskFailed, taskgraph.SubtaskSkipped:
+			t.Subtasks[i].Status = taskgraph.SubtaskPending
+			t.Subtasks[i].Error = ""
+			t.Subtasks[i].Started = nil
+			t.Subtasks[i].Finished = nil
+		}
+	}
+	t.Status = taskgraph.TaskPending
+	return nil
+}
+
 // runTaskResume re-runs a stalled task. Resets Failed / Skipped /
 // Cancelled subtasks back to Pending so the scheduler picks them up; the
 // task itself moves Failed/Cancelled → Pending. Done subtasks (and their
@@ -443,47 +464,32 @@ func runTaskResume(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if fs.NArg() < 1 {
-		fmt.Fprintln(stderr, "Usage: octo task resume <id>")
+		fmt.Fprintln(stderr, "Usage: octo goal resume <id>")
 		return 2
 	}
 	rawID := fs.Arg(0)
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task resume: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal resume: %v\n", err)
 		return 1
 	}
 
 	store, err := taskgraph.NewStore()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task resume: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal resume: %v\n", err)
 		return 1
 	}
 	id, err := store.ResolveID(rawID)
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task resume: %v\n", err)
-		fmt.Fprintln(stderr, "Run `octo task list` to see what's available.")
+		fmt.Fprintf(stderr, "octo goal resume: %v\n", err)
+		fmt.Fprintln(stderr, "Run `octo goal list` to see what's available.")
 		return 2
 	}
 
-	t, err := store.Update(id, func(t *taskgraph.Task) error {
-		if t.Status == taskgraph.TaskDone {
-			return fmt.Errorf("task %s is already done — nothing to resume", t.ID)
-		}
-		for i := range t.Subtasks {
-			switch t.Subtasks[i].Status {
-			case taskgraph.SubtaskFailed, taskgraph.SubtaskSkipped:
-				t.Subtasks[i].Status = taskgraph.SubtaskPending
-				t.Subtasks[i].Error = ""
-				t.Subtasks[i].Started = nil
-				t.Subtasks[i].Finished = nil
-			}
-		}
-		t.Status = taskgraph.TaskPending
-		return nil
-	})
+	t, err := store.Update(id, resetForResume)
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task resume: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal resume: %v\n", err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "Resumed task %s — re-running pending subtasks…\n", t.ID)
@@ -534,18 +540,18 @@ func resumeAndRun(t *taskgraph.Task, flagProvider, flagModel string, cfg config.
 // get accidentally resumed.
 func runTaskCancel(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "Usage: octo task cancel <id>")
+		fmt.Fprintln(stderr, "Usage: octo goal cancel <id>")
 		return 2
 	}
 	store, err := taskgraph.NewStore()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task cancel: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal cancel: %v\n", err)
 		return 1
 	}
 	id, err := store.ResolveID(args[0])
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task cancel: %v\n", err)
-		fmt.Fprintln(stderr, "Run `octo task list` to see what's available.")
+		fmt.Fprintf(stderr, "octo goal cancel: %v\n", err)
+		fmt.Fprintln(stderr, "Run `octo goal list` to see what's available.")
 		return 2
 	}
 	t, err := store.Update(id, func(t *taskgraph.Task) error {
@@ -556,7 +562,7 @@ func runTaskCancel(args []string, stdout, stderr io.Writer) int {
 		return nil
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "octo task cancel: %v\n", err)
+		fmt.Fprintf(stderr, "octo goal cancel: %v\n", err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "Cancelled task %s.\n", t.ID)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -93,16 +94,12 @@ func (m *tuiModel) submit(alt bool) (tea.Model, tea.Cmd) {
 	}
 	m.input = nil
 
-	// Slash commands only when idle (mirror the plain REPL's exits).
+	// Slash commands are the TUI's alone — the plain REPL is a pure conversation
+	// loop. Only dispatched when idle; mid-turn input still steers / queues.
 	if !m.turnRunning {
-		switch strings.ToLower(text) {
-		case "/exit", "/quit":
-			m.quit = true
-			return m, tea.Quit
+		if strings.HasPrefix(text, "/") {
+			return m.dispatchSlash(text)
 		}
-	}
-
-	if !m.turnRunning {
 		return m, m.startTurn(text)
 	}
 
@@ -114,6 +111,67 @@ func (m *tuiModel) submit(alt bool) (tea.Model, tea.Cmd) {
 	// Steer: fold into the running turn at the next tool-batch boundary.
 	m.a.Steer(text)
 	return m, tea.Println(queueStyle.Render("→ steering: " + text))
+}
+
+// dispatchSlash handles a leading-"/" line when the session is idle. It mirrors
+// the command set the plain REPL used to own. Commands fall into three shapes:
+// fall-through (/init, /<skill>) expand to a prompt and run as a turn;
+// info commands render synchronously into the scrollback; /goal drives the
+// task-DAG flow (see tuirepl_goal.go).
+func (m *tuiModel) dispatchSlash(text string) (tea.Model, tea.Cmd) {
+	cfg := m.cfg
+
+	// /init: generate .octorules as a normal tool-enabled turn.
+	if text == "/init" {
+		if len(cfg.tools) == 0 || cfg.executor == nil {
+			return m, tea.Println(noticeStyle.Render("/init needs tools — restart with: octo chat --tools"))
+		}
+		return m, m.startTurnEcho(initInstruction, "/init")
+	}
+
+	// /<skill> [args]: inline the skill body and run it as a turn.
+	if s, args, ok := skillTrigger(cfg.skillReg, text); ok {
+		echo := "/" + s.Name
+		if args != "" {
+			echo += " " + args
+		}
+		return m, m.startTurnEcho(inlineSkill(s.Body, args), echo)
+	}
+
+	first := strings.Fields(text)[0]
+	cmd := strings.ToLower(first)
+	switch cmd {
+	case "/exit", "/quit":
+		m.quit = true
+		return m, tea.Quit
+	case "/goal":
+		return m.dispatchGoal(strings.TrimSpace(strings.TrimPrefix(text, first)))
+	case "/help", "/cost", "/save", "/sessions", "/skills", "/memory", "/mcp":
+		var b bytes.Buffer
+		switch cmd {
+		case "/help":
+			printTuiHelp(&b)
+		case "/cost":
+			printCost(&b, m.a)
+		case "/save":
+			if err := saveSession(&b, cfg.session, m.a); err != nil {
+				fmt.Fprintf(&b, "save: %v\n", err)
+			}
+		case "/sessions":
+			if err := printSessions(&b); err != nil {
+				fmt.Fprintf(&b, "sessions: %v\n", err)
+			}
+		case "/skills":
+			printSkills(&b, cfg.skillReg)
+		case "/memory":
+			printMemory(&b, cfg.memStore)
+		case "/mcp":
+			printMCP(&b)
+		}
+		return m, tea.Println(strings.TrimRight(b.String(), "\n"))
+	default:
+		return m, tea.Println(noticeStyle.Render(fmt.Sprintf("Unknown command %q. Type /help for a list.", cmd)))
+	}
 }
 
 func (m *tuiModel) interrupt() {

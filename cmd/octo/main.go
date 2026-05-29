@@ -69,7 +69,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runConfig(args[1:], stdin, stdout, stderr)
 	case "memory":
 		return runMemory(args[1:], stdout, stderr)
-	case "task":
+	case "goal":
 		return runTask(args[1:], stdin, stdout, stderr)
 	case "skills":
 		return runSkills(args[1:], stdout, stderr)
@@ -96,7 +96,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  config     Set your default provider/model (~/.octo/config.json)")
 	fmt.Fprintln(w, "  init       Analyze the repo and generate/update .octorules")
 	fmt.Fprintln(w, "  memory     Manage cross-session memory (e.g. `octo memory list`)")
-	fmt.Fprintln(w, "  task       Autonomous task orchestration (M11; `octo task start \"<goal>\"`)")
+	fmt.Fprintln(w, "  goal       Autonomous task orchestration (M11; `octo goal start \"<goal>\"`)")
 	fmt.Fprintln(w, "  completion Print shell-completion snippet (bash | zsh | fish)")
 	fmt.Fprintln(w, "  version    Print the version and exit")
 	fmt.Fprintln(w, "  help       Print this help and exit")

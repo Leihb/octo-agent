@@ -358,9 +358,9 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			defer tools.SetAsker(nil)
 		}
 
-		// Session-scoped task tracker for the task_create / task_update /
-		// task_list tools + the /tasks REPL command. Lost on exit by design
-		// (cross-session persistence is M11 territory).
+		// Session-scoped task tracker backing the task_create / task_update /
+		// task_list tools. Lost on exit by design (cross-session persistence
+		// is M11 territory).
 		tools.SetTaskStore(tasks.New())
 		defer tools.SetTaskStore(nil)
 

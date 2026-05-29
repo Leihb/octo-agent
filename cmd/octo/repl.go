@@ -107,7 +107,7 @@ func runREPL(cfg replConfig) int {
 				fmt.Fprintf(cfg.stdout, "  tools: %d enabled\n", len(cfg.tools))
 			}
 		}
-		fmt.Fprintln(cfg.stdout, `Type /help for commands, Ctrl-C or /exit to quit.`)
+		fmt.Fprintln(cfg.stdout, `/exit, Ctrl-C, or Ctrl-D to quit.`)
 		fmt.Fprintln(cfg.stdout)
 	}
 
@@ -198,59 +198,11 @@ func runREPL(cfg replConfig) int {
 			continue
 		}
 
-		// /init runs the .octorules generator as a normal tool-enabled turn —
-		// swap in the init prompt and fall through to the turn machinery.
-		if line == "/init" {
-			if len(cfg.tools) == 0 || cfg.executor == nil {
-				fmt.Fprintln(cfg.stdout, "/init needs tools — restart with: octo chat --tools")
-				continue
-			}
-			fmt.Fprintln(cfg.stdout, "Analyzing the repository to generate .octorules…")
-			line = initInstruction
-		} else if s, args, ok := skillTrigger(cfg.skillReg, line); ok {
-			// /<name> [args] → inline the skill's instructions and fall through
-			// to a normal turn (same machinery as /init). This saves the round
-			// trip the model would otherwise spend calling the skill tool.
-			fmt.Fprintf(cfg.stdout, "Running skill /%s…\n", s.Name)
-			line = inlineSkill(s.Body, args)
-		} else if strings.HasPrefix(line, "/") {
-			cmd := strings.ToLower(strings.Fields(line)[0])
-			switch cmd {
-			case "/exit", "/quit":
-				break
-			case "/help":
-				printReplHelp(cfg.stdout)
-				continue
-			case "/cost":
-				printCost(cfg.stdout, a)
-				continue
-			case "/save":
-				if err := saveSession(cfg.stdout, sess, a); err != nil {
-					fmt.Fprintf(cfg.stderr, "save: %v\n", err)
-				}
-				continue
-			case "/sessions":
-				if err := printSessions(cfg.stdout); err != nil {
-					fmt.Fprintf(cfg.stderr, "sessions: %v\n", err)
-				}
-				continue
-			case "/skills":
-				printSkills(cfg.stdout, cfg.skillReg)
-				continue
-			case "/memory":
-				printMemory(cfg.stdout, cfg.memStore)
-				continue
-			case "/tasks":
-				printTasks(cfg.stdout)
-				continue
-			case "/mcp":
-				printMCP(cfg.stdout)
-				continue
-			default:
-				fmt.Fprintf(cfg.stdout, "Unknown command %q. Type /help for a list.\n", cmd)
-				continue
-			}
-			// /exit or /quit falls through here.
+		// Plain REPL is a pure conversation loop: slash commands live in the TUI
+		// (tuirepl_view.go). The sole exception is /exit (and its /quit alias),
+		// kept so an interactive --no-tui user has an explicit way out besides
+		// Ctrl-C / Ctrl-D. Any other leading "/" is just message text.
+		if line == "/exit" || line == "/quit" {
 			break
 		}
 
@@ -300,7 +252,9 @@ func runREPL(cfg replConfig) int {
 	return 0
 }
 
-func printReplHelp(w io.Writer) {
+// printTuiHelp lists the slash commands the TUI supports. Slash commands live
+// only in the TUI; the plain REPL is a pure conversation loop (see runREPL).
+func printTuiHelp(w io.Writer) {
 	fmt.Fprintln(w, "Commands:")
 	fmt.Fprintln(w, "  /help       Show this message")
 	fmt.Fprintln(w, "  /init       Analyze the repo and generate/update .octorules (needs --tools)")
@@ -309,8 +263,8 @@ func printReplHelp(w io.Writer) {
 	fmt.Fprintln(w, "  /sessions   List the 10 most recent sessions")
 	fmt.Fprintln(w, "  /skills     List available skills (trigger one with /<name>)")
 	fmt.Fprintln(w, "  /memory     List what's remembered across sessions")
-	fmt.Fprintln(w, "  /tasks      Show the current session's task list")
 	fmt.Fprintln(w, "  /mcp        Show connected MCP servers and their surfaces")
+	fmt.Fprintln(w, "  /goal       Plan + run a goal as a task DAG (also: /goal list, /goal resume <id>)")
 	fmt.Fprintln(w, "  /exit       Save and exit  (also: /quit, Ctrl-C, Ctrl-D)")
 }
 
@@ -409,25 +363,12 @@ func pluralS(n int) string {
 	return "s"
 }
 
-// printTasks shows the session-scoped task list, reusing the same formatter
-// the task_list tool returns to the model. Distinct from the LLM-facing
-// rendering only in that this runs at the user's command and goes to stdout
-// directly, never through a tool_result.
-func printTasks(w io.Writer) {
-	store := tools.ActiveTaskStore()
-	if store == nil {
-		fmt.Fprintln(w, "Tasks are disabled for this session.")
-		return
-	}
-	fmt.Fprintln(w, tools.FormatTaskList(store.List()))
-}
-
 // reservedReplCommands are the built-in slash commands; a skill may not shadow
 // one (so /help always means help even if a skill dir is named "help").
 var reservedReplCommands = map[string]bool{
 	"init": true, "exit": true, "quit": true, "help": true,
 	"cost": true, "save": true, "sessions": true, "skills": true,
-	"memory": true, "tasks": true, "mcp": true,
+	"memory": true, "mcp": true, "goal": true,
 }
 
 // skillTrigger reports whether line is a /<name> invocation of a discovered

@@ -45,28 +45,25 @@ func TestRunMemory_BadSubcommand(t *testing.T) {
 	}
 }
 
-func TestREPL_MemoryCommand(t *testing.T) {
-	cfg, stdout, _, stub := makeREPLFixture(t, "/memory\n/exit\n")
+// printMemory backs the TUI's /memory command (dispatchSlash). It's a pure
+// io.Writer renderer, so it's tested directly rather than through the REPL.
+
+func TestPrintMemory_ShowsEntries(t *testing.T) {
 	store := memory.NewStoreAt(t.TempDir())
 	if err := store.Save(memory.Entry{Name: "n", Description: "remembered thing", Type: memory.TypeFeedback}); err != nil {
 		t.Fatal(err)
 	}
-	cfg.memStore = store
-
-	runREPL(cfg)
-	if stub.called != 0 {
-		t.Errorf("/memory should not call the sender, got %d", stub.called)
-	}
-	if !strings.Contains(stdout.String(), "remembered thing") {
-		t.Errorf("/memory output missing entry:\n%s", stdout.String())
+	var out bytes.Buffer
+	printMemory(&out, store)
+	if !strings.Contains(out.String(), "remembered thing") {
+		t.Errorf("printMemory output missing entry:\n%s", out.String())
 	}
 }
 
-func TestREPL_MemoryDisabled(t *testing.T) {
-	cfg, stdout, _, _ := makeREPLFixture(t, "/memory\n/exit\n")
-	// memStore left nil → memory disabled
-	runREPL(cfg)
-	if !strings.Contains(stdout.String(), "disabled") {
-		t.Errorf("expected disabled notice:\n%s", stdout.String())
+func TestPrintMemory_Disabled(t *testing.T) {
+	var out bytes.Buffer
+	printMemory(&out, nil) // nil store → memory disabled
+	if !strings.Contains(out.String(), "disabled") {
+		t.Errorf("expected disabled notice:\n%s", out.String())
 	}
 }

@@ -205,10 +205,18 @@ func newTUIModel(cfg replConfig) *tuiModel {
 
 func (m *tuiModel) Init() tea.Cmd { return nil }
 
-// startTurn launches a turn in a background goroutine driven by runTurn. The
-// sink streams events back as tea.Msgs; turnFinishedMsg fires when runTurn
-// returns so Update can save, drain steer, and dequeue.
+// startTurn launches a turn whose transcript echo is the submitted line itself.
 func (m *tuiModel) startTurn(line string) tea.Cmd {
+	return m.startTurnEcho(line, line)
+}
+
+// startTurnEcho launches a turn in a background goroutine driven by runTurn. The
+// sink streams events back as tea.Msgs; turnFinishedMsg fires when runTurn
+// returns so Update can save, drain steer, and dequeue. echo is the transcript
+// line shown to the user — pass a short label (not line) when line is an
+// expanded prompt that shouldn't be dumped verbatim (e.g. /init, /<skill>);
+// pass "" to suppress the echo entirely.
+func (m *tuiModel) startTurnEcho(line, echo string) tea.Cmd {
 	m.turnRunning = true
 	m.streaming = false
 	m.turnStart = time.Now()
@@ -230,11 +238,11 @@ func (m *tuiModel) startTurn(line string) tea.Cmd {
 	// transcript — except a degraded background-notice "turn", which already
 	// surfaced as a bg notice and isn't user input. Either way, start the
 	// animation ticker for the spinner + elapsed clock.
-	var echo tea.Cmd
-	if !strings.HasPrefix(line, "<system-reminder>") {
-		echo = tea.Println(promptStyle.Render("you> ") + line)
+	var echoCmd tea.Cmd
+	if echo != "" && !strings.HasPrefix(echo, "<system-reminder>") {
+		echoCmd = tea.Println(promptStyle.Render("you> ") + echo)
 	}
-	return tea.Batch(echo, tickCmd())
+	return tea.Batch(echoCmd, tickCmd())
 }
 
 func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -294,6 +302,22 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case askMsg:
 		m.openModal(msg)
 		return m, nil
+
+	case goalPlannedMsg:
+		return m.onGoalPlanned(msg)
+
+	case goalRunMsg:
+		return m, m.startGoalRun(msg.task.ID)
+
+	case goalCancelledMsg:
+		m.turnRunning = false
+		m.cancelTurn = nil
+		return m, tea.Println(noticeStyle.Render(fmt.Sprintf(
+			"Cancelled. Planned as %s — run later with /goal resume %s (or octo goal run %s).",
+			msg.task.ShortID(), msg.task.ShortID(), msg.task.ShortID())))
+
+	case goalDoneMsg:
+		return m.onGoalDone(msg)
 	}
 	return m, nil
 }

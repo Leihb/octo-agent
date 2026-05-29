@@ -11,7 +11,7 @@ import (
 )
 
 // withFakeHome redirects $HOME (and Windows USERPROFILE) to a fresh
-// tempdir so `octo task` writes to a sandbox, never the developer's
+// tempdir so `octo goal` writes to a sandbox, never the developer's
 // ~/.octo/tasks. Returns the tempdir for assertions.
 func withFakeHome(t *testing.T) string {
 	t.Helper()
@@ -27,7 +27,7 @@ func TestRunTask_NoArgsShowsUsage(t *testing.T) {
 	if code != 2 {
 		t.Errorf("no args exit = %d, want 2", code)
 	}
-	if !strings.Contains(out.String(), "octo task") {
+	if !strings.Contains(out.String(), "octo goal") {
 		t.Errorf("usage should be printed:\n%s", out.String())
 	}
 }
@@ -172,8 +172,8 @@ func TestRunTaskRun_UnknownTaskID(t *testing.T) {
 	if code != 2 {
 		t.Errorf("unknown id exit = %d, want 2; stderr=%q", code, errBuf.String())
 	}
-	if !strings.Contains(errBuf.String(), "octo task run") {
-		t.Errorf("error should be tagged with 'octo task run':\n%s", errBuf.String())
+	if !strings.Contains(errBuf.String(), "octo goal run") {
+		t.Errorf("error should be tagged with 'octo goal run':\n%s", errBuf.String())
 	}
 }
 
@@ -256,7 +256,7 @@ func TestRunTaskStatus_RequiresID(t *testing.T) {
 	if code := runTask([]string{"status"}, nil, &out, &errBuf); code != 2 {
 		t.Errorf("missing id exit = %d, want 2", code)
 	}
-	if !strings.Contains(errBuf.String(), "octo task status <id>") {
+	if !strings.Contains(errBuf.String(), "octo goal status <id>") {
 		t.Errorf("missing-id error should print usage, got:\n%s", errBuf.String())
 	}
 }
@@ -274,8 +274,8 @@ func TestRunTaskStatus_UnknownIDErrors(t *testing.T) {
 		t.Errorf("expected 'no task matches' error, got:\n%s", got)
 	}
 	// UX-3: the CLI wraps the resolver error with a discovery hint.
-	if !strings.Contains(got, "octo task list") {
-		t.Errorf("expected 'octo task list' hint, got:\n%s", got)
+	if !strings.Contains(got, "octo goal list") {
+		t.Errorf("expected 'octo goal list' hint, got:\n%s", got)
 	}
 }
 

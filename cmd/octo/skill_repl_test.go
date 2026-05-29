@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,56 +68,25 @@ func TestInlineSkill(t *testing.T) {
 	}
 }
 
-func TestREPL_SkillsCommand(t *testing.T) {
-	cfg, stdout, _, stub := makeREPLFixture(t, "/skills\n/exit\n")
-	cfg.skillReg = skillRegFor(t, map[string]string{"greet": "---\ndescription: say hi\n---\nbody"})
+// The /skills listing, /<skill> trigger, and unknown-command behaviour are
+// exercised through the TUI's dispatchSlash in tuirepl_slash_test.go now that
+// slash commands live there. skillTrigger / inlineSkill remain unit-tested
+// above since dispatchSlash relies on them; printSkills (the /skills renderer)
+// is tested directly here.
 
-	runREPL(cfg)
-	if stub.called != 0 {
-		t.Errorf("/skills should not call the sender, got %d", stub.called)
-	}
-	out := stdout.String()
-	if !strings.Contains(out, "/greet") || !strings.Contains(out, "say hi") {
-		t.Errorf("/skills output missing skill:\n%s", out)
-	}
-}
-
-func TestREPL_SkillsCommand_None(t *testing.T) {
-	cfg, stdout, _, _ := makeREPLFixture(t, "/skills\n/exit\n")
-	cfg.skillReg = skillRegFor(t, nil)
-
-	runREPL(cfg)
-	if !strings.Contains(stdout.String(), "No skills found") {
-		t.Errorf("expected 'No skills found':\n%s", stdout.String())
+func TestPrintSkills_ListsSkills(t *testing.T) {
+	reg := skillRegFor(t, map[string]string{"greet": "---\ndescription: say hi\n---\nbody"})
+	var out bytes.Buffer
+	printSkills(&out, reg)
+	if !strings.Contains(out.String(), "/greet") || !strings.Contains(out.String(), "say hi") {
+		t.Errorf("printSkills missing skill:\n%s", out.String())
 	}
 }
 
-func TestREPL_SkillTriggerRunsTurn(t *testing.T) {
-	cfg, stdout, stderr, stub := makeREPLFixture(t, "/greet\n/exit\n")
-	cfg.skillReg = skillRegFor(t, map[string]string{"greet": "---\ndescription: d\n---\nSay hello warmly."})
-
-	code := runREPL(cfg)
-	if code != 0 {
-		t.Fatalf("exit code = %d, stderr: %s", code, stderr.String())
-	}
-	if stub.called != 1 {
-		t.Errorf("/greet should run one turn, sender called %d times", stub.called)
-	}
-	if !strings.Contains(stdout.String(), "Running skill /greet") {
-		t.Errorf("missing skill-run notice:\n%s", stdout.String())
-	}
-}
-
-func TestREPL_UnknownSlashStillUnknown(t *testing.T) {
-	// A /command that is neither reserved nor a skill keeps the old behaviour.
-	cfg, stdout, _, stub := makeREPLFixture(t, "/bogus\n/exit\n")
-	cfg.skillReg = skillRegFor(t, map[string]string{"greet": "---\ndescription: d\n---\nbody"})
-
-	runREPL(cfg)
-	if stub.called != 0 {
-		t.Errorf("unknown command should not call sender, got %d", stub.called)
-	}
-	if !strings.Contains(stdout.String(), "Unknown command") {
-		t.Errorf("expected unknown-command message:\n%s", stdout.String())
+func TestPrintSkills_None(t *testing.T) {
+	var out bytes.Buffer
+	printSkills(&out, skillRegFor(t, nil))
+	if !strings.Contains(out.String(), "No skills found") {
+		t.Errorf("expected 'No skills found':\n%s", out.String())
 	}
 }

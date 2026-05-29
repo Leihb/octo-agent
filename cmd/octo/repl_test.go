@@ -100,50 +100,19 @@ func TestREPL_EmptyLineSkipped(t *testing.T) {
 	}
 }
 
-func TestREPL_HelpCommand(t *testing.T) {
-	cfg, stdout, _, stub := makeREPLFixture(t, "/help\n/exit\n")
+// Slash commands (/help, /cost, /save, unknown-command handling, skill
+// triggers) now live exclusively in the TUI — see dispatchSlash and its tests
+// in tuirepl_slash_test.go. The plain REPL keeps only /exit (+ /quit alias),
+// covered by the conversation-loop tests above.
+
+func TestREPL_PlainSlashIsJustText(t *testing.T) {
+	// In the plain REPL every leading-"/" line except /exit is ordinary message
+	// text, so it reaches the model rather than being intercepted.
+	cfg, _, _, stub := makeREPLFixture(t, "/cost\n/exit\n")
 
 	runREPL(cfg)
-	if stub.called != 0 {
-		t.Errorf("Sender called %d times for /help, want 0", stub.called)
-	}
-	if !strings.Contains(stdout.String(), "/exit") {
-		t.Error("stdout does not contain help text")
-	}
-}
-
-func TestREPL_CostCommand(t *testing.T) {
-	cfg, stdout, _, _ := makeREPLFixture(t, "hi\n/cost\n/exit\n")
-
-	runREPL(cfg)
-	out := stdout.String()
-	if !strings.Contains(out, "Tokens:") {
-		t.Errorf("stdout does not contain cost line:\n%s", out)
-	}
-}
-
-func TestREPL_SaveCommand(t *testing.T) {
-	cfg, stdout, stderr, _ := makeREPLFixture(t, "hi\n/save\n/exit\n")
-
-	code := runREPL(cfg)
-	if code != 0 {
-		t.Fatalf("exit code = %d, stderr: %s", code, stderr.String())
-	}
-	out := stdout.String()
-	if !strings.Contains(out, "Saved →") {
-		t.Errorf("stdout does not contain save confirmation:\n%s", out)
-	}
-}
-
-func TestREPL_UnknownSlashCommand(t *testing.T) {
-	cfg, stdout, _, stub := makeREPLFixture(t, "/bogus\n/exit\n")
-
-	runREPL(cfg)
-	if stub.called != 0 {
-		t.Errorf("Sender called for unknown command")
-	}
-	if !strings.Contains(stdout.String(), "Unknown command") {
-		t.Error("expected unknown command message")
+	if stub.called != 1 {
+		t.Errorf("Sender called %d times; /cost should be sent as a message in plain mode, want 1", stub.called)
 	}
 }
 
@@ -451,10 +420,10 @@ func TestREPL_QuietMode_SuppressesChrome(t *testing.T) {
 		t.Fatalf("exit = %d", code)
 	}
 	out := stdout.String()
-	// Quiet mode strips: the "Starting session ..." banner, the "Type /help"
+	// Quiet mode strips: the "Starting session ..." banner, the "to quit"
 	// hint, and the "Session saved → ..." footer. The model reply itself
 	// must still come through (otherwise quiet would be useless).
-	for _, banned := range []string{"Starting session", "Type /help", "Session saved"} {
+	for _, banned := range []string{"Starting session", "to quit", "Session saved"} {
 		if strings.Contains(out, banned) {
 			t.Errorf("quiet mode should not emit %q:\n%s", banned, out)
 		}

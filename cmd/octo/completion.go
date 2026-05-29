@@ -25,7 +25,7 @@ import (
 //
 // Dynamic completion sources:
 //   - session IDs (full + short) for `octo chat -c <TAB>`
-//   - task IDs (full + short) for `octo task status|show|resume|cancel|run <TAB>`
+//   - task IDs (full + short) for `octo goal status|show|resume|cancel|run <TAB>`
 // Both always include "last" as the first candidate.
 
 // runCompletion handles `octo completion <shell>`: prints the shell snippet
@@ -80,7 +80,7 @@ func completionCandidates(words []string) []string {
 	switch cmd {
 	case "chat":
 		return chatCandidates(words, prev)
-	case "task":
+	case "goal":
 		return taskCandidates(words, prev)
 	case "memory":
 		return memoryCandidates(words)
@@ -93,7 +93,7 @@ func completionCandidates(words []string) []string {
 	case "help":
 		// `octo help <TAB>` → list of help targets.
 		if len(words) == 3 {
-			return []string{"chat", "config", "task", "memory", "init", "completion", "mcp"}
+			return []string{"chat", "config", "goal", "memory", "init", "completion", "mcp"}
 		}
 	case "completion":
 		if len(words) == 3 {
@@ -124,7 +124,7 @@ func chatCandidates(words []string, prev string) []string {
 }
 
 func taskCandidates(words []string, prev string) []string {
-	// `octo task <TAB>` → subcommand list.
+	// `octo goal <TAB>` → subcommand list.
 	if len(words) == 3 {
 		return taskSubcommands
 	}
@@ -142,7 +142,7 @@ func taskCandidates(words []string, prev string) []string {
 			return taskRunFlagCandidates(prev)
 		}
 	case "start":
-		// `octo task start "<goal>" [flags]` — the goal is freeform.
+		// `octo goal start "<goal>" [flags]` — the goal is freeform.
 		return taskRunFlagCandidates(prev)
 	}
 	return nil
@@ -228,7 +228,7 @@ What it completes:
   - Top-level subcommands (chat, task, memory, init, …).
   - Subcommands of task / memory / help / completion.
   - Session IDs after "octo chat -c " — full + short + "last".
-  - Task IDs after "octo task status|show|resume|cancel|run " — full + short + "last".
+  - Task IDs after "octo goal status|show|resume|cancel|run " — full + short + "last".
   - Fixed values for --provider (anthropic|openai) and --permission-mode
     (interactive|strict).
 
@@ -241,7 +241,7 @@ new flags / subcommands are added.`))
 // ── Static lists ─────────────────────────────────────────────────────────
 
 var topLevelCommands = []string{
-	"chat", "config", "init", "memory", "task",
+	"chat", "config", "init", "memory", "goal",
 	"version", "help", "completion",
 }
 

@@ -14,7 +14,7 @@ func printCommandHelp(name string, w io.Writer) bool {
 	switch name {
 	case "chat":
 		chatHelp(w)
-	case "task":
+	case "goal":
 		taskHelp(w)
 	case "memory":
 		memoryHelp(w)
@@ -130,22 +130,22 @@ Run "octo chat --help" for the full flag list.`)
 }
 
 func taskHelp(w io.Writer) {
-	fmt.Fprintln(w, `octo task — autonomous task orchestration (M11). Plan a goal into a DAG of
+	fmt.Fprintln(w, `octo goal — autonomous task orchestration (M11). Plan a goal into a DAG of
 subtasks, then dispatch one sub-agent per ready node in parallel.
 
 Examples:
-  octo task start "refactor the cache layer"      Plan + run end-to-end
-  octo task start "..." --plan-only               Just plan; don't execute
-  octo task list                                  Show every task on disk (alias: ls)
-  octo task status last                           DAG state of the most recent task
-  octo task status a3b2c1d4                       DAG state by short ID
-  octo task show <id> <subtask-id>                Full result/error for one subtask
-  octo task resume <id>                           Re-run a Failed / Cancelled task
-  octo task cancel <id>                           Mark a task Cancelled
+  octo goal start "refactor the cache layer"      Plan + run end-to-end
+  octo goal start "..." --plan-only               Just plan; don't execute
+  octo goal list                                  Show every task on disk (alias: ls)
+  octo goal status last                           DAG state of the most recent task
+  octo goal status a3b2c1d4                       DAG state by short ID
+  octo goal show <id> <subtask-id>                Full result/error for one subtask
+  octo goal resume <id>                           Re-run a Failed / Cancelled task
+  octo goal cancel <id>                           Mark a task Cancelled
 
 ID shortcuts (every <id> argument accepts these):
   last                     The most recently created task
-  <8-char hex>             The trailing short ID shown by 'octo task list'
+  <8-char hex>             The trailing short ID shown by 'octo goal list'
   any unique substring     Resolves if it matches exactly one task
 
 Common flags (for start / run / resume):
@@ -157,7 +157,7 @@ Environment:
   ANTHROPIC_API_KEY / OPENAI_API_KEY    Required for the planner + sub-agents
 
 Task state lives at ~/.octo/tasks/<id>.json — fsync'd on every transition, so a
-kill -9 mid-run resumes cleanly via "octo task resume".`)
+kill -9 mid-run resumes cleanly via "octo goal resume".`)
 }
 
 func memoryHelp(w io.Writer) {

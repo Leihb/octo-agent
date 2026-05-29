@@ -509,7 +509,7 @@ octo wechat status   # 查看连接状态
 
 ## M11 — 自主目标层（autonomous task orchestration）
 
-**目标**：跨会话、跨小时的复杂目标自主推进。`octo task` 起一个任务图（task
+**目标**：跨会话、跨小时的复杂目标自主推进。`octo goal` 起一个任务图（task
 graph），把目标分解成子任务，每个子任务派给独立 sub-agent（M10）跑在**独立
 context** 里；主控只跟任务图状态对话，**不**把累计对话送给评估器。
 
@@ -527,10 +527,10 @@ octo 走 Codex 路。
 
 ### 设计骨架
 
-- **`internal/task`**：`Task{ID, Goal, Status, Subtasks, ResultRefs}`，状态机
+- **`internal/taskgraph`**：`Task{ID, Goal, Status, Subtasks, ResultRefs}`，状态机
   `pending → running → done | failed`。持久化在 `~/.octo/tasks/<id>.json`，
   支持跨进程恢复。
-- **`octo task <command>`**：`start <goal>` 创建任务；`status [<id>]` 看进度；
+- **`octo goal <command>`**：`start <goal>` 创建任务；`status [<id>]` 看进度；
   `resume <id>` 接续；`cancel <id>`。
 - **分解步骤**：start 时先跑一次规划 side-call（独立 system prompt，类似 C9 的
   extract 模式），LLM 输出子任务 DAG → 写入 task graph。
@@ -538,10 +538,11 @@ octo 走 Codex 路。
   sub-agent 调用，独立 context，结果写回任务图。可并行（依赖图允许时）。
 - **进度跟踪**：主控不读对话历史，只读任务图。`status` 输出节点状态 + 关键结果
   摘要。完成条件 = 所有节点 done（或显式 success 节点 done）。
-- **可中断/可恢复**：每个节点结束都 fsync 任务图；进程崩了下次 `octo task resume`
+- **可中断/可恢复**：每个节点结束都 fsync 任务图；进程崩了下次 `octo goal resume`
   从最新状态继续。
-- **跟 `/goal` 的关系**：`octo task` 是命令行入口（重型）；可考虑后续把 REPL 的
-  `/goal` 改为薄壳调 `octo task`，统一架构。
+- **`/goal`（TUI）与 `octo goal`（CLI）的关系**：两者是同一 taskgraph 调度器的两个入口。
+  `octo goal` 是命令行入口；TUI 内 `/goal` 走 plan → 确认 → 前台执行，复用同一个规划器
+  （`PlanTask`）和调度器（`taskgraph.Scheduler`），并共享 REPL 已装配的 spawner。
 
 ### 依赖与时序
 
@@ -550,9 +551,9 @@ octo 走 Codex 路。
 
 ### 验收
 
-- `octo task start "做完 C9 Phase 2 daemon"` → 自动分解 + 推进 + 状态持久化
-- `octo task status <id>` 准确反映 DAG 状态，**不依赖**会话对话历史
-- 进程 kill 后 `octo task resume <id>` 从中断处继续
+- `octo goal start "做完 C9 Phase 2 daemon"` → 自动分解 + 推进 + 状态持久化
+- `octo goal status <id>` 准确反映 DAG 状态，**不依赖**会话对话历史
+- 进程 kill 后 `octo goal resume <id>` 从中断处继续
 - 跨多小时的任务在长 context 失效场景下不崩
 
 ---
