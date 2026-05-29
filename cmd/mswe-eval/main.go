@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"flag"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/Leihb/octo-agent/internal/mswe"
 )
@@ -157,6 +159,7 @@ func runGenerate(args []string) error {
 	workdir := fs.String("workdir", filepath.Join(os.TempDir(), "mswe-eval"), "scratch dir for clones + octo HOME")
 	model := fs.String("model", "", "model passed to octo (empty = octo default)")
 	provider := fs.String("provider", "", "provider passed to octo (empty = octo default)")
+	octoTimeout := fs.Duration("octo-timeout", 8*time.Minute, "kill an octo run after this long (guards against a stalled model stream hanging the batch)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -183,7 +186,7 @@ func runGenerate(args []string) error {
 	var preds []mswe.Prediction
 	for i, inst := range insts {
 		fmt.Printf("[%d/%d] %s — clone + run octo…\n", i+1, len(insts), inst.ID())
-		patch, err := generateOne(inst, octoAbs, evalHome, *workdir, *model, *provider)
+		patch, err := generateOne(inst, octoAbs, evalHome, *workdir, *model, *provider, *octoTimeout)
 		if err != nil {
 			fmt.Printf("        ! skipped: %v\n", err)
 			continue
@@ -210,7 +213,7 @@ func runGenerate(args []string) error {
 
 // generateOne clones the instance's repo at its base commit, drives octo to
 // resolve the issue, and returns the test-scoped diff.
-func generateOne(inst mswe.Instance, octoBin, evalHome, workdir, model, provider string) (string, error) {
+func generateOne(inst mswe.Instance, octoBin, evalHome, workdir, model, provider string, timeout time.Duration) (string, error) {
 	if inst.BaseCommit() == "" {
 		return "", fmt.Errorf("no base commit (run `inspect` to confirm the field name)")
 	}
@@ -241,7 +244,14 @@ func generateOne(inst mswe.Instance, octoBin, evalHome, workdir, model, provider
 	if provider != "" {
 		octoArgs = append(octoArgs, "--provider", provider)
 	}
-	octoOut, oerr := runStdin(repoDir, env, octoPrompt(inst)+"\n", octoBin, octoArgs...)
+	// Per-instance timeout: a stalled model stream has no read deadline in octo
+	// and would otherwise hang the whole batch, so kill octo after `timeout`.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	octoOut, oerr := runStdin(ctx, repoDir, env, octoPrompt(inst)+"\n", octoBin, octoArgs...)
+	if ctx.Err() == context.DeadlineExceeded {
+		fmt.Printf("        (octo hit the %s timeout — killed; capturing whatever it changed)\n", timeout)
+	}
 	// Persist octo's transcript for debugging OUTSIDE the repo, so `git add -A`
 	// below doesn't sweep it into the patch. A non-zero exit isn't fatal — octo
 	// may exit non-zero yet still have made useful edits, which the diff captures.
@@ -306,6 +316,7 @@ func runJudge(args []string) error {
 	_ = fs.Int("limit", 0, "")
 	_ = fs.String("model", "", "")
 	_ = fs.String("provider", "", "")
+	_ = fs.Duration("octo-timeout", 0, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -425,10 +436,11 @@ func run(dir string, env []string, name string, args ...string) (string, error) 
 	return string(out), err
 }
 
-// runStdin is like run but feeds stdin to the process — used to drive octo's
-// REPL (the prompt on stdin, EOF ending the session).
-func runStdin(dir string, env []string, stdin, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+// runStdin is like run but feeds stdin to the process and honors ctx (used to
+// drive octo's REPL: the prompt on stdin, EOF ending the session). When ctx's
+// deadline fires, the process is killed.
+func runStdin(ctx context.Context, dir string, env []string, stdin, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(stdin)
