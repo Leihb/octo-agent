@@ -6,6 +6,7 @@
 # Go build artefacts
 /octo
 /octo.exe
+/mswe-eval
 /dist/
 *.test
 coverage.out
