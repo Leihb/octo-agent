@@ -60,6 +60,13 @@ var userSkillsRoot = func() string {
 // error — most environments won't have both.
 func Discover(cwd string) *Registry {
 	r := &Registry{skills: make(map[string]Skill)}
+	// Lowest precedence first; scanRoot overwrites by name, so user then
+	// project win. Default skills (shipped with the binary, materialized to
+	// ~/.octo/skills-default) are the floor — a user overrides one by dropping
+	// a same-named skill in ~/.octo/skills.
+	if root := defaultSkillsRoot(); root != "" {
+		r.scanRoot(root, "default")
+	}
 	if root := userSkillsRoot(); root != "" {
 		r.scanRoot(root, "user")
 	}

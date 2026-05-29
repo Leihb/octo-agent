@@ -15,6 +15,7 @@ import (
 	"os"
 
 	"github.com/Leihb/octo-agent/internal/sandbox"
+	"github.com/Leihb/octo-agent/internal/skills"
 	"github.com/Leihb/octo-agent/internal/version"
 )
 
@@ -28,6 +29,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		printUsage(stdout)
 		return 0
+	}
+
+	// Materialize the binary's default skills to ~/.octo/skills-default so
+	// they're discoverable like any user skill. Best-effort and a fast no-op
+	// once current; skipped for the internal fast-path commands.
+	if args[0] != "__sandboxed-exec" && args[0] != "__complete" {
+		_ = skills.MaterializeDefaults(version.Version)
 	}
 
 	switch args[0] {
@@ -63,6 +71,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runMemory(args[1:], stdout, stderr)
 	case "task":
 		return runTask(args[1:], stdin, stdout, stderr)
+	case "skills":
+		return runSkills(args[1:], stdout, stderr)
 	case "completion":
 		return runCompletion(args[1:], stdout, stderr)
 	case "__complete":
