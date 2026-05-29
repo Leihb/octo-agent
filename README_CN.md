@@ -56,11 +56,15 @@ octo chat --provider openai --model gpt-4o-mini "..."
 ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
   octo chat --model deepseek-chat "..."
 
-# 启用内置工具（LLM 可执行 shell 命令、读写改文件、搜索等）
-octo chat --tools
+# 交互式 REPL 开箱即是完整 agent —— 内置工具（shell、读写改文件、搜索）、
+# MCP 服务、skills 全部默认开启。高风险操作仍会按权限模式弹窗确认（interactive）。
+octo chat
 
-# 沙箱化这些命令：把 terminal 工具限制在项目目录 + 临时目录，禁网络
-octo chat --tools --sandbox
+# 纯聊天，关闭工具 / MCP / skills
+octo chat --no-tools
+
+# 沙箱化工具命令：把 terminal 工具限制在项目目录 + 临时目录，禁网络
+octo chat --sandbox
 
 # 为当前仓库生成 .octorules 指南
 octo init
@@ -105,10 +109,10 @@ description: Review the current diff for correctness and style
 `--sandbox` 把 `terminal` 工具限制在项目目录加临时目录、禁网络，由操作系统强制执行（macOS Seatbelt、Linux Landlock + seccomp）。默认关闭；当操作系统机制不可用时 fail-closed（直接拒绝运行）。
 
 ```bash
-octo chat --tools --sandbox                              # 限制，禁网络
-octo chat --tools --sandbox --sandbox-allow-net          # 允许网络
-octo chat --tools --sandbox --sandbox-write ./build      # 额外可写目录（可重复）
-octo chat --tools --sandbox --sandbox-read /opt/data     # 额外可读目录（可重复）
+octo chat --sandbox                              # 限制，禁网络
+octo chat --sandbox --sandbox-allow-net          # 允许网络
+octo chat --sandbox --sandbox-write ./build      # 额外可写目录（可重复）
+octo chat --sandbox --sandbox-read /opt/data     # 额外可读目录（可重复）
 ```
 
 ## 已实现

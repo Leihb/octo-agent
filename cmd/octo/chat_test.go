@@ -399,13 +399,11 @@ func TestRunChat_OpenAI_StreamingEndToEnd(t *testing.T) {
 	}
 }
 
-// TestRunChat_ResumedToolSession_AutoEnablesTools covers the fix for the
-// "garbled XML tool calls" bug. When a previously tool-enabled session is
-// resumed without --tools, the model sees prior tool_use blocks in
-// history but no tools array in the request — and falls back to emitting
-// tool calls as text. The fix pre-loads the session, checks UsedTools,
-// and re-enables --tools with a one-line notice.
-func TestRunChat_ResumedToolSession_AutoEnablesTools(t *testing.T) {
+// TestRunChat_ResumedToolSession_DefaultOnNoWarning confirms the common case
+// is footgun-free now that tools are on by default: resuming a tool-using
+// session needs no flag and prints no warning, because the tools array goes
+// out with the request as it did originally.
+func TestRunChat_ResumedToolSession_DefaultOnNoWarning(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
@@ -424,21 +422,50 @@ func TestRunChat_ResumedToolSession_AutoEnablesTools(t *testing.T) {
 		t.Fatalf("seed save: %v", err)
 	}
 
-	// Resume WITHOUT --tools. Provide immediate EOF so the REPL exits cleanly.
+	// Resume with no tool flag at all. Provide immediate EOF so the REPL exits.
 	var stdout, stderr bytes.Buffer
 	code := runChat([]string{"-c", sess.ID}, strings.NewReader(""), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "re-enabling them") {
-		t.Errorf("expected auto-enable notice in stdout; got:\n%s", stdout.String())
+	if strings.Contains(stderr.String(), "may make the model emit tool calls as text") {
+		t.Errorf("tools-on resume should not warn; got stderr:\n%s", stderr.String())
 	}
 }
 
-// TestRunChat_ResumedPlainSession_NoAutoEnable confirms the auto-enable
-// notice is NOT printed for a session that didn't use tools — we don't
-// want to nag every resume.
-func TestRunChat_ResumedPlainSession_NoAutoEnable(t *testing.T) {
+// TestRunChat_ResumedToolSession_NoToolsWarns confirms that explicitly
+// resuming a tool-using session with --no-tools respects the choice but
+// warns once about the garbled-XML risk.
+func TestRunChat_ResumedToolSession_NoToolsWarns(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	sess := agent.NewSession("test-model", "")
+	sess.Messages = []agent.Message{
+		{Role: agent.RoleUser, Content: "list files"},
+		{Role: agent.RoleAssistant, Blocks: []agent.ContentBlock{
+			agent.NewToolUseBlock("call_1", "terminal", map[string]any{"command": "ls"}),
+		}},
+	}
+	if err := sess.Save(); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runChat([]string{"-c", sess.ID, "--no-tools"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "may make the model emit tool calls as text") {
+		t.Errorf("expected --no-tools warning on a tool session; got stderr:\n%s", stderr.String())
+	}
+}
+
+// TestRunChat_ResumedPlainSession_NoWarning confirms a session that never
+// used tools triggers no --no-tools warning — we don't nag every resume.
+func TestRunChat_ResumedPlainSession_NoWarning(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
@@ -454,11 +481,11 @@ func TestRunChat_ResumedPlainSession_NoAutoEnable(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := runChat([]string{"-c", sess.ID}, strings.NewReader(""), &stdout, &stderr)
+	code := runChat([]string{"-c", sess.ID, "--no-tools"}, strings.NewReader(""), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
 	}
-	if strings.Contains(stdout.String(), "re-enabling them") {
-		t.Errorf("plain session should not trigger auto-enable; got:\n%s", stdout.String())
+	if strings.Contains(stderr.String(), "may make the model emit tool calls as text") {
+		t.Errorf("plain session should not warn; got stderr:\n%s", stderr.String())
 	}
 }

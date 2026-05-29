@@ -56,11 +56,16 @@ octo chat --provider openai --model gpt-4o-mini "..."
 ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
   octo chat --model deepseek-chat "..."
 
-# Enable the built-in tools (LLM can run shell commands, read/edit files, search, …)
-octo chat --tools
+# The interactive REPL is a full agent out of the box — built-in tools
+# (shell, read/edit files, search), MCP servers, and skills are all on by
+# default. Risky actions still prompt for approval (interactive permission).
+octo chat
 
-# Sandbox those commands: confine the terminal tool to the project dir + tmp, no network
-octo chat --tools --sandbox
+# Plain chat with no tools / MCP / skills
+octo chat --no-tools
+
+# Sandbox the tool commands: confine the terminal tool to the project dir + tmp, no network
+octo chat --sandbox
 
 # Generate a .octorules guide for this repo
 octo init
@@ -105,10 +110,10 @@ At session start Octo lists each skill's name and description in the system prom
 `--sandbox` confines the `terminal` tool to the project directory plus temp, with no network, enforced by the OS (macOS Seatbelt, Linux Landlock + seccomp). It's off by default and fails closed when the OS mechanism is unavailable.
 
 ```bash
-octo chat --tools --sandbox                              # confine, deny network
-octo chat --tools --sandbox --sandbox-allow-net          # allow network
-octo chat --tools --sandbox --sandbox-write ./build      # extra writable dir (repeatable)
-octo chat --tools --sandbox --sandbox-read /opt/data     # extra readable dir (repeatable)
+octo chat --sandbox                              # confine, deny network
+octo chat --sandbox --sandbox-allow-net          # allow network
+octo chat --sandbox --sandbox-write ./build      # extra writable dir (repeatable)
+octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatable)
 ```
 
 ## What's implemented

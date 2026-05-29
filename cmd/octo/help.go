@@ -31,9 +31,9 @@ func printCommandHelp(name string, w io.Writer) bool {
 }
 
 func mcpHelp(w io.Writer) {
-	fmt.Fprintln(w, `octo mcp — Model Context Protocol client. With `+"`"+`--tools`+"`"+` on, every server
-listed in mcp.json gets connected at session start; its tools, resources, and
-prompts ride alongside octo's built-in tools.
+	fmt.Fprintln(w, `octo mcp — Model Context Protocol client. Tools are on by default, so every
+server listed in mcp.json gets connected at session start; its tools, resources,
+and prompts ride alongside octo's built-in tools. Pass --no-tools to skip them.
 
 Configuration:
   ~/.octo/mcp.json                 user-global config (always loaded)
@@ -77,7 +77,7 @@ Tool naming in the agent's tool list:
   mcp__<server>__prompt_get        synthesized when server supports prompts/*
 
 Examples:
-  octo chat --tools                # auto-connect every configured server
+  octo chat                        # auto-connect every configured server
   /mcp                             # REPL: list connected servers + surface counts
 
 Failure handling — a server that won't start, fails initialize, or times out
@@ -97,13 +97,13 @@ Examples:
   octo chat -c last                     Resume the most recent session
   octo chat -c a3b2c1d4                 Resume by short ID (any unique substring works)
   octo chat --list-sessions             Show recent sessions and exit
-  octo chat --tools                     Enable terminal / edit_file / etc. (agentic loop)
+  octo chat --no-tools                  Plain chat — disable the built-in tools
   octo chat --provider openai           Use OpenAI instead of Anthropic
-  octo chat --sandbox --tools           Confine commands to repo + tmp, no network
+  octo chat --sandbox                   Confine tool commands to repo + tmp, no network
 
 Common flags:
   -c, --continue <id>      Resume a session — 'last', short ID, or substring of an ID
-  --tools                  Enable built-in tools (terminal, edit_file, web_search, …)
+  --no-tools               Disable built-in tools (terminal, edit_file, …) + MCP/skills — plain chat
   --provider <name>        anthropic (default) | openai
   --model <name>           Override the default model for the provider
   --no-save                Don't auto-save the session to ~/.octo/sessions

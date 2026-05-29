@@ -65,7 +65,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	noSave := fs.Bool("no-save", false, "Disable auto-save in REPL mode")
 	listSessions := fs.Bool("list-sessions", false, "Print the 10 most recent sessions and exit")
 	listSkills := fs.Bool("list-skills", false, "Print available skills (user + project) and exit")
-	enableTools := fs.Bool("tools", false, "Enable built-in tools (bash) for agentic loop")
+	enableTools := fs.Bool("tools", true, "Built-in tools (terminal, edit_file, …) for the agentic loop. On by default; use --no-tools to disable.")
+	noTools := fs.Bool("no-tools", false, "Disable the built-in tools (and MCP/skill execution) — plain chat only")
 	noMemory := fs.Bool("no-memory", false, "Disable cross-session memory (the remember tool + memory injection)")
 	plain := fs.Bool("plain", false, "Render tool events as one-line ↳ status lines instead of rich diff cards")
 	quietFlag := fs.Bool("quiet", false, "Strip all status chrome (no spinner, no banner, no cache line). Also OCTO_VERBOSITY=quiet.")
@@ -163,19 +164,20 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		resumeID = resolved
 	}
 
-	// Sticky --tools across resumes. If the session being resumed has
-	// tool_use blocks in its history but the user forgot to pass --tools
-	// on the resume command, the request would go out without a tools
-	// array — and the model, seeing prior tool calls but unable to make
-	// new structured ones, falls back to emitting tool calls as text
-	// (a wall of `<tool_calls><invoke name="...">...` XML). Auto-
-	// enabling here avoids the footgun; a one-line notice tells the
-	// user what happened so they can disable it next time if they
-	// genuinely want a tools-off resume.
-	if isREPL && resumeID != "" && !*enableTools {
+	// Built-in tools are on by default; --no-tools opts out. MCP servers and
+	// skill execution ride on the same switch, so a single flag governs the
+	// whole agentic surface.
+	toolsOn := *enableTools && !*noTools
+
+	// Resuming a tool-using session with tools off is a footgun: the model
+	// sees prior tool_use blocks in history but gets no tools array, and
+	// falls back to emitting tool calls as text (a wall of
+	// `<tool_calls><invoke name="...">...` XML). With tools on by default
+	// this can only happen when the user explicitly passes --no-tools, so we
+	// respect their choice but warn once.
+	if isREPL && resumeID != "" && !toolsOn {
 		if peek, perr := agent.LoadSession(resumeID); perr == nil && peek.UsedTools() {
-			fmt.Fprintln(stdout, "Notice: this session used --tools previously; re-enabling them.")
-			*enableTools = true
+			fmt.Fprintln(stderr, "Warning: this session used tools before; --no-tools may make the model emit tool calls as text.")
 		}
 	}
 
@@ -276,7 +278,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// Tool-disabled chat doesn't load MCP because the agent would never
 		// invoke the tools anyway and we'd be paying subprocess spawn cost
 		// for nothing.
-		if *enableTools {
+		if toolsOn {
 			mcpCfg, err := mcp.LoadConfig(cwd)
 			if err != nil {
 				fmt.Fprintf(stderr, "octo chat: mcp config: %v\n", err)
@@ -354,7 +356,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			reader:    replReader,          // shared with the asker / permission gate
 			hooks:     hooks.LoadFromEnv(), // C9 Phase 3: external retrieval layer hooks
 		}
-		if *enableTools {
+		if toolsOn {
 			// Spawner is already registered above (before the memory pass) so
 			// launch_agent shows up in DefaultTools here. Reuse the executor
 			// built earlier so the spawner and the REPL share the same read
