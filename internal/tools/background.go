@@ -71,17 +71,41 @@ func (p *bgProcess) readNew() (string, string) {
 	return string(out), status
 }
 
+// BgExit is delivered to a BackgroundManager's onExit hook when a detached
+// process finishes. NewOutput is whatever hadn't been consumed by Read yet at
+// exit (so a push notification and a later terminal_output poll don't
+// double-report the same bytes — the readNew cursor advances either way).
+type BgExit struct {
+	ID        string
+	Command   string
+	Status    string // "exited: 0" / "exited: <err>" — same shape readNew returns
+	NewOutput string
+}
+
 // BackgroundManager owns the set of detached background processes for a
 // session. Methods are safe for concurrent use.
 type BackgroundManager struct {
-	mu    sync.Mutex
-	procs map[string]*bgProcess
-	seq   int
+	mu     sync.Mutex
+	procs  map[string]*bgProcess
+	seq    int
+	onExit func(BgExit) // optional; fired from the waiter goroutine on completion
 }
 
 // NewBackgroundManager returns an empty manager.
 func NewBackgroundManager() *BackgroundManager {
 	return &BackgroundManager{procs: map[string]*bgProcess{}}
+}
+
+// SetOnExit registers a completion hook fired once per process when it exits,
+// carrying its final status and any output not yet read. Pass nil to clear.
+// The hook runs on the process's waiter goroutine (not under the manager lock),
+// so it may call back into the manager (e.g. Read) without deadlocking. The CLI
+// uses it to push a "background finished" notice into the conversation + UI;
+// the default (nil) keeps the original poll-only behaviour.
+func (m *BackgroundManager) SetOnExit(fn func(BgExit)) {
+	m.mu.Lock()
+	m.onExit = fn
+	m.mu.Unlock()
 }
 
 // Start launches command detached (via `sh -c`), with no timeout, and returns
@@ -120,11 +144,20 @@ func (m *BackgroundManager) Start(command string) (string, error) {
 			p.append(append(scanner.Bytes(), '\n')) // Bytes() reused next Scan; append copies
 		}
 	}()
-	// Waiter: record exit and unblock the reader via EOF.
+	// Waiter: record exit, unblock the reader via EOF, then fire the onExit
+	// hook (if any) with the final status + still-unread output.
 	go func() {
 		err := cmd.Wait()
 		_ = pw.Close()
 		p.finish(err)
+
+		m.mu.Lock()
+		hook := m.onExit
+		m.mu.Unlock()
+		if hook != nil {
+			out, status := p.readNew() // advances the cursor → dedup vs terminal_output
+			hook(BgExit{ID: p.id, Command: p.command, Status: status, NewOutput: out})
+		}
 	}()
 
 	return id, nil
@@ -173,3 +206,8 @@ var defaultBg = NewBackgroundManager()
 // KillAllBackground terminates all background processes started via the default
 // manager. Wire it into session/REPL shutdown to avoid orphans.
 func KillAllBackground() { defaultBg.KillAll() }
+
+// SetBackgroundOnExit registers the completion hook on the default manager (the
+// one the built-in terminal tool uses). The REPL wires this to push a
+// "background finished" notice into the conversation + UI. Pass nil to clear.
+func SetBackgroundOnExit(fn func(BgExit)) { defaultBg.SetOnExit(fn) }

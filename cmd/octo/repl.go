@@ -70,6 +70,14 @@ func runREPL(cfg replConfig) int {
 	// outlive the session.
 	defer tools.KillAllBackground()
 
+	// Background-completion notice: inject into the conversation via Steer so
+	// the model is told when a detached command finishes (drained at the next
+	// tool-batch boundary, or prepended to the next turn — see turncore.go).
+	// The plain path prints no async UI line (it would interleave with the
+	// synchronous render loop); the TUI path adds a scrollback notice on top.
+	tools.SetBackgroundOnExit(func(e tools.BgExit) { a.Steer(formatBgNote(e)) })
+	defer tools.SetBackgroundOnExit(nil)
+
 	// Startup banner — fully suppressed in quiet mode, expanded with
 	// provider/endpoint context in verbose mode. Normal keeps today's two
 	// lines because most users use them to confirm the session ID.

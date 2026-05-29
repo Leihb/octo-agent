@@ -39,6 +39,18 @@ func runTUI(cfg replConfig) int {
 	}
 	tools.SetAsker(newREPLAsker(sink))
 
+	// Background-process completion notifications. Fired from a process's
+	// waiter goroutine, so each path is goroutine-safe: Steer is mutex-guarded
+	// (folds the notice into the next tool-batch boundary or turn), and
+	// prog.Send marshals the scrollback notice onto the event loop. Without
+	// this a finished background command is invisible until the model polls
+	// terminal_output.
+	tools.SetBackgroundOnExit(func(e tools.BgExit) {
+		cfg.a.Steer(formatBgNote(e))
+		p.Send(bgExitMsg{e})
+	})
+	defer tools.SetBackgroundOnExit(nil)
+
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(cfg.stderr, "octo chat: tui: %v\n", err)
 		return 1
@@ -65,6 +77,7 @@ type turnEndedMsg struct {
 }
 type turnFinishedMsg struct{ err error } // the turn goroutine returned
 type noticeMsg struct{ text string }
+type bgExitMsg struct{ e tools.BgExit } // a background process finished (async)
 type askMsg struct {
 	prompt UserPrompt
 	resp   chan UserResponse
@@ -169,7 +182,11 @@ func (m *tuiModel) startTurn(line string) tea.Cmd {
 		prog.Send(turnFinishedMsg{err: err})
 	}()
 	// Echo the submitted message into the scrollback so it reads like a
-	// transcript.
+	// transcript — except a degraded background-notice "turn", which already
+	// surfaced as a bg notice and isn't user input.
+	if strings.HasPrefix(line, "<system-reminder>") {
+		return nil
+	}
 	return tea.Println(promptStyle.Render("you> ") + line)
 }
 
@@ -190,6 +207,13 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case noticeMsg:
 		return m, tea.Println(noticeStyle.Render(msg.text))
+
+	case bgExitMsg:
+		// Async background-process completion: show a one-line scrollback notice
+		// (the full output rode into the conversation via Steer). Safe to print
+		// mid-turn — it's just another committed line.
+		return m, tea.Println(noticeStyle.Render(fmt.Sprintf(
+			"↳ %s (%s) %s", msg.e.ID, truncate1Line(msg.e.Command), msg.e.Status)))
 
 	case turnEndedMsg:
 		// Flush any trailing partial line; render the cache/error footer.
