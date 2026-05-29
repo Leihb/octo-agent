@@ -17,15 +17,70 @@
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/Leihb/octo-agent/internal/mswe"
 )
+
+// judgeDockerfile builds the Linux image the harness runs in under --docker
+// mode (it can't import on a case-insensitive macOS/Windows filesystem).
+//
+//go:embed Dockerfile.judge
+var judgeDockerfile string
+
+const judgeImage = "octo-mswe-judge"
+
+// ensureJudgeImage builds judgeImage from the embedded Dockerfile if it isn't
+// already present locally.
+func ensureJudgeImage() error {
+	if err := exec.Command("docker", "image", "inspect", judgeImage).Run(); err == nil {
+		return nil
+	}
+	fmt.Printf("building judge image %s (one-time)…\n", judgeImage)
+	cmd := exec.Command("docker", "build", "-t", judgeImage, "-")
+	cmd.Stdin = strings.NewReader(judgeDockerfile)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("build judge image: %w", err)
+	}
+	return nil
+}
+
+// resolve returns p as an absolute, symlink-resolved path (best effort), so
+// host paths and in-container bind-mount paths line up byte-for-byte.
+func resolve(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = p
+	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
+	}
+	return abs
+}
+
+// uniqueDirs returns the distinct non-empty entries (host dirs to bind-mount at
+// identical paths in the judge container, so paths the harness hands to the
+// host Docker daemon resolve correctly).
+func uniqueDirs(paths ...string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range paths {
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -64,7 +119,7 @@ func usage() {
 func runInspect(args []string) error {
 	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)
 	dataset := fs.String("dataset", "", "path to the Multi-SWE-bench JSONL dataset")
-	lang := fs.String("lang", "go", "language filter ('' = all)")
+	lang := fs.String("lang", "", "language filter (''=all; the dataset ships pre-split per language, so usually leave empty)")
 	limit := fs.Int("limit", 1, "number of records to inspect")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -95,7 +150,7 @@ func runInspect(args []string) error {
 func runGenerate(args []string) error {
 	fs := flag.NewFlagSet("generate", flag.ContinueOnError)
 	dataset := fs.String("dataset", "", "path to the Multi-SWE-bench JSONL dataset")
-	lang := fs.String("lang", "go", "language filter")
+	lang := fs.String("lang", "", "language filter (''=all; dataset ships pre-split per language)")
 	limit := fs.Int("limit", 5, "max instances to run")
 	octoBin := fs.String("octo", "./octo", "path to the octo binary")
 	out := fs.String("out", "predictions.jsonl", "output predictions file (JSONL)")
@@ -172,19 +227,29 @@ func generateOne(inst mswe.Instance, octoBin, evalHome, workdir, model, provider
 		return "", fmt.Errorf("checkout %s: %v (%s)", inst.BaseCommit(), err, truncate(out, 200))
 	}
 
-	// Drive octo headless: single-turn agentic loop, strict perms (the eval
-	// HOME's permissive permissions.yml allows the tools), session save off.
+	// Drive octo through REPL mode (prompt piped on stdin, EOF ends it). The
+	// agentic tool-execution loop only runs in REPL mode — a single-turn
+	// `octo chat "msg"` does one model round-trip WITHOUT executing tools, so it
+	// would never edit files. Strict perms + the eval HOME's permissive
+	// permissions.yml let tools run without prompts; --no-save keeps the
+	// throwaway session out of history.
 	env := append(os.Environ(), "HOME="+evalHome)
-	octoArgs := []string{"chat", "--tools", "--permission-mode", "strict", "--no-save", "--quiet"}
+	octoArgs := []string{"chat", "--tools", "--permission-mode", "strict", "--no-save", "--plain"}
 	if model != "" {
 		octoArgs = append(octoArgs, "--model", model)
 	}
 	if provider != "" {
 		octoArgs = append(octoArgs, "--provider", provider)
 	}
-	octoArgs = append(octoArgs, octoPrompt(inst))
-	if out, err := run(repoDir, env, octoBin, octoArgs...); err != nil {
-		return "", fmt.Errorf("octo run: %v (%s)", err, truncate(out, 300))
+	octoOut, oerr := runStdin(repoDir, env, octoPrompt(inst)+"\n", octoBin, octoArgs...)
+	// Persist octo's transcript for debugging OUTSIDE the repo, so `git add -A`
+	// below doesn't sweep it into the patch. A non-zero exit isn't fatal — octo
+	// may exit non-zero yet still have made useful edits, which the diff captures.
+	logDir := filepath.Join(workdir, "logs")
+	_ = os.MkdirAll(logDir, 0o755)
+	_ = os.WriteFile(filepath.Join(logDir, fmt.Sprintf("%s__%s__%d.log", inst.Org(), inst.Repo(), inst.Number())), []byte(octoOut), 0o644)
+	if oerr != nil {
+		fmt.Printf("        (octo exited %v; capturing whatever it changed)\n", oerr)
 	}
 
 	// Capture every change (incl. new/deleted files), then drop test files.
@@ -232,7 +297,8 @@ func runJudge(args []string) error {
 	dataset := fs.String("dataset", "", "path to the Multi-SWE-bench JSONL dataset")
 	predictions := fs.String("predictions", "predictions.jsonl", "predictions JSONL from `generate`")
 	workdir := fs.String("workdir", filepath.Join(os.TempDir(), "mswe-eval"), "scratch dir for the harness")
-	python := fs.String("python", "python3", "python interpreter with multi_swe_bench installed")
+	python := fs.String("python", "python3", "python interpreter with multi_swe_bench installed (native mode)")
+	dockerMode := fs.Bool("docker", runtime.GOOS != "linux", "run the harness in a Linux container via the host Docker daemon — required on macOS/Windows, where the harness can't import")
 	// generate-only flags tolerated so `run` can share one flag set.
 	_ = fs.String("octo", "", "")
 	_ = fs.String("out", "", "")
@@ -246,14 +312,24 @@ func runJudge(args []string) error {
 	if *dataset == "" {
 		return fmt.Errorf("judge: --dataset is required")
 	}
-	outputDir := filepath.Join(*workdir, "judge-out")
+	if err := os.MkdirAll(*workdir, 0o755); err != nil {
+		return err
+	}
+	// Resolve symlinks on every path the config + Docker mounts reference, so a
+	// container's same-path bind mount agrees with the host (macOS /tmp →
+	// /private/tmp would otherwise make the harness fail to find its config).
+	wd := resolve(*workdir)
+	outputDir := filepath.Join(wd, "judge-out")
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return err
 	}
-
-	datasetAbs, _ := filepath.Abs(*dataset)
-	predAbs, _ := filepath.Abs(*predictions)
-	cfg := mswe.NewHarnessConfig(*workdir, datasetAbs, predAbs, outputDir)
+	// The harness validates that repo_dir already exists (it clones into it).
+	if err := os.MkdirAll(filepath.Join(wd, "repos"), 0o755); err != nil {
+		return err
+	}
+	datasetAbs := resolve(*dataset)
+	predAbs := resolve(*predictions)
+	cfg := mswe.NewHarnessConfig(wd, datasetAbs, predAbs, outputDir)
 	cfgPath := filepath.Join(outputDir, "config.json")
 	cf, err := os.Create(cfgPath)
 	if err != nil {
@@ -265,12 +341,31 @@ func runJudge(args []string) error {
 	}
 	cf.Close()
 
-	fmt.Printf("running judge: %s -m multi_swe_bench.harness.run_evaluation --config %s\n", *python, cfgPath)
-	cmd := exec.Command(*python, "-m", "multi_swe_bench.harness.run_evaluation", "--config", cfgPath)
+	var cmd *exec.Cmd
+	if *dockerMode {
+		if err := ensureJudgeImage(); err != nil {
+			return err
+		}
+		// Mount the host Docker socket (so the harness drives the host daemon to
+		// build/run per-instance containers) and every host dir the config
+		// references AT THE SAME PATH, so the paths the harness passes to
+		// `docker run -v` resolve identically on the host.
+		dargs := []string{"run", "--rm", "-v", "/var/run/docker.sock:/var/run/docker.sock"}
+		for _, d := range uniqueDirs(wd, filepath.Dir(datasetAbs), filepath.Dir(predAbs)) {
+			dargs = append(dargs, "-v", d+":"+d)
+		}
+		dargs = append(dargs, "-w", wd, judgeImage,
+			"python", "-m", "multi_swe_bench.harness.run_evaluation", "--config", cfgPath)
+		fmt.Printf("running judge in container %s (host daemon via socket)\n", judgeImage)
+		cmd = exec.Command("docker", dargs...)
+	} else {
+		fmt.Printf("running judge: %s -m multi_swe_bench.harness.run_evaluation --config %s\n", *python, cfgPath)
+		cmd = exec.Command(*python, "-m", "multi_swe_bench.harness.run_evaluation", "--config", cfgPath)
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("run_evaluation: %w (is multi_swe_bench installed + Docker running?)", err)
+		return fmt.Errorf("run_evaluation: %w (Docker running? on macOS/Windows use --docker)", err)
 	}
 
 	reportPath, err := findReport(outputDir)
@@ -326,6 +421,17 @@ func run(dir string, env []string, name string, args ...string) (string, error) 
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// runStdin is like run but feeds stdin to the process — used to drive octo's
+// REPL (the prompt on stdin, EOF ending the session).
+func runStdin(dir string, env []string, stdin, name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Env = env
+	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

@@ -125,9 +125,21 @@ func TestHarnessConfig_Write(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := b.String()
-	for _, want := range []string{`"patch_files"`, `"/out/predictions.jsonl"`, `"dataset_files"`, `"/data/go.jsonl"`, `"max_workers_run_instance": 1`} {
+	// The harness's marshmallow loader requires every non-defaulted CliArgs
+	// field; assert the full set is emitted (a missing one fails the real run).
+	for _, want := range []string{
+		`"patch_files"`, `"/out/predictions.jsonl"`,
+		`"dataset_files"`, `"/data/go.jsonl"`,
+		`"repo_dir"`, `"need_clone"`, `"clear_env"`, `"stop_on_error"`,
+		`"max_workers"`, `"max_workers_build_image"`, `"max_workers_run_instance": 1`,
+		`"fix_patch_run_cmd"`, `"log_dir"`, `"log_level"`, `"log_to_console"`, `"human_mode"`,
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("config missing %q:\n%s", want, out)
 		}
+	}
+	// `mode` is NOT a CliArgs field — marshmallow rejects unknown keys.
+	if strings.Contains(out, `"mode"`) {
+		t.Errorf("config should not emit a 'mode' key (harness rejects unknown fields):\n%s", out)
 	}
 }

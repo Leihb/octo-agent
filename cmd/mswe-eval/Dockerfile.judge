@@ -1,0 +1,21 @@
+# Judge image for `mswe-eval judge --docker`.
+#
+# The Multi-SWE-bench harness can't be imported on a case-insensitive
+# filesystem (macOS/Windows) — its repo-config package has colliding
+# Qiskit/qiskit modules. Running the harness inside this Linux (case-sensitive)
+# image sidesteps that. The harness talks to the HOST Docker daemon via the
+# mounted /var/run/docker.sock to build + run the per-instance containers, so
+# this image needs only Python + git + the harness itself.
+FROM python:3.12-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# The harness git-resets repos cloned onto a host-mounted volume; those are
+# owned by the host user (uid 501) while git here runs as root, which trips
+# git's "dubious ownership" guard. Trust everything — this is a throwaway
+# eval container.
+RUN git config --system --add safe.directory '*'
+
+RUN pip install --no-cache-dir multi-swe-bench
