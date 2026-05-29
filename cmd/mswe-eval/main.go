@@ -172,19 +172,29 @@ func generateOne(inst mswe.Instance, octoBin, evalHome, workdir, model, provider
 		return "", fmt.Errorf("checkout %s: %v (%s)", inst.BaseCommit(), err, truncate(out, 200))
 	}
 
-	// Drive octo headless: single-turn agentic loop, strict perms (the eval
-	// HOME's permissive permissions.yml allows the tools), session save off.
+	// Drive octo through REPL mode (prompt piped on stdin, EOF ends it). The
+	// agentic tool-execution loop only runs in REPL mode — a single-turn
+	// `octo chat "msg"` does one model round-trip WITHOUT executing tools, so it
+	// would never edit files. Strict perms + the eval HOME's permissive
+	// permissions.yml let tools run without prompts; --no-save keeps the
+	// throwaway session out of history.
 	env := append(os.Environ(), "HOME="+evalHome)
-	octoArgs := []string{"chat", "--tools", "--permission-mode", "strict", "--no-save", "--quiet"}
+	octoArgs := []string{"chat", "--tools", "--permission-mode", "strict", "--no-save", "--plain"}
 	if model != "" {
 		octoArgs = append(octoArgs, "--model", model)
 	}
 	if provider != "" {
 		octoArgs = append(octoArgs, "--provider", provider)
 	}
-	octoArgs = append(octoArgs, octoPrompt(inst))
-	if out, err := run(repoDir, env, octoBin, octoArgs...); err != nil {
-		return "", fmt.Errorf("octo run: %v (%s)", err, truncate(out, 300))
+	octoOut, oerr := runStdin(repoDir, env, octoPrompt(inst)+"\n", octoBin, octoArgs...)
+	// Persist octo's transcript for debugging OUTSIDE the repo, so `git add -A`
+	// below doesn't sweep it into the patch. A non-zero exit isn't fatal — octo
+	// may exit non-zero yet still have made useful edits, which the diff captures.
+	logDir := filepath.Join(workdir, "logs")
+	_ = os.MkdirAll(logDir, 0o755)
+	_ = os.WriteFile(filepath.Join(logDir, fmt.Sprintf("%s__%s__%d.log", inst.Org(), inst.Repo(), inst.Number())), []byte(octoOut), 0o644)
+	if oerr != nil {
+		fmt.Printf("        (octo exited %v; capturing whatever it changed)\n", oerr)
 	}
 
 	// Capture every change (incl. new/deleted files), then drop test files.
@@ -326,6 +336,17 @@ func run(dir string, env []string, name string, args ...string) (string, error) 
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// runStdin is like run but feeds stdin to the process — used to drive octo's
+// REPL (the prompt on stdin, EOF ending the session).
+func runStdin(dir string, env []string, stdin, name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Env = env
+	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
