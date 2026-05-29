@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -22,7 +23,7 @@ var (
 	statusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	inputBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("8")).
+			BorderForeground(tui.ColBorder).
 			Padding(0, 1)
 )
 
@@ -248,14 +249,17 @@ func (m *tuiModel) View() string {
 		b.WriteByte('\n')
 	}
 
-	// Queue panel.
+	// Queue panel (bordered).
 	if len(m.queue) > 0 {
-		b.WriteString(queueStyle.Render(fmt.Sprintf("queue (%d):", len(m.queue))))
-		b.WriteByte('\n')
+		var items strings.Builder
 		for i, q := range m.queue {
-			b.WriteString(queueStyle.Render(fmt.Sprintf("  %d. %s", i+1, q.text)))
-			b.WriteByte('\n')
+			if i > 0 {
+				items.WriteByte('\n')
+			}
+			items.WriteString(queueStyle.Render(fmt.Sprintf("%d. %s", i+1, q.text)))
 		}
+		b.WriteString(tui.Panel(fmt.Sprintf("queue (%d)", len(m.queue)), items.String()))
+		b.WriteByte('\n')
 	}
 
 	// Bordered input box + status bar.
@@ -352,10 +356,10 @@ func (m *tuiModel) modalView() string {
 	if st.prompt.Kind == KindPermission {
 		b.WriteString(modalStyle.Render("⚠ permission"))
 		b.WriteByte('\n')
-		b.WriteString(fmt.Sprintf("  %s wants to run\n", st.prompt.ToolName))
-		b.WriteString(fmt.Sprintf("    %s\n", summariseInput(st.prompt.ToolInput)))
-		b.WriteString(hintStyle.Render("  [y]es · [a]lways this session · [n]o/Esc"))
-		return b.String()
+		b.WriteString(fmt.Sprintf("%s wants to run\n", st.prompt.ToolName))
+		b.WriteString(fmt.Sprintf("  %s\n", summariseInput(st.prompt.ToolInput)))
+		b.WriteString(hintStyle.Render("[y]es · [a]lways this session · [n]o/Esc"))
+		return tui.Box(b.String())
 	}
 
 	header := st.prompt.Header
@@ -384,8 +388,8 @@ func (m *tuiModel) modalView() string {
 	if st.prompt.MultiSelect {
 		hint = "↑/↓ move · Space toggle · Enter confirm · Esc cancel"
 	}
-	b.WriteString(hintStyle.Render("  " + hint))
-	return b.String()
+	b.WriteString(hintStyle.Render(hint))
+	return tui.Box(b.String())
 }
 
 // cacheLine formats the per-turn cache footer, or "" when nothing to show.
