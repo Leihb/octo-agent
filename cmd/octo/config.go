@@ -231,7 +231,15 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 	if provider == providerOpenAI {
 		envVar = "OPENAI_API_KEY"
 	}
-	if os.Getenv(envVar) == "" && existing.APIKey == "" {
+	// Prompt for key when env is empty AND (no stored key OR switching provider —
+	// a key stored for a different provider doesn't help the new one).
+	needsKeyPrompt := os.Getenv(envVar) == "" &&
+		(existing.APIKey == "" || existing.Provider != provider)
+	if !needsKeyPrompt {
+		// Preserve the existing key when staying on the same provider and not
+		// explicitly re-prompting.
+		out.APIKey = existing.APIKey
+	} else {
 		ans := strings.ToLower(strings.TrimSpace(promptDefault(reader, stdout,
 			"Store the API key in this file? Not recommended — prefer "+envVar+" (y/N)", "n")))
 		if ans == "y" || ans == "yes" {

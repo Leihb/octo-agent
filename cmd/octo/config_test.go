@@ -164,6 +164,40 @@ func TestRunConfig_Show_ReportsSourcesNotKey(t *testing.T) {
 	}
 }
 
+func TestRunConfig_Wizard_SwitchesProviderAndPromptsForKey(t *testing.T) {
+	// When the stored config targets one provider and the user switches to
+	// another, the wizard must prompt for an API key for the NEW provider —
+	// the old provider's key is useless for the new one.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+
+	// Start with an anthropic config that has a stored key.
+	if err := (config.Config{Provider: "anthropic", APIKey: "old-anthropic-key"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Answers: provider=openai, model=(default), base_url=(blank), store_key=y, key=new-openai-key.
+	in := strings.NewReader("openai\n\n\ny\nnew-openai-key\n")
+	var stdout, stderr bytes.Buffer
+	if code := runConfig(nil, in, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
+	}
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load after wizard: %v", err)
+	}
+	if got.Provider != "openai" {
+		t.Errorf("provider = %q, want openai", got.Provider)
+	}
+	if got.APIKey != "new-openai-key" {
+		t.Errorf("APIKey = %q, want new-openai-key", got.APIKey)
+	}
+}
+
 func TestRunConfig_UnknownSubcommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runConfig([]string{"frobnicate"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
