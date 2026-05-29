@@ -8,6 +8,39 @@ import (
 	"github.com/Leihb/octo-agent/internal/config"
 )
 
+func TestResolveBaseURL_Precedence(t *testing.T) {
+	// env wins over config.
+	t.Setenv("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
+	cfg := config.Config{Provider: providerAnthropic, BaseURL: "https://cfg.example"}
+	if got := resolveBaseURL(providerAnthropic, cfg); got != "https://api.deepseek.com/anthropic" {
+		t.Errorf("env should win, got %q", got)
+	}
+
+	// No env → config (same provider only).
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	if got := resolveBaseURL(providerAnthropic, cfg); got != "https://cfg.example" {
+		t.Errorf("config base URL = %q, want https://cfg.example", got)
+	}
+	// Config base URL must not leak onto a different provider.
+	if got := resolveBaseURL(providerOpenAI, cfg); got != "" {
+		t.Errorf("openai must not inherit anthropic's config base URL, got %q", got)
+	}
+
+	// No override anywhere → effectiveEndpoint shows the marked default.
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	empty := config.Config{}
+	if got := resolveBaseURL(providerAnthropic, empty); got != "" {
+		t.Errorf("no override should be empty, got %q", got)
+	}
+	if got := effectiveEndpoint(providerAnthropic, empty); !strings.Contains(got, "api.anthropic.com") || !strings.Contains(got, "default") {
+		t.Errorf("effectiveEndpoint default = %q, want the marked anthropic default", got)
+	}
+	// Override flows through to effectiveEndpoint verbatim.
+	if got := effectiveEndpoint(providerAnthropic, cfg); got != "https://cfg.example" {
+		t.Errorf("effectiveEndpoint override = %q, want the config URL unmarked", got)
+	}
+}
+
 func TestResolveProviderModel_Precedence(t *testing.T) {
 	cfg := config.Config{Provider: "openai", Model: "cfg-model"}
 	tests := []struct {

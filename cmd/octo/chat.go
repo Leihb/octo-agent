@@ -202,6 +202,15 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// Verbose: surface the resolved provider / model / endpoint so a
+	// misrouted base URL (e.g. ANTHROPIC_BASE_URL pointed at a third party) is
+	// visible at a glance. To stderr so it never pollutes single-turn stdout;
+	// shown for every path (single-turn, plain REPL, TUI).
+	if resolveVerbosity(*quietFlag, *verboseFlag).verbose() {
+		fmt.Fprintf(stderr, "octo: provider=%s model=%s endpoint=%s\n",
+			provName, resolvedModel, effectiveEndpoint(provName, cfg))
+	}
+
 	// Compose the system prompt once (base + project .octorules + user --system)
 	// and freeze it for the session — recomputing mid-session would bust the
 	// provider's system+tools prompt cache. The session stores only the raw
@@ -492,7 +501,7 @@ func buildProvider(name string, cfg config.Config, stderr io.Writer) (provider.P
 			fmt.Fprintf(stderr, "octo chat: %v\n", err)
 			return nil, err
 		}
-		if baseURL := firstNonEmpty(os.Getenv("ANTHROPIC_BASE_URL"), providerBaseURL(name, cfg)); baseURL != "" {
+		if baseURL := resolveBaseURL(name, cfg); baseURL != "" {
 			client.BaseURL = baseURL
 		}
 		return client, nil
@@ -521,7 +530,7 @@ func buildProvider(name string, cfg config.Config, stderr io.Writer) (provider.P
 			fmt.Fprintf(stderr, "octo chat: %v\n", err)
 			return nil, err
 		}
-		if baseURL := firstNonEmpty(os.Getenv("OPENAI_BASE_URL"), providerBaseURL(name, cfg)); baseURL != "" {
+		if baseURL := resolveBaseURL(name, cfg); baseURL != "" {
 			client.BaseURL = baseURL
 		}
 		return client, nil

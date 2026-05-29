@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/Leihb/octo-agent/internal/config"
+	"github.com/Leihb/octo-agent/internal/provider/anthropic"
+	"github.com/Leihb/octo-agent/internal/provider/openai"
 )
 
 // firstNonEmpty returns the first non-empty string, or "" if all are empty.
@@ -47,6 +49,36 @@ func providerBaseURL(provider string, cfg config.Config) string {
 		return cfg.BaseURL
 	}
 	return ""
+}
+
+// resolveBaseURL returns the base-URL override for the provider, env-first
+// (ANTHROPIC_BASE_URL / OPENAI_BASE_URL) then the persisted config. "" means no
+// override — the provider uses its built-in default endpoint. This is the
+// single source of truth shared by buildProvider and the verbose endpoint line.
+func resolveBaseURL(provider string, cfg config.Config) string {
+	switch provider {
+	case providerAnthropic:
+		return firstNonEmpty(os.Getenv("ANTHROPIC_BASE_URL"), providerBaseURL(provider, cfg))
+	case providerOpenAI:
+		return firstNonEmpty(os.Getenv("OPENAI_BASE_URL"), providerBaseURL(provider, cfg))
+	}
+	return ""
+}
+
+// effectiveEndpoint is resolveBaseURL for display: it substitutes the
+// provider's built-in default (marked) when there's no override, so a verbose
+// run always shows the host that will actually be called.
+func effectiveEndpoint(provider string, cfg config.Config) string {
+	if u := resolveBaseURL(provider, cfg); u != "" {
+		return u
+	}
+	switch provider {
+	case providerAnthropic:
+		return anthropic.DefaultBaseURL + " (default)"
+	case providerOpenAI:
+		return openai.DefaultBaseURL + " (default)"
+	}
+	return "(default)"
 }
 
 // runConfig handles `octo config [show|path]` and, with no subcommand, an
