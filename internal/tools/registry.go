@@ -22,6 +22,7 @@ type tool interface {
 var allTools = []tool{
 	TerminalTool{},
 	TerminalOutputTool{},
+	KillShellTool{},
 	ReadFileTool{},
 	WriteFileTool{},
 	EditFileTool{},

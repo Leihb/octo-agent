@@ -250,9 +250,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		// Keep animating only while a turn is in flight; let the ticker die
-		// once it ends so we're not redrawing an idle prompt forever.
-		if !m.turnRunning {
+		// Animate while a turn runs OR while background processes are still
+		// going (so the live "background (N running)" panel keeps ticking even
+		// between turns); let the ticker die once both are quiet.
+		if !m.turnRunning && len(tools.RunningBackground()) == 0 {
 			return m, nil
 		}
 		m.spinnerFrame++

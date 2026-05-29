@@ -176,11 +176,12 @@ func (t TerminalOutputTool) manager() *BackgroundManager {
 	return defaultBg
 }
 
-// Definition describes the required "id" and an optional "kill" flag.
+// Definition describes the required "id". Reading is non-destructive; to stop a
+// process use the kill_shell tool.
 func (TerminalOutputTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name:        "terminal_output",
-		Description: "Read output produced since the last check from a background process (the id returned by terminal with background:true), along with its status (running / exited). Set kill:true to terminate it.",
+		Description: "Read output produced since the last check from a background process (the id returned by terminal with background:true), along with its status (running / exited). To terminate the process, use the kill_shell tool.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -188,9 +189,54 @@ func (TerminalOutputTool) Definition() agent.ToolDefinition {
 					"type":        "string",
 					"description": "The background process id (e.g. \"bg_1\").",
 				},
-				"kill": map[string]any{
-					"type":        "boolean",
-					"description": "Terminate the process after reading its remaining output.",
+			},
+			"required": []string{"id"},
+		},
+	}
+}
+
+// Execute returns the new output plus a status line. Read-only — it never
+// terminates the process (that's kill_shell).
+func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+	id, _ := input["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("terminal_output: id is required")
+	}
+	out, status, found := t.manager().Read(id)
+	if !found {
+		return "", fmt.Errorf("terminal_output: no background process %q", id)
+	}
+	header := "[status: " + status + "]"
+	if out == "" {
+		return header + "\n(no new output)", nil
+	}
+	return header + "\n" + out, nil
+}
+
+// KillShellTool terminates a background process started by TerminalTool with
+// background:true and returns its final output — the counterpart to
+// terminal_output, which only reads. Split out from terminal_output's old
+// kill:true flag so "stop this process" is a first-class, obvious action.
+type KillShellTool struct{ mgr *BackgroundManager }
+
+func (t KillShellTool) manager() *BackgroundManager {
+	if t.mgr != nil {
+		return t.mgr
+	}
+	return defaultBg
+}
+
+// Definition describes the required "id".
+func (KillShellTool) Definition() agent.ToolDefinition {
+	return agent.ToolDefinition{
+		Name:        "kill_shell",
+		Description: "Terminate a background process started by terminal with background:true (the id it returned), and return its final output. Use to stop a server, watcher, or other long-running command you no longer need. To read output without stopping it, use terminal_output.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The background process id to terminate (e.g. \"bg_1\").",
 				},
 			},
 			"required": []string{"id"},
@@ -198,30 +244,23 @@ func (TerminalOutputTool) Definition() agent.ToolDefinition {
 	}
 }
 
-// Execute returns the new output plus a status line; with kill:true it
-// terminates the process first so the final output is included.
-func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+// Execute kills the process, then returns its final remaining output. An
+// unknown id is an error (Kill reports it); an already-exited process is a
+// no-op kill and still returns its last output.
+func (t KillShellTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
 	id, _ := input["id"].(string)
 	if id == "" {
-		return "", fmt.Errorf("terminal_output: id is required")
+		return "", fmt.Errorf("kill_shell: id is required")
 	}
 	mgr := t.manager()
+	if !mgr.Kill(id) {
+		return "", fmt.Errorf("kill_shell: no background process %q", id)
+	}
+	// Give the process a moment to flush and the waiter to record exit.
+	time.Sleep(50 * time.Millisecond)
 
-	var killed bool
-	if kill, _ := input["kill"].(bool); kill {
-		killed = mgr.Kill(id)
-		// Give the process a moment to flush and the waiter to record exit.
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	out, status, found := mgr.Read(id)
-	if !found {
-		return "", fmt.Errorf("terminal_output: no background process %q", id)
-	}
-	header := "[status: " + status + "]"
-	if killed {
-		header = "[killed] " + header
-	}
+	out, status, _ := mgr.Read(id) // found guaranteed: Kill succeeded
+	header := "[killed] [status: " + status + "]"
 	if out == "" {
 		return header + "\n(no new output)", nil
 	}

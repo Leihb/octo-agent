@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/tools"
 	"github.com/Leihb/octo-agent/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -259,6 +260,21 @@ func (m *tuiModel) View() string {
 			items.WriteString(queueStyle.Render(fmt.Sprintf("%d. %s", i+1, q.text)))
 		}
 		b.WriteString(tui.Panel(fmt.Sprintf("queue (%d)", len(m.queue)), items.String()))
+		b.WriteByte('\n')
+	}
+
+	// Background-processes panel (bordered): the still-running `terminal
+	// background:true` commands, animated by the ticker.
+	if bg := tools.RunningBackground(); len(bg) > 0 {
+		frame := spinnerFrames[m.spinnerFrame%len(spinnerFrames)]
+		var lines strings.Builder
+		for i, p := range bg {
+			if i > 0 {
+				lines.WriteByte('\n')
+			}
+			fmt.Fprintf(&lines, "%c %s (%s)", frame, truncate1Line(p.Command), time.Since(p.Start).Round(time.Second))
+		}
+		b.WriteString(tui.Panel(fmt.Sprintf("background (%d running)", len(bg)), lines.String()))
 		b.WriteByte('\n')
 	}
 

@@ -147,7 +147,32 @@ func TestTerminalOutputTool(t *testing.T) {
 	}
 }
 
-func TestTerminalOutputTool_Kill(t *testing.T) {
+func TestKillShellTool(t *testing.T) {
+	m := NewBackgroundManager()
+	term := TerminalTool{mgr: m}
+	killTool := KillShellTool{mgr: m}
+
+	if _, err := term.Execute(context.Background(), "terminal", map[string]any{
+		"command":    "sleep 30",
+		"background": true,
+	}); err != nil {
+		t.Fatalf("launch: %v", err)
+	}
+	res, err := killTool.Execute(context.Background(), "kill_shell", map[string]any{"id": "bg_1"})
+	if err != nil {
+		t.Fatalf("kill_shell: %v", err)
+	}
+	if !strings.Contains(res, "killed") {
+		t.Errorf("result = %q, want it to note the kill", res)
+	}
+
+	// Unknown id is an error.
+	if _, err := killTool.Execute(context.Background(), "kill_shell", map[string]any{"id": "bg_nope"}); err == nil {
+		t.Error("kill_shell on unknown id should error")
+	}
+}
+
+func TestTerminalOutputTool_ReadOnly(t *testing.T) {
 	m := NewBackgroundManager()
 	term := TerminalTool{mgr: m}
 	outTool := TerminalOutputTool{mgr: m}
@@ -158,14 +183,19 @@ func TestTerminalOutputTool_Kill(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("launch: %v", err)
 	}
+	// terminal_output no longer kills: a "kill" key is ignored and the process
+	// keeps running.
 	res, err := outTool.Execute(context.Background(), "terminal_output", map[string]any{
 		"id":   "bg_1",
-		"kill": true,
+		"kill": true, // ignored
 	})
 	if err != nil {
-		t.Fatalf("kill via terminal_output: %v", err)
+		t.Fatalf("terminal_output: %v", err)
 	}
-	if !strings.Contains(res, "killed") {
-		t.Errorf("result = %q, want it to note the kill", res)
+	if strings.Contains(res, "killed") {
+		t.Errorf("terminal_output must not kill, got %q", res)
+	}
+	if _, status, _ := m.Read("bg_1"); status != "running" {
+		t.Errorf("process should still be running after terminal_output, status=%q", status)
 	}
 }

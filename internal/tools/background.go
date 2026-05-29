@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
+	"time"
 )
 
 // maxBgOutputBytes caps how much output is retained per background process.
@@ -18,6 +20,7 @@ type bgProcess struct {
 	id      string
 	command string
 	cancel  context.CancelFunc
+	start   time.Time
 
 	mu       sync.Mutex
 	buf      []byte // most recent <= maxBgOutputBytes of combined stdout+stderr
@@ -132,7 +135,7 @@ func (m *BackgroundManager) Start(command string) (string, error) {
 	m.mu.Lock()
 	m.seq++
 	id := fmt.Sprintf("bg_%d", m.seq)
-	p := &bgProcess{id: id, command: command, cancel: cancel}
+	p := &bgProcess{id: id, command: command, cancel: cancel, start: time.Now()}
 	m.procs[id] = p
 	m.mu.Unlock()
 
@@ -176,6 +179,36 @@ func (m *BackgroundManager) Read(id string) (output, status string, found bool) 
 	return out, st, true
 }
 
+// BgInfo is a snapshot of a still-running background process, for a live
+// "background (N running)" panel in the TUI.
+type BgInfo struct {
+	ID      string
+	Command string
+	Start   time.Time
+}
+
+// ListRunning returns the processes that haven't exited yet, oldest first.
+func (m *BackgroundManager) ListRunning() []BgInfo {
+	m.mu.Lock()
+	procs := make([]*bgProcess, 0, len(m.procs))
+	for _, p := range m.procs {
+		procs = append(procs, p)
+	}
+	m.mu.Unlock()
+
+	var out []BgInfo
+	for _, p := range procs {
+		p.mu.Lock()
+		done := p.done
+		p.mu.Unlock()
+		if !done {
+			out = append(out, BgInfo{ID: p.id, Command: p.command, Start: p.start})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
+	return out
+}
+
 // Kill terminates the process for id. Returns false when id is unknown.
 func (m *BackgroundManager) Kill(id string) bool {
 	m.mu.Lock()
@@ -211,3 +244,7 @@ func KillAllBackground() { defaultBg.KillAll() }
 // one the built-in terminal tool uses). The REPL wires this to push a
 // "background finished" notice into the conversation + UI. Pass nil to clear.
 func SetBackgroundOnExit(fn func(BgExit)) { defaultBg.SetOnExit(fn) }
+
+// RunningBackground lists the still-running processes on the default manager,
+// for the TUI's live "background (N running)" panel.
+func RunningBackground() []BgInfo { return defaultBg.ListRunning() }
