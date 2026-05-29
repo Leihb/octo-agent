@@ -33,6 +33,7 @@ var allTools = []tool{
 	SkillTool{},
 	RememberTool{},
 	LaunchAgentTool{},
+	SendMessageTool{},
 	AskUserQuestionTool{},
 	TaskCreateTool{},
 	TaskUpdateTool{},
@@ -119,6 +120,9 @@ func DefaultTools() []agent.ToolDefinition {
 			continue
 		}
 		if _, isLaunch := t.(LaunchAgentTool); isLaunch && !spawnerOn {
+			continue
+		}
+		if _, isSend := t.(SendMessageTool); isSend && !spawnerOn {
 			continue
 		}
 		if _, isAsk := t.(AskUserQuestionTool); isAsk && !askerOn {

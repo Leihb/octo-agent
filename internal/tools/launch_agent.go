@@ -16,6 +16,14 @@ import (
 // implementation MUST be safe for concurrent invocation on distinct requests.
 type Spawner interface {
 	Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, error)
+	// Continue re-runs a still-alive sub-agent (one a prior Spawn kept in the
+	// implementation's live registry) with a new message and returns its next
+	// reply. The sub-agent's prior history carries over. An unknown or
+	// already-evicted agentID returns an error whose text tells the model to
+	// launch a fresh sub-agent instead. Concurrent Continue calls on the SAME
+	// agentID must be serialized by the implementation — a sub-agent's history
+	// can't take two interleaved turns.
+	Continue(ctx context.Context, agentID, message string) (SpawnResult, error)
 }
 
 // SpawnRequest is the LLM-supplied launch_agent payload, parsed.
@@ -42,6 +50,12 @@ type SpawnRequest struct {
 // parent can roll it into the session total (the same way /cost displays one
 // number even when sub-agents fired side calls).
 type SpawnResult struct {
+	// AgentID addresses the sub-agent for a later send_message. Spawn returns
+	// a non-empty id when the implementation keeps the child alive; the
+	// launch_agent tool surfaces it to the model in an "[agent <id>]" tag.
+	// Empty when the implementation doesn't support continuation (e.g. test
+	// stubs) — the tag is then omitted.
+	AgentID      string
 	Reply        string
 	InputTokens  int
 	OutputTokens int
@@ -170,7 +184,7 @@ func (LaunchAgentTool) Execute(ctx context.Context, _ string, input map[string]a
 		// guess.
 		return "(sub-agent " + desc + " produced no reply)", nil
 	}
-	return reply, nil
+	return withAgentTag(res.AgentID, reply), nil
 }
 
 // stringSliceArg pulls an []string argument tolerating absence and the JSON

@@ -38,6 +38,12 @@ func (s *stubConsolidationSpawner) Spawn(_ context.Context, req tools.SpawnReque
 	return tools.SpawnResult{Reply: s.reply}, nil
 }
 
+// Continue is unused by the consolidator (it only ever calls Spawn) but is
+// required to satisfy tools.Spawner.
+func (s *stubConsolidationSpawner) Continue(_ context.Context, _, _ string) (tools.SpawnResult, error) {
+	return tools.SpawnResult{}, nil
+}
+
 func useConsolidationSpawner(t *testing.T, s tools.Spawner) {
 	t.Helper()
 	tools.SetSpawner(s)

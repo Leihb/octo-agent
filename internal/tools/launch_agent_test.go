@@ -20,6 +20,12 @@ type stubSpawner struct {
 	delay    time.Duration // optional sleep so two concurrent calls actually overlap
 	err      error
 	spawnCnt int32
+
+	// Continue support.
+	continueReply SpawnResult
+	continueErr   error
+	contAgentID   string
+	contMessage   string
 }
 
 func (s *stubSpawner) Spawn(_ context.Context, req SpawnRequest) (SpawnResult, error) {
@@ -40,6 +46,17 @@ func (s *stubSpawner) Spawn(_ context.Context, req SpawnRequest) (SpawnResult, e
 		return s.replies[len(s.calls)-1], nil
 	}
 	return s.replies[len(s.replies)-1], nil
+}
+
+func (s *stubSpawner) Continue(_ context.Context, agentID, message string) (SpawnResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.contAgentID = agentID
+	s.contMessage = message
+	if s.continueErr != nil {
+		return SpawnResult{}, s.continueErr
+	}
+	return s.continueReply, nil
 }
 
 func useSpawner(t *testing.T, s Spawner) {
