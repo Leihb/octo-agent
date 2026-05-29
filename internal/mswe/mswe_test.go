@@ -80,6 +80,33 @@ func TestScopeFixPatch_KeepsAllWhenNoTests(t *testing.T) {
 	}
 }
 
+func TestScopeFixPatch_StripsBuildArtifacts(t *testing.T) {
+	// `go test` can leave a compiled <pkg>.test binary that `git add -A` sweeps
+	// in; it must not reach the fix patch.
+	diff := "diff --git a/pkg/cmd/api/api.go b/pkg/cmd/api/api.go\n--- a/pkg/cmd/api/api.go\n+++ b/pkg/cmd/api/api.go\n@@ -1 +1 @@\n-old\n+new\n" +
+		"diff --git a/api.test b/api.test\nnew file mode 100755\nindex 0000000..abc1234\nBinary files /dev/null and b/api.test differ\n"
+	got := ScopeFixPatch(diff)
+	if !strings.Contains(got, "a/pkg/cmd/api/api.go") || !strings.Contains(got, "+new") {
+		t.Errorf("source change dropped:\n%s", got)
+	}
+	if strings.Contains(got, "api.test") {
+		t.Errorf(".test build artifact should be stripped:\n%s", got)
+	}
+}
+
+func TestScopeFixPatch_StripsBinarySection(t *testing.T) {
+	// A binary-file diff (no textual hunks) is never part of a source fix.
+	diff := "diff --git a/main.go b/main.go\n@@ -1 +1 @@\n-x\n+y\n" +
+		"diff --git a/bin/tool b/bin/tool\nindex 1111111..2222222 100755\nBinary files a/bin/tool and b/bin/tool differ\n"
+	got := ScopeFixPatch(diff)
+	if !strings.Contains(got, "a/main.go") {
+		t.Errorf("source dropped:\n%s", got)
+	}
+	if strings.Contains(got, "bin/tool") {
+		t.Errorf("binary section should be stripped:\n%s", got)
+	}
+}
+
 func TestWritePredictions_JSONL(t *testing.T) {
 	var b bytes.Buffer
 	err := WritePredictions(&b, []Prediction{

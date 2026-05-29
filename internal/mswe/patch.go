@@ -2,19 +2,22 @@ package mswe
 
 import "strings"
 
-// ScopeFixPatch strips test-file sections from a `git diff`, leaving only the
-// source changes. The Multi-SWE-bench harness applies the dataset's own hidden
-// test patch on top of the model's fix_patch, so a model patch that also
-// touched tests would conflict with — or worse, defeat — the hidden tests.
+// ScopeFixPatch trims a `git diff` down to the source changes the harness
+// should apply, dropping:
+//   - test files (*_test.go) — the harness applies the dataset's own hidden
+//     test patch on top, so a model patch touching tests would conflict with,
+//     or defeat, the hidden tests;
+//   - build artifacts (e.g. Go test binaries, *.test) that `git add -A` may
+//     sweep in after octo runs `go test`/`go build`;
+//   - binary-file sections (a source fix is never a binary blob).
 //
 // The input is unified diff output where each file section starts with a
-// `diff --git a/<path> b/<path>` header. Sections whose path is a Go test file
-// (*_test.go) are dropped; the rest are rejoined unchanged.
+// `diff --git a/<path> b/<path>` header; surviving sections are rejoined as-is.
 func ScopeFixPatch(diff string) string {
 	sections := splitDiffSections(diff)
 	var kept []string
 	for _, s := range sections {
-		if isGoTestFile(diffSectionPath(s)) {
+		if isExcludedFile(diffSectionPath(s)) || isBinarySection(s) {
 			continue
 		}
 		kept = append(kept, s)
@@ -62,8 +65,18 @@ func diffSectionPath(section string) string {
 	return strings.TrimPrefix(fields[1], "b/")
 }
 
-// isGoTestFile reports whether path is a Go test file. (The eval is Go-only;
-// extend this set if the dataset language scope widens.)
-func isGoTestFile(path string) bool {
-	return strings.HasSuffix(path, "_test.go")
+// isExcludedFile reports whether a diff section's file should be dropped from
+// the fix patch: Go test files (the harness supplies the hidden tests) and Go
+// test binaries (build artifacts swept in by `git add -A`). (The eval is
+// Go-only; extend this set if the dataset language scope widens.)
+func isExcludedFile(path string) bool {
+	return strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".test")
+}
+
+// isBinarySection reports whether a diff section is a binary-file change (git
+// emits "Binary files … differ" or a "GIT binary patch" block) rather than a
+// textual source edit. Compiled artifacts have no place in a source fix patch.
+func isBinarySection(section string) bool {
+	return strings.Contains(section, "\nBinary files ") ||
+		strings.Contains(section, "\nGIT binary patch\n")
 }
