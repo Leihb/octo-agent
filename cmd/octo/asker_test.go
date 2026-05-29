@@ -15,7 +15,8 @@ import (
 func askInput(input string) (*replAsker, *bytes.Buffer) {
 	out := &bytes.Buffer{}
 	reader := newScannerLineReader(strings.NewReader(input), out)
-	return newREPLAsker(reader, out), out
+	view := newPlainView(reader, out, out, verbosityNormal, false)
+	return newREPLAsker(view), out
 }
 
 func TestReplAsker_PrintsQuestionAndOptions(t *testing.T) {

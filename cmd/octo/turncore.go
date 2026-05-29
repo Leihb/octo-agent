@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
@@ -16,13 +17,12 @@ import (
 // (plainView), later a bubbletea TUI. runTurn drives a ViewSink and never
 // touches a terminal directly, so the same orchestration (memory nudge,
 // pre/post hooks, the streaming RunStream call) backs both the TTY and the
-// headless paths.
-//
-// Step 3 of dev-docs/tui-input-modes-design.md adds an Ask method here so the
-// permission gate / ask_user_question can request a structured answer through
-// the same seam; until then the gate stays wired the old way (cliPermissionGate
-// reading stdin directly via Agent.Gate).
+// headless paths. The embedded userPrompter (Ask) lets the permission gate
+// and ask_user_question request a structured answer through the same seam —
+// stdin line in plainView, modal in the TUI.
 type ViewSink interface {
+	userPrompter
+
 	// TurnStarted fires once before the model is called, so the view can
 	// arm per-turn state (spinner, fresh event-rendering closure).
 	TurnStarted()
@@ -98,6 +98,7 @@ func runTurn(ctx context.Context, a *agent.Agent, cfg replConfig, sink ViewSink,
 type plainView struct {
 	out       io.Writer
 	errOut    io.Writer
+	reader    lineReader // for Ask prompts; nil → Ask auto-cancels
 	verbosity verbosity
 	plain     bool
 
@@ -106,12 +107,13 @@ type plainView struct {
 	inner func(agent.AgentEvent)
 }
 
-func newPlainView(cfg replConfig) *plainView {
+func newPlainView(reader lineReader, out, errOut io.Writer, v verbosity, plain bool) *plainView {
 	return &plainView{
-		out:       cfg.stdout,
-		errOut:    cfg.stderr,
-		verbosity: cfg.verbosity,
-		plain:     cfg.plain,
+		out:       out,
+		errOut:    errOut,
+		reader:    reader,
+		verbosity: v,
+		plain:     plain,
 	}
 }
 
@@ -163,4 +165,118 @@ func (v *plainView) TurnEnded(reply agent.Reply, err error) {
 
 func (v *plainView) Notice(msg string) {
 	fmt.Fprintln(v.errOut, msg)
+}
+
+// Ask renders a structured prompt to stdout and reads the answer from the
+// shared line reader — the synchronous behaviour the gate and asker used
+// before the seam existed. With no reader (e.g. piped input exhausted) every
+// prompt auto-cancels / denies.
+func (v *plainView) Ask(_ context.Context, p UserPrompt) (UserResponse, error) {
+	switch p.Kind {
+	case KindPermission:
+		return v.askPermission(p), nil
+	case KindQuestion:
+		return v.askQuestion(p), nil
+	default:
+		return UserResponse{Cancelled: true}, nil
+	}
+}
+
+// askPermission prompts: y/yes → allow once; a/always → allow for the session;
+// anything else (incl. empty / N / no reader) → deny.
+func (v *plainView) askPermission(p UserPrompt) UserResponse {
+	fmt.Fprintf(v.out, "\n⚠ permission: %s wants to run\n", p.ToolName)
+	fmt.Fprintf(v.out, "    %s\n", summariseInput(p.ToolInput))
+
+	answer := ""
+	if v.reader != nil {
+		if raw, ok := v.reader.ReadLine("  allow? [y]es / [a]lways this session / [N]o: "); ok {
+			answer = strings.ToLower(strings.TrimSpace(raw))
+		}
+	}
+	switch answer {
+	case "y", "yes":
+		return UserResponse{Allow: true}
+	case "a", "always":
+		return UserResponse{Allow: true, Always: true}
+	default:
+		return UserResponse{Allow: false}
+	}
+}
+
+// askQuestion renders the ask_user_question card and parses the selection.
+func (v *plainView) askQuestion(p UserPrompt) UserResponse {
+	if v.reader == nil {
+		return UserResponse{Cancelled: true}
+	}
+
+	prompt := v.printQuestion(p)
+	raw, ok := v.reader.ReadLine(prompt)
+	if !ok {
+		// EOF / empty → cancel; surfacing "(cancelled)" lets the model retry
+		// or pick a default itself.
+		fmt.Fprintln(v.out)
+		return UserResponse{Cancelled: true}
+	}
+	choice := strings.TrimSpace(raw)
+	if choice == "" {
+		return UserResponse{Cancelled: true}
+	}
+
+	otherIdx := len(p.Options) + 1
+	indices, parseErr := parseSelection(choice, otherIdx, p.MultiSelect)
+	if parseErr != nil {
+		fmt.Fprintf(v.out, "  (couldn't parse %q, treating as cancellation)\n", choice)
+		return UserResponse{Cancelled: true}
+	}
+
+	var (
+		picks     []string
+		wantOther bool
+	)
+	for _, idx := range indices {
+		if idx == otherIdx {
+			wantOther = true
+			continue
+		}
+		if idx < 1 || idx > len(p.Options) {
+			continue
+		}
+		picks = append(picks, p.Options[idx-1])
+	}
+
+	if wantOther {
+		text, ok := v.reader.ReadLine("  Other (free text): ")
+		if !ok || strings.TrimSpace(text) == "" {
+			return UserResponse{Cancelled: true}
+		}
+		return UserResponse{Custom: strings.TrimSpace(text)}
+	}
+	if len(picks) == 0 {
+		return UserResponse{Cancelled: true}
+	}
+	return UserResponse{Choices: picks}
+}
+
+// printQuestion writes the multi-line question card and returns the final
+// inline "Select [...]: " prompt — passed to ReadLine so readline renders it
+// in place.
+func (v *plainView) printQuestion(p UserPrompt) string {
+	header := p.Header
+	if header == "" {
+		header = "question"
+	}
+	fmt.Fprintf(v.out, "\n[ask_user_question · %s]\n", header)
+	fmt.Fprintf(v.out, "  %s\n", p.Question)
+	otherIdx := len(p.Options) + 1
+	for i, opt := range p.Options {
+		fmt.Fprintf(v.out, "    %d) %s\n", i+1, opt)
+	}
+	fmt.Fprintf(v.out, "    %d) Other (free text)\n", otherIdx)
+
+	hint := fmt.Sprintf("[1-%d]", otherIdx)
+	if p.MultiSelect {
+		hint = "[comma-separated, e.g. 1,3]"
+	}
+	return fmt.Sprintf("  Select %s: ", hint)
 }

@@ -43,6 +43,11 @@ type replConfig struct {
 	// Tests that only pass cfg.stdin leave this nil; runREPL builds a
 	// scanner-backed reader over stdin for them.
 	reader lineReader
+	// view, when non-nil, is the ViewSink driving turn rendering and Ask
+	// prompts. Set by cmd/octo so the same instance backs the turn loop, the
+	// permission gate, and the asker. Tests leave it nil; runREPL builds a
+	// plainView over the resolved reader.
+	view ViewSink
 }
 
 // isFirstEverSession reports whether no sessions exist on disk yet — the
@@ -147,21 +152,24 @@ func runREPL(cfg replConfig) int {
 		}
 	}()
 
-	// Permission gating shares the REPL line reader so an interactive "ask"
-	// prompt reads from the same stdin the loop uses. Tool dispatch runs
-	// synchronously inside RunStream (which blocks this loop), so there is
-	// no concurrent access to the reader.
+	// The view sink: renders the turn (spinner, tool-event lines, cache/^C/
+	// error) and raises Ask prompts. cmd/octo supplies it (so the gate and
+	// asker share the same instance); tests leave it nil and get a plainView
+	// over the resolved reader.
+	view := cfg.view
+	if view == nil {
+		view = newPlainView(reader, cfg.stdout, cfg.stderr, cfg.verbosity, cfg.plain)
+	}
+
+	// Permission gating raises its approval prompt through the view (stdin
+	// line in plainView, modal in the TUI). Tool dispatch runs synchronously
+	// inside RunStream, so the prompt and the loop never race on input.
 	if cfg.permEngine != nil {
 		a.Gate = &cliPermissionGate{
 			engine: cfg.permEngine,
-			in:     reader,
-			out:    cfg.stdout,
+			ask:    view,
 		}
 	}
-
-	// The plain-text view sink: renders the turn (spinner, tool-event lines,
-	// cache/^C/error) exactly as the loop used to do inline. runTurn drives it.
-	view := newPlainView(cfg)
 
 	for {
 		raw, ok := readPromptLine(reader, "you> ", "... ")

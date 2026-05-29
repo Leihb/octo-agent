@@ -16,10 +16,10 @@ func newGate(t *testing.T, mode permission.Mode, stdin string) (*cliPermissionGa
 		t.Fatalf("permission.New: %v", err)
 	}
 	var out bytes.Buffer
+	view := newPlainView(newScannerLineReader(strings.NewReader(stdin), &out), &out, &out, verbosityNormal, false)
 	g := &cliPermissionGate{
 		engine: eng,
-		in:     newScannerLineReader(strings.NewReader(stdin), &out),
-		out:    &out,
+		ask:    view,
 	}
 	return g, &out
 }

@@ -252,6 +252,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var (
 		toolExecutor tools.DefaultRegistry
 		replReader   lineReader
+		replView     ViewSink
 	)
 	if isREPL {
 		toolExecutor = tools.NewDefaultRegistry()
@@ -267,7 +268,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		} else {
 			replReader = newScannerLineReader(stdin, stdout)
 		}
-		tools.SetAsker(newREPLAsker(replReader, stdout))
+		// One view backs the turn loop, the permission gate, and the asker, so
+		// they share a single presentation surface (and, in the TUI, a single
+		// modal queue). Built here because the asker is registered before
+		// runREPL constructs its config.
+		replView = newPlainView(replReader, stdout, stderr, resolveVerbosity(*quietFlag, *verboseFlag), *plain)
+		tools.SetAsker(newREPLAsker(replView))
 		defer tools.SetAsker(nil)
 
 		// Session-scoped task tracker for the task_create / task_update /
@@ -358,6 +364,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			skillReg:  skillReg,
 			memStore:  memStore,
 			reader:    replReader,          // shared with the asker / permission gate
+			view:      replView,            // same surface for turn render + Ask prompts
 			hooks:     hooks.LoadFromEnv(), // C9 Phase 3: external retrieval layer hooks
 		}
 		if toolsOn {

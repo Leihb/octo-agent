@@ -86,7 +86,8 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "octo init: permission config: %v\n", err)
 		return 1
 	}
-	a.Gate = &cliPermissionGate{engine: engine, in: newScannerLineReader(stdin, stdout), out: stdout}
+	initView := newPlainView(newScannerLineReader(stdin, stdout), stdout, stderr, verbosityNormal, *plain)
+	a.Gate = &cliPermissionGate{engine: engine, ask: initView}
 
 	fmt.Fprintln(stdout, "Analyzing the repository to generate .octorules…")
 	handler := replToolEventHandler(stdout, *plain)
