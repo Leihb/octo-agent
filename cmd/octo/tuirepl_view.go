@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/tools"
 	"github.com/Leihb/octo-agent/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -67,6 +68,23 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			dropped := m.queue[n-1].text
 			m.queue = m.queue[:n-1]
 			return m, tea.Println(queueStyle.Render("✕ unqueued: " + dropped))
+		}
+		return m, nil
+
+	case tea.KeyShiftTab:
+		// Cycle permission mode: interactive → strict → auto → interactive.
+		if m.cfg.permEngine != nil {
+			var next permission.Mode
+			switch m.cfg.permEngine.GetMode() {
+			case permission.ModeInteractive:
+				next = permission.ModeStrict
+			case permission.ModeStrict:
+				next = permission.ModeAutoApprove
+			default:
+				next = permission.ModeInteractive
+			}
+			m.cfg.permEngine.SetMode(next)
+			return m, tea.Println(noticeStyle.Render("Permission mode: " + string(next)))
 		}
 		return m, nil
 
