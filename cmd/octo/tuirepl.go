@@ -31,7 +31,7 @@ func runTUI(cfg replConfig) int {
 	defer tools.KillAllBackground()
 
 	m := newTUIModel(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	sink := &tuiSink{prog: p}
 	m.sink = sink
 

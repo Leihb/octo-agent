@@ -26,17 +26,25 @@ var (
 	userEchoStyle = lipgloss.NewStyle().Foreground(tui.ColUserMsg).Bold(true)
 )
 
+// wheelScrollLines is how many lines one wheel tick scrolls.  Larger than 1
+// so track-pad two-finger scrolling feels responsive (bubbletea delivers one
+// MouseWheel event per gesture tick, not per pixel).
+const wheelScrollLines = 4
+
 // handleKey routes a keypress by context: a modal grabs all keys; otherwise the
 // keymap depends on whether a turn is running (design §7).
 func (m *tuiModel) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Only handle wheel events; ignore clicks, drags, etc.
 	switch msg.Type {
 	case tea.MouseWheelUp:
-		m.scrollOffset++
+		m.scrollOffset += wheelScrollLines
 		return m, nil
 	case tea.MouseWheelDown:
 		if m.scrollOffset > 0 {
-			m.scrollOffset--
+			m.scrollOffset -= wheelScrollLines
+			if m.scrollOffset < 0 {
+				m.scrollOffset = 0
+			}
 		}
 		return m, nil
 	}
