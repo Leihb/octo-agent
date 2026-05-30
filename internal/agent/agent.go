@@ -470,23 +470,25 @@ func (a *Agent) runLoop(
 			// themselves).
 			emitToolResultEvents(handler, reply.Blocks, resultBlocks)
 
-			// Steer injection (dev-docs/tui-input-modes-design.md §5): if the
-			// user typed a mid-turn message while these tools ran, fold it into
-			// the SAME user message as an extra text block. This is the only
-			// alternation-safe place to inject — the trailing message here is
-			// the user-role tool_result, and a multi-block user message of
-			// [tool_result…, text] is the API-blessed shape (Anthropic native;
-			// the OpenAI adapter emits the text as a follow-up user message).
-			// A bare NewUserMessage here would instead produce two user
-			// messages in a row.
+			a.History.Append(NewToolResultMessage(resultBlocks))
+
+			// Steer injection: drain pending steer messages and append them as
+			// standalone user messages. Previously they were folded into the
+			// tool_result as an extra text block, which hid system-reminder
+			// notifications inside tool output where the model often ignored them.
+			//
+			// By appending steer as its own user message, it gets a first-class
+			// message boundary. The next loop iteration will see:
+			//   ... assistant(tool_use) → user(tool_result) → user(steer) → assistant(reply)
+			//
+			// For providers that require strict user/assistant alternation, the
+			// adapter layer (provider/openai.go) merges consecutive user messages.
 			if steer := a.drainSteer(); steer != "" {
-				resultBlocks = append(resultBlocks, NewTextBlock(steer))
+				a.History.Append(NewUserMessage(steer))
 				if handler != nil {
 					handler(AgentEvent{Kind: EventSteerInjected, Text: steer})
 				}
 			}
-
-			a.History.Append(NewToolResultMessage(resultBlocks))
 
 			// Turn-in compaction check: after a tool batch, history may have
 			// grown significantly. If the estimated size is near the window,

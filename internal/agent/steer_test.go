@@ -39,12 +39,11 @@ func TestSteer_AccumulatesJoinsAndClears(t *testing.T) {
 	}
 }
 
-// TestRunLoop_SteerMergedIntoToolResult is the core Step 2 invariant: a steer
-// queued while a tool batch runs is folded into the SAME user/tool_result
-// message as an extra text block — never appended as a second user message in
-// a row (which would break the user/assistant alternation the providers
-// require).
-func TestRunLoop_SteerMergedIntoToolResult(t *testing.T) {
+// TestRunLoop_SteerAppendedAsStandaloneUserMessage verifies that steer text
+// is appended as a standalone user message after the tool_result, not folded
+// into it. This gives steer text (including system-reminder notifications)
+// its own message boundary so the model sees it as a first-class inbox item.
+func TestRunLoop_SteerAppendedAsStandaloneUserMessage(t *testing.T) {
 	send := &fakeToolSender{
 		replies: []Reply{
 			{
@@ -57,8 +56,6 @@ func TestRunLoop_SteerMergedIntoToolResult(t *testing.T) {
 		},
 	}
 	a := New(send, "m")
-	// Steer arrives before the boundary (modelled by pre-seeding; the loop
-	// drains it right after the tool batch completes).
 	a.Steer("also handle the error case")
 
 	defs := []ToolDefinition{{Name: "terminal"}}
@@ -68,31 +65,28 @@ func TestRunLoop_SteerMergedIntoToolResult(t *testing.T) {
 	}
 
 	msgs := a.History.Snapshot()
-	// Expect: user("run echo"), assistant(tool_use), user(tool_result+steer),
-	// assistant("done").
-	if len(msgs) != 4 {
-		t.Fatalf("history len = %d, want 4: %+v", len(msgs), msgs)
+	// Expect: user("run echo"), assistant(tool_use), user(tool_result),
+	// user(steer), assistant("done").
+	if len(msgs) != 5 {
+		t.Fatalf("history len = %d, want 5: %+v", len(msgs), msgs)
 	}
 
-	// No two user-role messages in a row.
-	for i := 1; i < len(msgs); i++ {
-		if msgs[i].Role == RoleUser && msgs[i-1].Role == RoleUser {
-			t.Fatalf("consecutive user messages at %d/%d — alternation broken", i-1, i)
-		}
-	}
-
+	// msg[2] is the pure tool_result (no steer folded in).
 	tr := msgs[2]
 	if tr.Role != RoleUser {
 		t.Fatalf("msg[2].Role = %q, want user (tool_result)", tr.Role)
 	}
-	if len(tr.Blocks) != 2 {
-		t.Fatalf("tool_result message blocks = %d, want 2 (tool_result + steer text): %+v", len(tr.Blocks), tr.Blocks)
+	if len(tr.Blocks) != 1 || tr.Blocks[0].Type != "tool_result" {
+		t.Fatalf("tool_result message should have exactly 1 tool_result block, got %+v", tr.Blocks)
 	}
-	if tr.Blocks[0].Type != "tool_result" {
-		t.Errorf("blocks[0].Type = %q, want tool_result", tr.Blocks[0].Type)
+
+	// msg[3] is the standalone steer user message.
+	steerMsg := msgs[3]
+	if steerMsg.Role != RoleUser {
+		t.Fatalf("msg[3].Role = %q, want user (steer)", steerMsg.Role)
 	}
-	if tr.Blocks[1].Type != "text" || tr.Blocks[1].Text != "also handle the error case" {
-		t.Errorf("blocks[1] = %+v, want text steer", tr.Blocks[1])
+	if steerMsg.Content != "also handle the error case" {
+		t.Errorf("steer msg content = %q, want 'also handle the error case'", steerMsg.Content)
 	}
 
 	// Buffer drained.
@@ -125,9 +119,14 @@ func TestRunLoop_SteerArrivesDuringExecution(t *testing.T) {
 	}
 
 	msgs := a.History.Snapshot()
+	// msg[2] = tool_result, msg[3] = standalone steer user message
 	tr := msgs[2]
-	if len(tr.Blocks) != 2 || tr.Blocks[1].Type != "text" || tr.Blocks[1].Text != "switch to the other approach" {
-		t.Fatalf("steer not merged into tool_result: %+v", tr.Blocks)
+	if len(tr.Blocks) != 1 || tr.Blocks[0].Type != "tool_result" {
+		t.Fatalf("tool_result should be pure (no steer folded in): %+v", tr.Blocks)
+	}
+	steerMsg := msgs[3]
+	if steerMsg.Role != RoleUser || steerMsg.Content != "switch to the other approach" {
+		t.Fatalf("steer should be standalone user message: %+v", steerMsg)
 	}
 }
 
