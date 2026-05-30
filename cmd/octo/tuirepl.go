@@ -82,9 +82,16 @@ func runTUI(cfg replConfig) int {
 	})
 	defer tools.SetBackgroundOnExit(nil)
 
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		fmt.Fprintf(cfg.stderr, "octo chat: tui: %v\n", err)
 		return 1
+	}
+
+	// Dump scrollback to the main screen after alt-screen exits so the
+	// conversation history survives the session.
+	if m, ok := finalModel.(*tuiModel); ok && len(m.scrollback) > 0 {
+		fmt.Println(strings.Join(m.scrollback, "\n"))
 	}
 
 	// Final save on exit (mirrors runREPL's exit save).
@@ -335,6 +342,15 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// (the full output rode into the conversation via Steer).
 		m.pushScrollback(noticeStyle.Render(fmt.Sprintf(
 			"↳ %s (%s) %s", msg.e.ID, truncate1Line(msg.e.Command), msg.e.Status)))
+		// Idle auto-turn: if no turn is running and nothing is queued, drain the
+		// steer buffer (which holds the full <system-reminder> notice) and start a
+		// turn so the model sees the completion immediately — matching the plain
+		// REPL's idleSteerWait behaviour (runREPL select on idleSteerWait).
+		if !m.turnRunning && len(m.queue) == 0 {
+			if s := m.a.DrainSteer(); s != "" {
+				return m, m.startTurnEcho(s, "")
+			}
+		}
 		return m, nil
 
 	case subAgentNoteMsg:
@@ -346,6 +362,13 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.pushScrollback(noticeStyle.Render(fmt.Sprintf(
 			"↳ sub-agent %s (%s) %s", msg.ev.AgentID, truncate1Line(msg.ev.Description), label)))
+		// Idle auto-turn: same logic as bgExitMsg — drain steer and trigger a
+		// turn so the model sees the notification immediately.
+		if !m.turnRunning && len(m.queue) == 0 {
+			if s := m.a.DrainSteer(); s != "" {
+				return m, m.startTurnEcho(s, "")
+			}
+		}
 		return m, nil
 
 	case turnEndedMsg:
