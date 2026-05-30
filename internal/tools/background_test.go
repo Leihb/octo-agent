@@ -198,4 +198,9 @@ func TestTerminalOutputTool_ReadOnly(t *testing.T) {
 	if _, status, _ := m.Read("bg_1"); status != "running" {
 		t.Errorf("process should still be running after terminal_output, status=%q", status)
 	}
+	// When the process is running and there is no new output, the result must
+	// contain a strong anti-polling warning.
+	if !strings.Contains(resOut.Text, "STOP POLLING") {
+		t.Errorf("terminal_output on running process with no new output should warn against polling, got %q", resOut.Text)
+	}
 }

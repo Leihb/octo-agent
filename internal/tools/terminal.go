@@ -219,6 +219,9 @@ func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[strin
 	}
 	header := "[status: " + status + "]"
 	if out == "" {
+		if status == "running" {
+			return agent.ToolResult{Text: header + "\n(no new output)\n\nSTOP POLLING. The system will automatically notify you when this background process finishes. Do NOT call terminal_output again unless you need to check progress mid-run."}, nil
+		}
 		return agent.ToolResult{Text: header + "\n(no new output)"}, nil
 	}
 	return agent.ToolResult{Text: header + "\n" + out}, nil
