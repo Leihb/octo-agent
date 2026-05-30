@@ -144,8 +144,11 @@ func (m *tuiModel) submit(alt bool) (tea.Model, tea.Cmd) {
 		return m, tea.Println(queueStyle.Render("＋ queued: " + text))
 	}
 	// Steer: fold into the running turn at the next tool-batch boundary.
+	// No immediate UI echo — the steer text is displayed later via
+	// EventSteerInjected when it is actually drained into the tool_result,
+	// preserving chronological order.
 	m.a.Steer(text)
-	return m, tea.Println(queueStyle.Render("→ steering: " + text))
+	return m, nil
 }
 
 // dispatchSlash handles a leading-"/" line when the session is idle.

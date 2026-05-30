@@ -481,6 +481,9 @@ func (a *Agent) runLoop(
 			// messages in a row.
 			if steer := a.drainSteer(); steer != "" {
 				resultBlocks = append(resultBlocks, NewTextBlock(steer))
+				if handler != nil {
+					handler(AgentEvent{Kind: EventSteerInjected, Text: steer})
+				}
 			}
 
 			a.History.Append(NewToolResultMessage(resultBlocks))

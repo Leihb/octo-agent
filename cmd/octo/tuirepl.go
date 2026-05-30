@@ -407,6 +407,13 @@ func (m *tuiModel) handleEvent(ev agent.AgentEvent) tea.Cmd {
 			return m.commitToolLine(renderToolCard(ev.ToolName, input, firstNonEmpty(ev.Output, ev.Err), true))
 		}
 		return m.commitToolLine(toolErrStyle.Render(fmt.Sprintf("↳ %s ✗ — %s", ev.ToolName, truncate1Line(ev.Err))))
+
+	case agent.EventSteerInjected:
+		// Steer text is displayed at the exact moment it enters history,
+		// after the tool_result it was folded into. This preserves
+		// chronological order — the user sees their steer where the model
+		// actually receives it, not prematurely when they typed it.
+		return tea.Println(userEchoStyle.Render("> ") + ev.Text)
 	}
 	return nil
 }

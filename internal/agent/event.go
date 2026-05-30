@@ -50,6 +50,13 @@ const (
 	// after the assistant's final reply is committed to history. Reply
 	// carries the aggregated final Reply.
 	EventTurnDone EventKind = "turn_done"
+
+	// EventSteerInjected fires when a steer message is drained from the
+	// pending buffer and folded into the current tool_result. Text carries
+	// the steer content. This lets the UI display the steer at the exact
+	// moment it enters the conversation history, preserving chronological
+	// order rather than showing it prematurely when the user typed it.
+	EventSteerInjected EventKind = "steer_injected"
 )
 
 // EventToolOutputCap is the maximum length of the Output field emitted on
@@ -71,6 +78,7 @@ const EventToolOutputCap = 512
 //   - EventToolDone:       ToolID, ToolName, Output
 //   - EventToolError:      ToolID, ToolName, Output (may be empty), Err
 //   - EventTurnDone:       Reply
+//   - EventSteerInjected:  Text
 //
 // JSON tags are included so HTTP/SSE transports (M8 web server) can
 // marshal events directly without an intermediate type.
