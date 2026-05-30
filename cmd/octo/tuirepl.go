@@ -322,16 +322,33 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Println(noticeStyle.Render(msg.text))
 
 	case bgExitMsg:
-		// Async background-process completion: show a one-line scrollback notice
-		// (the full output rode into the conversation via Steer). Safe to print
-		// mid-turn — it's just another committed line.
+		// Async background-process completion: enqueue as a standalone pending
+		// turn so it drains FIFO alongside queued user messages. The model will
+		// see it as a first-class inbox item and respond explicitly.
+		m.queue = append(m.queue, pendingItem{text: formatBgNote(msg.e)})
+		// If idle, auto-start the queued turn immediately so the model reacts
+		// without waiting for user input. Pop it now so handleTurnFinished
+		// doesn't double-start.
+		if !m.turnRunning && len(m.queue) == 1 {
+			next := m.queue[0]
+			m.queue = m.queue[1:]
+			return m, m.startTurnEcho(next.text, "")
+		}
+		// Otherwise (turn running or more items queued): just show a one-line
+		// scrollback notice for UI observability.
 		return m, tea.Println(noticeStyle.Render(fmt.Sprintf(
 			"↳ %s (%s) %s", msg.e.ID, truncate1Line(msg.e.Command), msg.e.Status)))
 
 	case subAgentNoteMsg:
-		// Async sub-agent completion: show a one-line scrollback notice (the
-		// full result rode into the conversation via Steer). Safe to print
-		// mid-turn.
+		// Async sub-agent completion: enqueue as a standalone pending turn so
+		// it drains FIFO alongside queued user messages and background notices.
+		m.queue = append(m.queue, pendingItem{text: formatSubAgentNote(msg.ev)})
+		// If idle, auto-start immediately.
+		if !m.turnRunning && len(m.queue) == 1 {
+			next := m.queue[0]
+			m.queue = m.queue[1:]
+			return m, m.startTurnEcho(next.text, "")
+		}
 		label := "completed"
 		if msg.ev.Kind == "message_reply" {
 			label = "replied"

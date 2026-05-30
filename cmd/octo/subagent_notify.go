@@ -7,14 +7,12 @@ import (
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
-// formatSubAgentNote renders a sub-agent completion notification as a
-// <system-reminder> block. It rides the existing steer path (Agent.Steer →
-// folded into the next tool_result, or prepended to the next turn — see
-// turncore.go), so the model reads it as an environment event rather than
-// user speech.
+// formatSubAgentNote renders a sub-agent completion notification as a plain
+// user-facing message. The text is meant to be submitted as a standalone turn
+// (queued or auto-triggered) so the model treats it as a first-class inbox
+// item, not a hidden system-reminder block folded into another message.
 func formatSubAgentNote(ev tools.SubAgentNotification) string {
 	var b strings.Builder
-	b.WriteString("<system-reminder>\n")
 	switch ev.Kind {
 	case "spawn_done":
 		fmt.Fprintf(&b, "Sub-agent %s (%s) has completed.", ev.AgentID, ev.Description)
@@ -30,6 +28,5 @@ func formatSubAgentNote(ev tools.SubAgentNotification) string {
 	if ev.InputTokens > 0 || ev.OutputTokens > 0 {
 		fmt.Fprintf(&b, "\n[usage] in %d / out %d", ev.InputTokens, ev.OutputTokens)
 	}
-	b.WriteString("\n</system-reminder>")
 	return b.String()
 }

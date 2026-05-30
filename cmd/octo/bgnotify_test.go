@@ -7,7 +7,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
-func TestFormatBgNote_WrapsAsSystemReminder(t *testing.T) {
+func TestFormatBgNote_ContainsExpectedFields(t *testing.T) {
 	got := formatBgNote(tools.BgExit{
 		ID:        "bg_1",
 		Command:   "go test ./...",
@@ -15,12 +15,15 @@ func TestFormatBgNote_WrapsAsSystemReminder(t *testing.T) {
 		NewOutput: "ok  github.com/x/y  1.2s\n",
 	})
 	for _, want := range []string{
-		"<system-reminder>", "</system-reminder>",
 		"bg_1", "go test ./...", "exited: 0", "ok  github.com/x/y  1.2s",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("formatBgNote missing %q in:\n%s", want, got)
 		}
+	}
+	// Must NOT contain system-reminder tags — it's a plain user message now.
+	if strings.Contains(got, "<system-reminder>") {
+		t.Errorf("formatBgNote should not wrap in <system-reminder>; got:\n%s", got)
 	}
 }
 

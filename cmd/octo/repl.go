@@ -70,13 +70,21 @@ func runREPL(cfg replConfig) int {
 	// outlive the session.
 	defer tools.KillAllBackground()
 
-	// Sub-agent manager: wire the onExit hook so completion notifications ride
-	// the same steer path as background-process notices. Register the manager
-	// globally so the built-in tools pick it up without per-instance injection.
+	// Shared pending buffer for background-process and sub-agent completion
+	// notifications in the plain REPL. The TUI uses its own queue mechanism.
+	var bgPendingMu sync.Mutex
+	var bgPending []string
+
+	// Sub-agent manager: wire the onExit hook so completion notifications are
+	// enqueued into the pending buffer (same as background-process notices).
+	// Register the manager globally so the built-in tools pick it up without
+	// per-instance injection.
 	if cfg.subAgentMgr != nil {
 		tools.SetDefaultSubAgentManager(cfg.subAgentMgr)
 		cfg.subAgentMgr.SetOnExit(func(ev tools.SubAgentNotification) {
-			a.Steer(formatSubAgentNote(ev))
+			bgPendingMu.Lock()
+			bgPending = append(bgPending, formatSubAgentNote(ev))
+			bgPendingMu.Unlock()
 		})
 		defer func() {
 			cfg.subAgentMgr.SetOnExit(nil)
@@ -85,12 +93,14 @@ func runREPL(cfg replConfig) int {
 		}()
 	}
 
-	// Background-completion notice: inject into the conversation via Steer so
-	// the model is told when a detached command finishes (drained at the next
-	// tool-batch boundary, or prepended to the next turn — see turncore.go).
-	// The plain path prints no async UI line (it would interleave with the
-	// synchronous render loop); the TUI path adds a scrollback notice on top.
-	tools.SetBackgroundOnExit(func(e tools.BgExit) { a.Steer(formatBgNote(e)) })
+	// Background-completion notice: enqueue into the pending buffer so the
+	// model is told when a detached command finishes. The plain path auto-
+	// triggers a turn via idleBgWait; the TUI path enqueues into the queue.
+	tools.SetBackgroundOnExit(func(e tools.BgExit) {
+		bgPendingMu.Lock()
+		bgPending = append(bgPending, formatBgNote(e))
+		bgPendingMu.Unlock()
+	})
 	defer tools.SetBackgroundOnExit(nil)
 
 	// Startup banner — fully suppressed in quiet mode, expanded with
@@ -242,8 +252,8 @@ func runREPL(cfg replConfig) int {
 		var line string
 		var isAutoTurn bool
 
-		// Wait for either user input or a background-completion steer that
-		// arrived while we were idle. The steer path auto-triggers a turn so
+		// Wait for either user input or a background-completion notification
+		// that arrived while we were idle. The bg path auto-triggers a turn so
 		// the model can react to the event without the user typing anything.
 		select {
 		case raw, ok := <-inputCh:
@@ -261,10 +271,15 @@ func runREPL(cfg replConfig) int {
 				done = true
 				continue
 			}
-		case <-idleSteerWait(a):
-			// Background process finished while idle. Drain the steer buffer
+		case <-idleBgWait(&bgPendingMu, &bgPending):
+			// Background process finished while idle. Drain the pending buffer
 			// and run an auto-turn so the model sees the notification.
-			line = a.DrainSteer()
+			bgPendingMu.Lock()
+			if len(bgPending) > 0 {
+				line = bgPending[0]
+				bgPending = bgPending[1:]
+			}
+			bgPendingMu.Unlock()
 			isAutoTurn = true
 		}
 
@@ -332,16 +347,19 @@ func runREPL(cfg replConfig) int {
 	return 0
 }
 
-// idleSteerWait returns a channel that receives a single value once a steer
-// message is pending on the agent. It polls every 200 ms so the select in
-// runREPL doesn't block indefinitely on user input when a background process
-// completes. The returned channel is closed after firing; callers should not
-// reuse it.
-func idleSteerWait(a *agent.Agent) <-chan struct{} {
+// idleBgWait returns a channel that receives a single value once a background-
+// process completion notification is pending. It polls every 200 ms so the
+// select in runREPL doesn't block indefinitely on user input when a background
+// process completes. The returned channel is closed after firing; callers
+// should not reuse it.
+func idleBgWait(mu *sync.Mutex, pending *[]string) <-chan struct{} {
 	ch := make(chan struct{}, 1)
 	go func() {
 		for {
-			if a.HasPendingSteer() {
+			mu.Lock()
+			has := len(*pending) > 0
+			mu.Unlock()
+			if has {
 				ch <- struct{}{}
 				return
 			}
