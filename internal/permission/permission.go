@@ -187,6 +187,9 @@ func (e *Engine) Remember(toolName string, input map[string]any, decision Decisi
 // on it, e.g. to decide whether to prompt the user).
 func (e *Engine) GetMode() Mode { return e.mode }
 
+// SetMode changes the engine's mode at runtime (e.g. TUI shortcut).
+func (e *Engine) SetMode(mode Mode) { e.mode = mode }
+
 // DenialReason returns a human-readable explanation for why a tool call
 // was denied. Useful for surfacing to the LLM so it knows the failure
 // was a policy denial, not a tool malfunction.
