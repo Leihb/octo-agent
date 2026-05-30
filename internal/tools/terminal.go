@@ -105,7 +105,7 @@ func (t TerminalTool) ExecuteStream(
 		if err != nil {
 			return agent.ToolResult{Text: ""}, err
 		}
-		return agent.ToolResult{Text: fmt.Sprintf("Started background process %s.\nRead its output with the terminal_output tool (id: %q).", id, id)}, nil
+		return agent.ToolResult{Text: fmt.Sprintf("Started background process %s.\n\nDO NOT poll terminal_output. The system will automatically notify you when this process finishes, carrying its full output. You can continue with other tasks while it runs.", id)}, nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, TerminalTimeout)
