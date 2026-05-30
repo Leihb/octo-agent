@@ -22,21 +22,22 @@ import (
 
 // replConfig holds everything runREPL needs.
 type replConfig struct {
-	a          *agent.Agent
-	session    *agent.Session
-	noSave     bool
-	plain      bool               // true → fall back to terse ↳ status lines for all tool events
-	verbosity  verbosity          // quiet | normal | verbose; controls spinner + chrome
-	permEngine *permission.Engine // nil → no tool-permission gating
-	stdin      io.Reader
-	stdout     io.Writer
-	stderr     io.Writer
-	tools      []agent.ToolDefinition
-	executor   agent.ToolExecutor
-	skillReg   *skills.Registry // discovered skills; backs /skills and /<name>
-	memStore   *memory.Store    // cross-session memory; backs /memory (nil → disabled)
-	memRefresh *memoryRefresher // live cross-session memory delta; nil → disabled
-	hooks      *hooks.Runner    // C9 Phase 3 pre/post-turn hooks; nil-safe via Configured()
+	a           *agent.Agent
+	session     *agent.Session
+	noSave      bool
+	plain       bool               // true → fall back to terse ↳ status lines for all tool events
+	verbosity   verbosity          // quiet | normal | verbose; controls spinner + chrome
+	permEngine  *permission.Engine // nil → no tool-permission gating
+	stdin       io.Reader
+	stdout      io.Writer
+	stderr      io.Writer
+	tools       []agent.ToolDefinition
+	executor    agent.ToolExecutor
+	subAgentMgr *tools.SubAgentManager // nil → sub-agent tools disabled
+	skillReg    *skills.Registry       // discovered skills; backs /skills and /<name>
+	memStore    *memory.Store          // cross-session memory; backs /memory (nil → disabled)
+	memRefresh  *memoryRefresher       // live cross-session memory delta; nil → disabled
+	hooks       *hooks.Runner          // C9 Phase 3 pre/post-turn hooks; nil-safe via Configured()
 	// reader, when non-nil, is the line reader to use instead of building
 	// one fresh inside runREPL. Set by cmd/octo so the same instance is
 	// shared with the permission gate and the ask_user_question asker.
@@ -68,6 +69,21 @@ func runREPL(cfg replConfig) int {
 	// Kill any background processes (terminal background:true) on exit so none
 	// outlive the session.
 	defer tools.KillAllBackground()
+
+	// Sub-agent manager: wire the onExit hook so completion notifications ride
+	// the same steer path as background-process notices. Register the manager
+	// globally so the built-in tools pick it up without per-instance injection.
+	if cfg.subAgentMgr != nil {
+		tools.SetDefaultSubAgentManager(cfg.subAgentMgr)
+		cfg.subAgentMgr.SetOnExit(func(ev tools.SubAgentNotification) {
+			a.Steer(formatSubAgentNote(ev))
+		})
+		defer func() {
+			cfg.subAgentMgr.SetOnExit(nil)
+			tools.SetDefaultSubAgentManager(nil)
+			cfg.subAgentMgr.KillAll()
+		}()
+	}
 
 	// Background-completion notice: inject into the conversation via Steer so
 	// the model is told when a detached command finishes (drained at the next

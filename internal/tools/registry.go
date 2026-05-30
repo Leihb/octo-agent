@@ -36,6 +36,8 @@ var allTools = []tool{
 	RememberTool{},
 	LaunchAgentTool{},
 	SendMessageTool{},
+	AgentStatusTool{},
+	KillAgentTool{},
 	AskUserQuestionTool{},
 	TaskCreateTool{},
 	TaskUpdateTool{},
@@ -196,13 +198,13 @@ func tokenizeCommand(s string) []string {
 // DefaultTools returns the slice of ToolDefinitions sent to the LLM when
 // `--tools` is on. Order matches allTools. Each capability-gated tool is
 // withheld unless the corresponding registration call has been made —
-// SkillTool needs SetSkills, RememberTool needs SetMemoryStore, LaunchAgentTool
-// needs SetSpawner. Advertising a tool that can only error wastes a slot and
-// confuses the model.
+// SkillTool needs SetSkills, RememberTool needs SetMemoryStore, sub-agent
+// tools need a SubAgentManager. Advertising a tool that can only error wastes
+// a slot and confuses the model.
 func DefaultTools() []agent.ToolDefinition {
 	skillsOn := skillsEnabled()
 	memoryOn := memoryEnabled()
-	spawnerOn := spawnerEnabled()
+	mgrOn := subAgentManagerEnabled()
 	askerOn := askerEnabled()
 	tasksOn := tasksEnabled()
 	defs := make([]agent.ToolDefinition, 0, len(allTools))
@@ -213,10 +215,16 @@ func DefaultTools() []agent.ToolDefinition {
 		if _, isRemember := t.(RememberTool); isRemember && !memoryOn {
 			continue
 		}
-		if _, isLaunch := t.(LaunchAgentTool); isLaunch && !spawnerOn {
+		if _, isLaunch := t.(LaunchAgentTool); isLaunch && !mgrOn {
 			continue
 		}
-		if _, isSend := t.(SendMessageTool); isSend && !spawnerOn {
+		if _, isSend := t.(SendMessageTool); isSend && !mgrOn {
+			continue
+		}
+		if _, isStatus := t.(AgentStatusTool); isStatus && !mgrOn {
+			continue
+		}
+		if _, isKill := t.(KillAgentTool); isKill && !mgrOn {
 			continue
 		}
 		if _, isAsk := t.(AskUserQuestionTool); isAsk && !askerOn {

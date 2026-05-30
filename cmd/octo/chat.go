@@ -323,6 +323,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		toolExecutor tools.DefaultRegistry
 		replReader   lineReader
 		replView     ViewSink
+		subAgentMgr  *tools.SubAgentManager
 	)
 	// useTUI: an interactive terminal drives the bubbletea TUI unless the user
 	// (or OCTO_TUI=0) opted out. Piped / redirected stdin always uses the plain
@@ -332,7 +333,9 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	useTUI := isREPL && stdinIsTTY(stdin) && !*noTUI && !tuiDisabledByEnv() && seedPrompt == ""
 	if isREPL {
 		toolExecutor = tools.NewDefaultRegistry()
-		tools.SetSpawner(newAgentSpawner(a, toolExecutor, tools.DefaultTools))
+		spawner := newAgentSpawner(a, toolExecutor, tools.DefaultTools)
+		tools.SetSpawner(spawner)
+		subAgentMgr = tools.NewSubAgentManager(spawner)
 		if useTUI {
 			// bubbletea owns stdin and renders its own input; the asker and gate
 			// are wired to the TUI sink inside runTUI. No readline reader or
@@ -469,6 +472,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			// tracker / mutex-guarded state.
 			cfg.tools = tools.DefaultTools()
 			cfg.executor = toolExecutor
+			cfg.subAgentMgr = subAgentMgr
 
 			// Build the permission engine that gates every tool call.
 			cwd, _ := os.Getwd()

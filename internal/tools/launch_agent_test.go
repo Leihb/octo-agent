@@ -26,6 +26,10 @@ type stubSpawner struct {
 	continueErr   error
 	contAgentID   string
 	contMessage   string
+	contCalled    chan struct{} // closed on first Continue call; safe to recreate per test
+
+	// Spawn support (for async tests).
+	spawnCalled chan struct{} // closed on first Spawn call; safe to recreate per test
 }
 
 func (s *stubSpawner) Spawn(_ context.Context, req SpawnRequest) (SpawnResult, error) {
@@ -39,6 +43,10 @@ func (s *stubSpawner) Spawn(_ context.Context, req SpawnRequest) (SpawnResult, e
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, req)
+	if s.spawnCalled != nil {
+		close(s.spawnCalled)
+		s.spawnCalled = nil
+	}
 	if len(s.replies) == 0 {
 		return SpawnResult{}, nil
 	}
@@ -53,6 +61,10 @@ func (s *stubSpawner) Continue(_ context.Context, agentID, message string) (Spaw
 	defer s.mu.Unlock()
 	s.contAgentID = agentID
 	s.contMessage = message
+	if s.contCalled != nil {
+		close(s.contCalled)
+		s.contCalled = nil
+	}
 	if s.continueErr != nil {
 		return SpawnResult{}, s.continueErr
 	}
@@ -83,27 +95,32 @@ func TestLaunchAgentTool_Schema(t *testing.T) {
 }
 
 func TestLaunchAgentTool_Execute(t *testing.T) {
-	useSpawner(t, &stubSpawner{
+	stub := &stubSpawner{
 		replies: []SpawnResult{{Reply: "sub-agent finding", InputTokens: 100, OutputTokens: 50}},
-	})
+	}
+	mgr := NewSubAgentManager(stub)
 
-	out, err := LaunchAgentTool{}.Execute(context.Background(), "launch_agent", map[string]any{
+	out, err := LaunchAgentTool{mgr: mgr}.Execute(context.Background(), "launch_agent", map[string]any{
 		"description": "Investigate X",
 		"prompt":      "Find every reference to FooBar.",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Text != "sub-agent finding" {
-		t.Errorf("Execute returned %q, want %q", out.Text, "sub-agent finding")
+	if !strings.Contains(out.Text, "Started sub-agent") {
+		t.Errorf("Execute returned %q, want 'Started sub-agent' prefix", out.Text)
 	}
 }
 
 func TestLaunchAgentTool_PassesArgsThroughToSpawner(t *testing.T) {
-	stub := &stubSpawner{replies: []SpawnResult{{Reply: "ok"}}}
-	useSpawner(t, stub)
+	spawnCalled := make(chan struct{})
+	stub := &stubSpawner{
+		replies:     []SpawnResult{{Reply: "ok"}},
+		spawnCalled: spawnCalled,
+	}
+	mgr := NewSubAgentManager(stub)
 
-	_, err := LaunchAgentTool{}.Execute(context.Background(), "launch_agent", map[string]any{
+	_, err := LaunchAgentTool{mgr: mgr}.Execute(context.Background(), "launch_agent", map[string]any{
 		"description": "Audit",
 		"prompt":      "Run a security audit.",
 		"tools":       []any{"read_file", "grep"},
@@ -112,6 +129,14 @@ func TestLaunchAgentTool_PassesArgsThroughToSpawner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Wait for the async Spawn goroutine to reach the spawner.
+	select {
+	case <-spawnCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for Spawn to be called")
+	}
+
 	if len(stub.calls) != 1 {
 		t.Fatalf("expected 1 spawner call, got %d", len(stub.calls))
 	}
@@ -125,14 +150,28 @@ func TestLaunchAgentTool_PassesArgsThroughToSpawner(t *testing.T) {
 }
 
 func TestLaunchAgentTool_DescriptionDefaultsFromPrompt(t *testing.T) {
-	stub := &stubSpawner{replies: []SpawnResult{{Reply: "ok"}}}
-	useSpawner(t, stub)
+	spawnCalled := make(chan struct{})
+	stub := &stubSpawner{
+		replies:     []SpawnResult{{Reply: "ok"}},
+		spawnCalled: spawnCalled,
+	}
+	mgr := NewSubAgentManager(stub)
 
-	_, err := LaunchAgentTool{}.Execute(context.Background(), "launch_agent", map[string]any{
+	_, err := LaunchAgentTool{mgr: mgr}.Execute(context.Background(), "launch_agent", map[string]any{
 		"prompt": "Examine the cache invalidation logic.\nReport back.",
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	select {
+	case <-spawnCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for Spawn to be called")
+	}
+
+	if len(stub.calls) == 0 {
+		t.Fatal("expected at least 1 spawner call")
 	}
 	if stub.calls[0].Description == "" {
 		t.Error("missing description should fall back to first prompt line")
@@ -140,11 +179,12 @@ func TestLaunchAgentTool_DescriptionDefaultsFromPrompt(t *testing.T) {
 }
 
 func TestLaunchAgentTool_RecursionRefused(t *testing.T) {
-	useSpawner(t, &stubSpawner{replies: []SpawnResult{{Reply: "would have worked"}}})
+	stub := &stubSpawner{replies: []SpawnResult{{Reply: "would have worked"}}}
+	mgr := NewSubAgentManager(stub)
 
 	// Mark the context as already inside a sub-agent.
 	ctx := WithSubAgentMarker(context.Background())
-	_, err := LaunchAgentTool{}.Execute(ctx, "launch_agent", map[string]any{
+	_, err := LaunchAgentTool{mgr: mgr}.Execute(ctx, "launch_agent", map[string]any{
 		"description": "x",
 		"prompt":      "y",
 	})
@@ -153,8 +193,7 @@ func TestLaunchAgentTool_RecursionRefused(t *testing.T) {
 	}
 }
 
-func TestLaunchAgentTool_NoSpawnerConfigured(t *testing.T) {
-	SetSpawner(nil)
+func TestLaunchAgentTool_NoManagerConfigured(t *testing.T) {
 	_, err := LaunchAgentTool{}.Execute(context.Background(), "launch_agent", map[string]any{
 		"description": "x",
 		"prompt":      "y",
@@ -165,8 +204,9 @@ func TestLaunchAgentTool_NoSpawnerConfigured(t *testing.T) {
 }
 
 func TestLaunchAgentTool_PromptRequired(t *testing.T) {
-	useSpawner(t, &stubSpawner{})
-	_, err := LaunchAgentTool{}.Execute(context.Background(), "launch_agent", map[string]any{
+	stub := &stubSpawner{}
+	mgr := NewSubAgentManager(stub)
+	_, err := LaunchAgentTool{mgr: mgr}.Execute(context.Background(), "launch_agent", map[string]any{
 		"description": "x",
 	})
 	if err == nil || !strings.Contains(err.Error(), "prompt is required") {
@@ -174,35 +214,81 @@ func TestLaunchAgentTool_PromptRequired(t *testing.T) {
 	}
 }
 
-func TestLaunchAgentTool_EmptyReplySurfacedExplicitly(t *testing.T) {
-	useSpawner(t, &stubSpawner{replies: []SpawnResult{{Reply: "   "}}})
+func TestLaunchAgentTool_EmptyReplyNotification(t *testing.T) {
+	stub := &stubSpawner{replies: []SpawnResult{{Reply: "   "}}}
+	mgr := NewSubAgentManager(stub)
 
-	out, err := LaunchAgentTool{}.Execute(context.Background(), "launch_agent", map[string]any{
+	var notif SubAgentNotification
+	done := make(chan struct{})
+	mgr.SetOnExit(func(ev SubAgentNotification) {
+		notif = ev
+		close(done)
+	})
+
+	out, err := LaunchAgentTool{mgr: mgr}.Execute(context.Background(), "launch_agent", map[string]any{
 		"description": "silent run",
 		"prompt":      "do nothing",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.Text, "produced no reply") {
-		t.Errorf("empty reply should be surfaced explicitly, got %q", out.Text)
+	if !strings.Contains(out.Text, "Started sub-agent") {
+		t.Errorf("expected 'Started sub-agent' message, got %q", out.Text)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for notification")
+	}
+
+	// Empty reply should still produce a notification (with empty or whitespace result).
+	if notif.AgentID == "" {
+		t.Error("expected non-empty AgentID in notification")
+	}
+	if notif.Kind != "spawn_done" {
+		t.Errorf("Kind = %q, want spawn_done", notif.Kind)
 	}
 }
 
 func TestLaunchAgentTool_SpawnerErrorPropagates(t *testing.T) {
-	useSpawner(t, &stubSpawner{err: errors.New("provider unreachable")})
-	_, err := LaunchAgentTool{}.Execute(context.Background(), "launch_agent", map[string]any{
+	stub := &stubSpawner{err: errors.New("provider unreachable")}
+	mgr := NewSubAgentManager(stub)
+
+	var notif SubAgentNotification
+	done := make(chan struct{})
+	mgr.SetOnExit(func(ev SubAgentNotification) {
+		notif = ev
+		close(done)
+	})
+
+	_, err := LaunchAgentTool{mgr: mgr}.Execute(context.Background(), "launch_agent", map[string]any{
 		"description": "x",
 		"prompt":      "y",
 	})
-	if err == nil || !strings.Contains(err.Error(), "provider unreachable") {
-		t.Errorf("expected propagated spawner error, got %v", err)
+	// Execute returns immediately (async); error arrives via notification.
+	if err != nil {
+		t.Fatalf("Execute should not error for async spawn, got %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for error notification")
+	}
+
+	if !strings.Contains(notif.Result, "provider unreachable") {
+		t.Errorf("expected error notification containing 'provider unreachable', got %q", notif.Result)
 	}
 }
 
 func TestDefaultTools_LaunchAgentGatedOnSpawner(t *testing.T) {
 	SetSpawner(nil)
-	t.Cleanup(func() { SetSpawner(nil) })
+	SetDefaultSubAgentManager(nil)
+	t.Cleanup(func() {
+		SetSpawner(nil)
+		SetDefaultSubAgentManager(nil)
+	})
 
 	has := func() bool {
 		for _, d := range DefaultTools() {
@@ -214,11 +300,18 @@ func TestDefaultTools_LaunchAgentGatedOnSpawner(t *testing.T) {
 	}
 
 	if has() {
-		t.Error("launch_agent should be absent when no spawner is configured")
+		t.Error("launch_agent should be absent when no spawner/manager is configured")
 	}
+	// Registering a spawner should NOT make launch_agent appear anymore —
+	// it needs a SubAgentManager instead.
 	useSpawner(t, &stubSpawner{})
+	if has() {
+		t.Error("launch_agent should still be absent with only spawner (needs SubAgentManager)")
+	}
+	// Registering the manager makes it appear.
+	SetDefaultSubAgentManager(NewSubAgentManager(&stubSpawner{}))
 	if !has() {
-		t.Error("launch_agent should be present once a spawner is registered")
+		t.Error("launch_agent should be present once a SubAgentManager is registered")
 	}
 }
 

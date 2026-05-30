@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSendMessageTool_Schema(t *testing.T) {
@@ -24,41 +25,44 @@ func TestSendMessageTool_Schema(t *testing.T) {
 	}
 }
 
-func TestSendMessageTool_ContinuesAndTagsReply(t *testing.T) {
-	stub := &stubSpawner{continueReply: SpawnResult{AgentID: "a1b2c3d4", Reply: "next round done"}}
-	useSpawner(t, stub)
+func TestSendMessageTool_AsyncDelivery(t *testing.T) {
+	contCalled := make(chan struct{})
+	stub := &stubSpawner{
+		continueReply: SpawnResult{AgentID: "a1b2c3d4", Reply: "next round done"},
+		contCalled:    contCalled,
+	}
+	mgr := NewSubAgentManager(stub)
 
-	out, err := SendMessageTool{}.Execute(context.Background(), "send_message", map[string]any{
-		"agent_id": "a1b2c3d4",
+	// First launch a sub-agent so it exists.
+	_, _ = mgr.Start(SpawnRequest{Description: "test", Prompt: "do it"})
+	time.Sleep(50 * time.Millisecond)
+
+	out, err := SendMessageTool{mgr: mgr}.Execute(context.Background(), "send_message", map[string]any{
+		"agent_id": "agent_1",
 		"message":  "now do the second half",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Text != "[agent a1b2c3d4] next round done" {
-		t.Errorf("Execute returned %q, want tagged reply", out.Text)
+	if !strings.Contains(out.Text, "Message sent") {
+		t.Errorf("Execute returned %q, want 'Message sent' prefix", out.Text)
 	}
-	if stub.contAgentID != "a1b2c3d4" || stub.contMessage != "now do the second half" {
+
+	// Wait for the async Continue goroutine to reach the spawner.
+	select {
+	case <-contCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for Continue to be called")
+	}
+
+	if stub.contAgentID != "agent_1" || stub.contMessage != "now do the second half" {
 		t.Errorf("Continue got (%q,%q)", stub.contAgentID, stub.contMessage)
 	}
 }
 
-func TestSendMessageTool_EmptyReplySurfaced(t *testing.T) {
-	useSpawner(t, &stubSpawner{continueReply: SpawnResult{AgentID: "id", Reply: "  "}})
-	out, err := SendMessageTool{}.Execute(context.Background(), "send_message", map[string]any{
-		"agent_id": "id",
-		"message":  "ping",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.Text, "produced no reply") {
-		t.Errorf("empty reply should be surfaced, got %q", out.Text)
-	}
-}
-
 func TestSendMessageTool_RequiredArgs(t *testing.T) {
-	useSpawner(t, &stubSpawner{})
+	stub := &stubSpawner{}
+	mgr := NewSubAgentManager(stub)
 	cases := []struct {
 		name  string
 		input map[string]any
@@ -69,7 +73,7 @@ func TestSendMessageTool_RequiredArgs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := SendMessageTool{}.Execute(context.Background(), "send_message", tc.input)
+			_, err := SendMessageTool{mgr: mgr}.Execute(context.Background(), "send_message", tc.input)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("want %q, got %v", tc.want, err)
 			}
@@ -78,9 +82,10 @@ func TestSendMessageTool_RequiredArgs(t *testing.T) {
 }
 
 func TestSendMessageTool_RecursionRefused(t *testing.T) {
-	useSpawner(t, &stubSpawner{continueReply: SpawnResult{AgentID: "id", Reply: "would have worked"}})
+	stub := &stubSpawner{continueReply: SpawnResult{AgentID: "id", Reply: "would have worked"}}
+	mgr := NewSubAgentManager(stub)
 	ctx := WithSubAgentMarker(context.Background())
-	_, err := SendMessageTool{}.Execute(ctx, "send_message", map[string]any{
+	_, err := SendMessageTool{mgr: mgr}.Execute(ctx, "send_message", map[string]any{
 		"agent_id": "id",
 		"message":  "wake up",
 	})
@@ -89,8 +94,7 @@ func TestSendMessageTool_RecursionRefused(t *testing.T) {
 	}
 }
 
-func TestSendMessageTool_NoSpawnerConfigured(t *testing.T) {
-	SetSpawner(nil)
+func TestSendMessageTool_NoManagerConfigured(t *testing.T) {
 	_, err := SendMessageTool{}.Execute(context.Background(), "send_message", map[string]any{
 		"agent_id": "id",
 		"message":  "x",
@@ -100,20 +104,22 @@ func TestSendMessageTool_NoSpawnerConfigured(t *testing.T) {
 	}
 }
 
-func TestSendMessageTool_ContinueErrorPropagates(t *testing.T) {
-	useSpawner(t, &stubSpawner{continueErr: errors.New("no longer alive")})
-	_, err := SendMessageTool{}.Execute(context.Background(), "send_message", map[string]any{
+func TestSendMessageTool_SendErrorPropagates(t *testing.T) {
+	stub := &stubSpawner{continueErr: errors.New("no longer alive")}
+	mgr := NewSubAgentManager(stub)
+	// Don't create the agent first — Send will fail with "no sub-agent".
+	_, err := SendMessageTool{mgr: mgr}.Execute(context.Background(), "send_message", map[string]any{
 		"agent_id": "stale",
 		"message":  "x",
 	})
-	if err == nil || !strings.Contains(err.Error(), "no longer alive") {
-		t.Errorf("expected propagated continue error, got %v", err)
+	if err == nil {
+		t.Fatal("expected error for unknown agent")
 	}
 }
 
-func TestDefaultTools_SendMessageGatedOnSpawner(t *testing.T) {
-	SetSpawner(nil)
-	t.Cleanup(func() { SetSpawner(nil) })
+func TestDefaultTools_SendMessageGatedOnManager(t *testing.T) {
+	SetDefaultSubAgentManager(nil)
+	t.Cleanup(func() { SetDefaultSubAgentManager(nil) })
 
 	has := func() bool {
 		for _, d := range DefaultTools() {
@@ -125,24 +131,10 @@ func TestDefaultTools_SendMessageGatedOnSpawner(t *testing.T) {
 	}
 
 	if has() {
-		t.Error("send_message should be absent when no spawner is configured")
+		t.Error("send_message should be absent when no SubAgentManager is configured")
 	}
-	useSpawner(t, &stubSpawner{})
+	SetDefaultSubAgentManager(NewSubAgentManager(&stubSpawner{}))
 	if !has() {
-		t.Error("send_message should be present once a spawner is registered")
-	}
-}
-
-func TestLaunchAgentTool_TagsReplyWithAgentID(t *testing.T) {
-	useSpawner(t, &stubSpawner{replies: []SpawnResult{{AgentID: "deadbeef", Reply: "the finding"}}})
-	out, err := LaunchAgentTool{}.Execute(context.Background(), "launch_agent", map[string]any{
-		"description": "Investigate",
-		"prompt":      "look into X",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Text != "[agent deadbeef] the finding" {
-		t.Errorf("launch_agent reply should carry the agent tag, got %q", out.Text)
+		t.Error("send_message should be present once a SubAgentManager is registered")
 	}
 }

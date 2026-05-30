@@ -79,6 +79,10 @@ func ActiveSpawner() Spawner { return activeSpawner }
 
 func spawnerEnabled() bool { return activeSpawner != nil }
 
+// subAgentManagerEnabled reports whether a SubAgentManager is registered,
+// which is required for the async launch_agent / send_agent_message tools.
+func subAgentManagerEnabled() bool { return defaultSubAgentMgr != nil }
+
 // subAgentCtxKey marks a context as belonging to a sub-agent's run. The
 // launch_agent tool checks for it to refuse recursive nesting (a sub-agent
 // trying to spawn another sub-agent), defense-in-depth on top of the
@@ -105,20 +109,34 @@ func IsSubAgent(ctx context.Context) bool {
 // — name borrowed from Claude Code's `Agent` tool but the surface is closer
 // to Codex's sub-agent (no event stream surfaced to the parent, just a
 // final string).
-type LaunchAgentTool struct{}
+//
+// The spawn is asynchronous: Execute returns immediately with a "started"
+// message; the result arrives later via the SubAgentManager's onExit hook
+// as a SubAgentNotification.
+type LaunchAgentTool struct {
+	mgr *SubAgentManager
+}
+
+func (t LaunchAgentTool) manager() *SubAgentManager {
+	if t.mgr != nil {
+		return t.mgr
+	}
+	return defaultSubAgentMgr
+}
 
 func (LaunchAgentTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name: "launch_agent",
-		Description: "Spawn an autonomous sub-agent to handle a focused sub-task and " +
-			"return its final answer. Use when you need parallel investigation (research two " +
-			"unrelated areas in one tool_use), when you want a fresh context window for an " +
-			"isolated sub-problem (the sub-agent doesn't see this conversation), or when the " +
-			"sub-task is well-defined enough to delegate without back-and-forth. The sub-agent " +
-			"has the same tools as you (minus launch_agent itself — no recursion) and reports " +
-			"a single text reply when done. Multiple launch_agent calls in one tool_use batch " +
-			"run in parallel. Don't use for tasks that need ongoing user steering or that " +
-			"depend on what's in this conversation.",
+		Description: "Spawn an autonomous sub-agent to handle a focused sub-task. " +
+			"The sub-agent runs asynchronously: you will receive a notification with its " +
+			"final answer when it completes. Use when you need parallel investigation " +
+			"(research two unrelated areas in one tool_use), when you want a fresh context " +
+			"window for an isolated sub-problem (the sub-agent doesn't see this conversation), " +
+			"or when the sub-task is well-defined enough to delegate without back-and-forth. " +
+			"The sub-agent has the same tools as you (minus launch_agent itself — no recursion). " +
+			"Multiple launch_agent calls in one tool_use batch run in parallel. " +
+			"Don't use for tasks that need ongoing user steering or that depend on " +
+			"what's in this conversation.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -145,10 +163,7 @@ func (LaunchAgentTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (LaunchAgentTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
-	if !spawnerEnabled() {
-		return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: sub-agent dispatch is not configured for this session")
-	}
+func (t LaunchAgentTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	if IsSubAgent(ctx) {
 		// Defense in depth — the Spawner is supposed to filter launch_agent
 		// out of a child's tool list, but a hallucinated tool call would
@@ -167,24 +182,24 @@ func (LaunchAgentTool) Execute(ctx context.Context, _ string, input map[string]a
 		desc = firstLine(prompt)
 	}
 
+	mgr := t.manager()
+	if mgr == nil {
+		return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: sub-agent dispatch is not configured for this session")
+	}
+
 	req := SpawnRequest{
 		Description: desc,
 		Prompt:      prompt,
 		Tools:       stringSliceArg(input, "tools"),
 		Model:       strings.TrimSpace(stringArg(input, "model")),
 	}
-	res, err := activeSpawner.Spawn(ctx, req)
+	id, err := mgr.Start(req)
 	if err != nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: %w", err)
 	}
-	reply := strings.TrimSpace(res.Reply)
-	if reply == "" {
-		// A sub-agent that ended with no final text isn't fatal — it just
-		// has nothing to say. Surface that explicitly so the parent doesn't
-		// guess.
-		return agent.ToolResult{Text: "(sub-agent " + desc + " produced no reply)"}, nil
-	}
-	return agent.ToolResult{Text: withAgentTag(res.AgentID, reply)}, nil
+	return agent.ToolResult{
+		Text: fmt.Sprintf("Started sub-agent %s. You will be notified when it completes.", id),
+	}, nil
 }
 
 // stringSliceArg pulls an []string argument tolerating absence and the JSON

@@ -54,6 +54,22 @@ func runTUI(cfg replConfig) int {
 	}
 	tools.SetAsker(newREPLAsker(sink))
 
+	// Sub-agent manager: wire the onExit hook so completion notifications ride
+	// the same steer path as background-process notices, and send a TUI msg
+	// for scrollback display.
+	if cfg.subAgentMgr != nil {
+		tools.SetDefaultSubAgentManager(cfg.subAgentMgr)
+		cfg.subAgentMgr.SetOnExit(func(ev tools.SubAgentNotification) {
+			cfg.a.Steer(formatSubAgentNote(ev))
+			p.Send(subAgentNoteMsg{ev})
+		})
+		defer func() {
+			cfg.subAgentMgr.SetOnExit(nil)
+			tools.SetDefaultSubAgentManager(nil)
+			cfg.subAgentMgr.KillAll()
+		}()
+	}
+
 	// Background-process completion notifications. Fired from a process's
 	// waiter goroutine, so each path is goroutine-safe: Steer is mutex-guarded
 	// (folds the notice into the next tool-batch boundary or turn), and
@@ -92,8 +108,9 @@ type turnEndedMsg struct {
 }
 type turnFinishedMsg struct{ err error } // the turn goroutine returned
 type noticeMsg struct{ text string }
-type bgExitMsg struct{ e tools.BgExit } // a background process finished (async)
-type tickMsg struct{}                   // animation tick while a turn runs
+type bgExitMsg struct{ e tools.BgExit }                      // a background process finished (async)
+type subAgentNoteMsg struct{ ev tools.SubAgentNotification } // a sub-agent completed (async)
+type tickMsg struct{}                                        // animation tick while a turn runs
 type askMsg struct {
 	prompt UserPrompt
 	resp   chan UserResponse
@@ -313,6 +330,17 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// mid-turn — it's just another committed line.
 		return m, tea.Println(noticeStyle.Render(fmt.Sprintf(
 			"↳ %s (%s) %s", msg.e.ID, truncate1Line(msg.e.Command), msg.e.Status)))
+
+	case subAgentNoteMsg:
+		// Async sub-agent completion: show a one-line scrollback notice (the
+		// full result rode into the conversation via Steer). Safe to print
+		// mid-turn.
+		label := "completed"
+		if msg.ev.Kind == "message_reply" {
+			label = "replied"
+		}
+		return m, tea.Println(noticeStyle.Render(fmt.Sprintf(
+			"↳ sub-agent %s (%s) %s", msg.ev.AgentID, truncate1Line(msg.ev.Description), label)))
 
 	case turnEndedMsg:
 		// Flush any trailing assistant block (markdown-rendered); then render
