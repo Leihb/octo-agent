@@ -38,36 +38,36 @@ func (WriteFileTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (WriteFileTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+func (WriteFileTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	path, _ := input["path"].(string)
 	if strings.TrimSpace(path) == "" {
-		return "", fmt.Errorf("write_file: path is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("write_file: path is required")
 	}
 	content, ok := input["content"].(string)
 	if !ok {
 		// Distinguish "not provided" from "empty string". JSON null → not a string.
-		return "", fmt.Errorf("write_file: content is required (string)")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("write_file: content is required (string)")
 	}
 	if secret := scanForSecrets(content); secret != "" {
-		return "", fmt.Errorf("write_file: refusing to write content that contains a %s. "+
+		return agent.ToolResult{Text: ""}, fmt.Errorf("write_file: refusing to write content that contains a %s. "+
 			"If this is genuinely intended (e.g. a test fixture), remove the live-credential "+
 			"shape or create the file outside the agent.", secret)
 	}
 	abs, err := resolvePath(path)
 	if err != nil {
-		return "", err
+		return agent.ToolResult{Text: ""}, err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return "", fmt.Errorf("write_file: mkdir parent: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("write_file: mkdir parent: %w", err)
 	}
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-		return "", fmt.Errorf("write_file: write %q: %w", path, err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("write_file: write %q: %w", path, err)
 	}
 
 	lineCount := strings.Count(content, "\n")
 	if len(content) > 0 && !strings.HasSuffix(content, "\n") {
 		lineCount++
 	}
-	return fmt.Sprintf("Wrote %d bytes (%d lines) to %s", len(content), lineCount, abs), nil
+	return agent.ToolResult{Text: fmt.Sprintf("Wrote %d bytes (%d lines) to %s", len(content), lineCount, abs)}, nil
 }

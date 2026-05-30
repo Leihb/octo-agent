@@ -3,6 +3,7 @@ package openai
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -291,8 +292,12 @@ func toAPIMessages(systemPrompt string, in []agent.Message) ([]apiMessage, error
 		// §5) can't ride on a role="tool" message, so it's emitted as a separate
 		// role="user" message AFTER the tool outputs, which is the OpenAI-shaped
 		// equivalent of Anthropic's [tool_result…, text] user message.
+		//
+		// Image blocks are folded into the user message as content parts (OpenAI
+		// vision format: [{type:"text",text:"..."},{type:"image_url",image_url:{url:"data:..."}}]).
 		if m.Role == agent.RoleUser && len(m.Blocks) > 0 {
 			var steerText strings.Builder
+			var contentParts []apiContentPart
 			for _, b := range m.Blocks {
 				switch b.Type {
 				case "tool_result":
@@ -306,10 +311,29 @@ func toAPIMessages(systemPrompt string, in []agent.Message) ([]apiMessage, error
 						steerText.WriteString("\n\n")
 					}
 					steerText.WriteString(b.Text)
+				case "image":
+					if b.Image != nil {
+						dataURL := fmt.Sprintf("data:%s;base64,%s", b.Image.MIMEType, base64.StdEncoding.EncodeToString(b.Image.Data))
+						contentParts = append(contentParts, apiContentPart{
+							Type: "image_url",
+							ImageURL: &struct {
+								URL string `json:"url"`
+							}{URL: dataURL},
+						})
+					}
 				}
 			}
 			if steerText.Len() > 0 {
-				out = append(out, apiMessage{Role: "user", Content: steerText.String()})
+				contentParts = append([]apiContentPart{{Type: "text", Text: steerText.String()}}, contentParts...)
+			}
+			if len(contentParts) > 0 {
+				// Use array format only when images are present; otherwise stick to
+				// plain string content for compatibility with tests and simpler wire.
+				if len(contentParts) == 1 && contentParts[0].Type == "text" {
+					out = append(out, apiMessage{Role: "user", Content: contentParts[0].Text})
+				} else {
+					out = append(out, apiMessage{Role: "user", ContentParts: contentParts})
+				}
 			}
 			continue
 		}

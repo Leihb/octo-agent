@@ -331,6 +331,80 @@ func TestSend_ToolResultWithSteerText_WireFormat(t *testing.T) {
 	}
 }
 
+// TestSend_ImageBlock_WireFormat verifies that an image content block is
+// serialized as an OpenAI vision content array with a data URL.
+//
+// OpenAI protocol: tool_result blocks become role="tool" messages, while
+// image blocks ride on a separate role="user" message with a content array.
+func TestSend_ImageBlock_WireFormat(t *testing.T) {
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"id":"x","object":"chat.completion","model":"x","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+
+	msgs := []agent.Message{
+		agent.NewUserMessage("describe this"),
+		agent.NewToolUseMessage([]agent.ContentBlock{
+			agent.NewToolUseBlock("call-1", "read_file", map[string]any{"path": "/tmp/img.png"}),
+		}),
+		agent.NewToolResultMessage([]agent.ContentBlock{
+			agent.NewToolResultBlock("call-1", "Image: /tmp/img.png (image/png, 12 B)", false),
+			agent.NewImageBlock("image/png", []byte{0x89, 0x50}),
+		}),
+	}
+
+	_, err := c.Send(context.Background(), provider.Request{Model: "x", Messages: msgs})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	var wireReq struct {
+		Messages []struct {
+			Role       string `json:"role"`
+			Content    any    `json:"content"`
+			ToolCallID string `json:"tool_call_id"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(capturedBody, &wireReq); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// user, assistant(tool_call), tool(result), user(image)
+	if len(wireReq.Messages) != 4 {
+		t.Fatalf("messages len = %d, want 4: %s", len(wireReq.Messages), capturedBody)
+	}
+	// msg[2] = tool result
+	if wireReq.Messages[2].Role != "tool" || wireReq.Messages[2].ToolCallID != "call-1" {
+		t.Errorf("msg[2] = %+v, want tool/call-1", wireReq.Messages[2])
+	}
+	// msg[3] = user message carrying the image block
+	if wireReq.Messages[3].Role != "user" {
+		t.Errorf("msg[3].role = %q, want user", wireReq.Messages[3].Role)
+	}
+	// Content should be an array with an image_url part.
+	parts, ok := wireReq.Messages[3].Content.([]any)
+	if !ok {
+		t.Fatalf("msg[3].content = %T, want []any", wireReq.Messages[3].Content)
+	}
+	if len(parts) != 1 {
+		t.Fatalf("content parts len = %d, want 1", len(parts))
+	}
+	first, _ := parts[0].(map[string]any)
+	if first["type"] != "image_url" {
+		t.Errorf("parts[0].type = %v, want image_url", first["type"])
+	}
+	imgURL, _ := first["image_url"].(map[string]any)
+	url, _ := imgURL["url"].(string)
+	if !strings.HasPrefix(url, "data:image/png;base64,") {
+		t.Errorf("image_url.url prefix wrong: %q", url)
+	}
+}
+
 // TestSend_NoTools_FieldAbsent ensures we don't send a "tools" key at all
 // when no tools are defined (some OpenAI-compatible servers reject the field
 // even when empty).

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased — 0.5.0-dev]
+## [Unreleased — 0.6.0-dev]
 
 ### Changed
 - **Diff / output cards adapt to light & dark terminals.** The `internal/tui` cards were github-dark-tuned only; their colours now come from an adaptive palette (`lipgloss.AdaptiveColor`, GitHub light/dark values) and the diff row washes + Chroma syntax style switch together on a one-time terminal-background probe (pale washes + the `github` style on light terminals, deep washes + `github-dark` on dark). Resolves the last TUI-upgrade follow-up; the dark rendering is unchanged.

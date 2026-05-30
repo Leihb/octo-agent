@@ -94,8 +94,8 @@ func TestLaunchAgentTool_Execute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "sub-agent finding" {
-		t.Errorf("Execute returned %q, want %q", out, "sub-agent finding")
+	if out.Text != "sub-agent finding" {
+		t.Errorf("Execute returned %q, want %q", out.Text, "sub-agent finding")
 	}
 }
 
@@ -184,8 +184,8 @@ func TestLaunchAgentTool_EmptyReplySurfacedExplicitly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "produced no reply") {
-		t.Errorf("empty reply should be surfaced explicitly, got %q", out)
+	if !strings.Contains(out.Text, "produced no reply") {
+		t.Errorf("empty reply should be surfaced explicitly, got %q", out.Text)
 	}
 }
 

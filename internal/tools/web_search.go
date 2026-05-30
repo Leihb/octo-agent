@@ -94,10 +94,10 @@ func (WebSearchTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (WebSearchTool) Execute(ctx context.Context, _ string, input map[string]any) (string, error) {
+func (WebSearchTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	query, _ := input["query"].(string)
 	if strings.TrimSpace(query) == "" {
-		return "", fmt.Errorf("web_search: query is required")
+		return agent.ToolResult{}, fmt.Errorf("web_search: query is required")
 	}
 	max := intArg(input, "max_results", WebSearchDefaultMax)
 	if max < 1 {
@@ -171,9 +171,9 @@ func (WebSearchTool) Execute(ctx context.Context, _ string, input map[string]any
 
 	body, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("web_search: marshal: %w", err)
+		return agent.ToolResult{}, fmt.Errorf("web_search: marshal: %w", err)
 	}
-	return string(body), nil
+	return agent.ToolResult{Text: string(body)}, nil
 }
 
 // ───────────────────── paid API backends ─────────────────────

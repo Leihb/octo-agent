@@ -41,35 +41,35 @@ func (SendMessageTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (SendMessageTool) Execute(ctx context.Context, _ string, input map[string]any) (string, error) {
+func (SendMessageTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	if !spawnerEnabled() {
-		return "", fmt.Errorf("send_message: sub-agent dispatch is not configured for this session")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("send_message: sub-agent dispatch is not configured for this session")
 	}
 	if IsSubAgent(ctx) {
 		// Symmetric with launch_agent's recursion guard: a sub-agent must not
 		// be able to wake another sub-agent. Defense in depth on top of the
 		// Spawner dropping send_message from every child's tool list.
-		return "", fmt.Errorf("send_message: a sub-agent cannot message another sub-agent")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("send_message: a sub-agent cannot message another sub-agent")
 	}
 
 	agentID := strings.TrimSpace(stringArg(input, "agent_id"))
 	message := strings.TrimSpace(stringArg(input, "message"))
 	if agentID == "" {
-		return "", fmt.Errorf("send_message: agent_id is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("send_message: agent_id is required")
 	}
 	if message == "" {
-		return "", fmt.Errorf("send_message: message is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("send_message: message is required")
 	}
 
 	res, err := activeSpawner.Continue(ctx, agentID, message)
 	if err != nil {
-		return "", fmt.Errorf("send_message: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("send_message: %w", err)
 	}
 	reply := strings.TrimSpace(res.Reply)
 	if reply == "" {
-		return "(sub-agent " + agentID + " produced no reply)", nil
+		return agent.ToolResult{Text: "(sub-agent " + agentID + " produced no reply)"}, nil
 	}
-	return withAgentTag(res.AgentID, reply), nil
+	return agent.ToolResult{Text: withAgentTag(res.AgentID, reply)}, nil
 }
 
 // withAgentTag prefixes a sub-agent reply with "[agent <id>] " so the parent

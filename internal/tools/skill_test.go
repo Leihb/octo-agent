@@ -33,8 +33,8 @@ func TestSkillTool_Execute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if out != "Step 1: be nice." {
-		t.Errorf("body = %q", out)
+	if out.Text != "Step 1: be nice." {
+		t.Errorf("body = %q", out.Text)
 	}
 }
 

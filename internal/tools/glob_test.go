@@ -21,11 +21,11 @@ func TestGlob_FlatStarPattern(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "a.go") || !strings.Contains(out, "b.go") {
-		t.Errorf("expected a.go and b.go in output:\n%s", out)
+	if !strings.Contains(out.Text, "a.go") || !strings.Contains(out.Text, "b.go") {
+		t.Errorf("expected a.go and b.go in output:\n%s", out.Text)
 	}
-	if strings.Contains(out, "c.txt") {
-		t.Errorf(".txt should not match *.go:\n%s", out)
+	if strings.Contains(out.Text, "c.txt") {
+		t.Errorf(".txt should not match *.go:\n%s", out.Text)
 	}
 }
 
@@ -44,11 +44,11 @@ func TestGlob_DoubleStarRecursive(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	for _, want := range []string{"top.go", "mid.go", "leaf.go"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("expected %s in output:\n%s", want, out)
+		if !strings.Contains(out.Text, want) {
+			t.Errorf("expected %s in output:\n%s", want, out.Text)
 		}
 	}
-	if strings.Contains(out, "other.txt") {
+	if strings.Contains(out.Text, "other.txt") {
 		t.Errorf("other.txt should not match")
 	}
 }
@@ -70,10 +70,10 @@ func TestGlob_SortedByMtimeDescending(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	// newer.txt should appear before older.txt in the output.
-	idxNew := strings.Index(out, "newer.txt")
-	idxOld := strings.Index(out, "older.txt")
+	idxNew := strings.Index(out.Text, "newer.txt")
+	idxOld := strings.Index(out.Text, "older.txt")
 	if idxNew < 0 || idxOld < 0 || idxNew > idxOld {
-		t.Errorf("expected newer.txt before older.txt:\n%s", out)
+		t.Errorf("expected newer.txt before older.txt:\n%s", out.Text)
 	}
 }
 
@@ -90,11 +90,11 @@ func TestGlob_SkipsGitAndNodeModules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "real.go") {
-		t.Errorf("real.go missing:\n%s", out)
+	if !strings.Contains(out.Text, "real.go") {
+		t.Errorf("real.go missing:\n%s", out.Text)
 	}
-	if strings.Contains(out, ".git/") || strings.Contains(out, "node_modules/") {
-		t.Errorf("noise directories should be skipped:\n%s", out)
+	if strings.Contains(out.Text, ".git/") || strings.Contains(out.Text, "node_modules/") {
+		t.Errorf("noise directories should be skipped:\n%s", out.Text)
 	}
 }
 
@@ -107,8 +107,8 @@ func TestGlob_NoMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "no matches") {
-		t.Errorf("expected 'no matches' message: %q", out)
+	if !strings.Contains(out.Text, "no matches") {
+		t.Errorf("expected 'no matches' message: %q", out.Text)
 	}
 }
 

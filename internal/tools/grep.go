@@ -71,9 +71,9 @@ func (GrepTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (string, error) {
+func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	if _, err := exec.LookPath("rg"); err != nil {
-		return "", fmt.Errorf(
+		return agent.ToolResult{Text: ""}, fmt.Errorf(
 			"grep: ripgrep (`rg`) is not installed or not on PATH. " +
 				"Install it from https://github.com/BurntSushi/ripgrep",
 		)
@@ -81,7 +81,7 @@ func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (st
 
 	pattern, _ := input["pattern"].(string)
 	if strings.TrimSpace(pattern) == "" {
-		return "", fmt.Errorf("grep: pattern is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("grep: pattern is required")
 	}
 
 	mode, _ := input["mode"].(string)
@@ -102,7 +102,7 @@ func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (st
 	case "count":
 		args = append(args, "--count-matches")
 	default:
-		return "", fmt.Errorf("grep: unknown mode %q (use content | files_with_matches | count)", mode)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("grep: unknown mode %q (use content | files_with_matches | count)", mode)
 	}
 
 	if ci, _ := input["case_insensitive"].(bool); ci {
@@ -129,7 +129,7 @@ func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (st
 	if p, _ := input["path"].(string); p != "" {
 		abs, err := resolvePath(p)
 		if err != nil {
-			return "", err
+			return agent.ToolResult{Text: ""}, err
 		}
 		args = append(args, abs)
 	}
@@ -140,12 +140,12 @@ func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (st
 		// the LLM's perspective — surface it as a normal result.
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return "(no matches)", nil
+			return agent.ToolResult{Text: "(no matches)"}, nil
 		}
-		return "", fmt.Errorf("grep: rg failed: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("grep: rg failed: %w", err)
 	}
 	if len(out) == 0 {
-		return "(no matches)", nil
+		return agent.ToolResult{Text: "(no matches)"}, nil
 	}
-	return strings.TrimRight(string(out), "\n"), nil
+	return agent.ToolResult{Text: strings.TrimRight(string(out), "\n")}, nil
 }

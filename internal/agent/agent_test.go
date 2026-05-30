@@ -265,14 +265,14 @@ type fakeExecutor struct {
 	called  []string
 }
 
-func (f *fakeExecutor) Execute(_ context.Context, name string, _ map[string]any) (string, error) {
+func (f *fakeExecutor) Execute(_ context.Context, name string, _ map[string]any) (ToolResult, error) {
 	f.called = append(f.called, name)
 	if f.results != nil {
 		if v, ok := f.results[name]; ok {
-			return v, nil
+			return ToolResult{Text: v}, nil
 		}
 	}
-	return "ok", nil
+	return ToolResult{Text: "ok"}, nil
 }
 
 func TestAgent_Run_NoTools_FallsBackToTurn(t *testing.T) {
@@ -488,8 +488,8 @@ type failingExecutor struct {
 	err error
 }
 
-func (f *failingExecutor) Execute(_ context.Context, _ string, _ map[string]any) (string, error) {
-	return "", f.err
+func (f *failingExecutor) Execute(_ context.Context, _ string, _ map[string]any) (ToolResult, error) {
+	return ToolResult{}, f.err
 }
 
 func TestAgent_RunStream_NoTools_EmitsTextDeltaAndTurnDone(t *testing.T) {
@@ -690,17 +690,17 @@ type streamingFakeExecutor struct {
 	called  []string
 }
 
-func (f *streamingFakeExecutor) Execute(_ context.Context, name string, _ map[string]any) (string, error) {
+func (f *streamingFakeExecutor) Execute(_ context.Context, name string, _ map[string]any) (ToolResult, error) {
 	f.called = append(f.called, name)
 	if v, ok := f.results[name]; ok {
-		return v, nil
+		return ToolResult{Text: v}, nil
 	}
-	return "ok", nil
+	return ToolResult{Text: "ok"}, nil
 }
 
 func (f *streamingFakeExecutor) ExecuteStream(
 	_ context.Context, name string, _ map[string]any, progress func(string),
-) (string, error) {
+) (ToolResult, error) {
 	f.called = append(f.called, name)
 	for _, c := range f.chunks {
 		if progress != nil {
@@ -708,9 +708,9 @@ func (f *streamingFakeExecutor) ExecuteStream(
 		}
 	}
 	if v, ok := f.results[name]; ok {
-		return v, nil
+		return ToolResult{Text: v}, nil
 	}
-	return "ok", nil
+	return ToolResult{Text: "ok"}, nil
 }
 
 func TestAgent_RunStream_StreamingExecutor_EmitsProgress(t *testing.T) {

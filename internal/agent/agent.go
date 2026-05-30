@@ -707,36 +707,39 @@ func dispatchTools(ctx context.Context, executor ToolExecutor, blocks []ContentB
 		calls = append(calls, c)
 	}
 
-	results := make([]ContentBlock, len(calls))
+	// Pass 2 — execute. Each tool may return multiple blocks (e.g. tool_result +
+	// image), so we collect per-tool slices and flatten at the end.
+	var resultSlices [][]ContentBlock
 
-	// Pass 2 — execute.
 	if canParallelize(calls) {
 		var wg sync.WaitGroup
+		resultSlices = make([][]ContentBlock, len(calls))
 		for i := range calls {
 			if calls[i].denyReason != "" {
-				results[i] = NewToolResultBlock(calls[i].block.ID, calls[i].denyReason, true)
+				resultSlices[i] = []ContentBlock{NewToolResultBlock(calls[i].block.ID, calls[i].denyReason, true)}
 				continue
 			}
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				out, err := executor.Execute(ctx, calls[i].block.Name, calls[i].block.Input)
-				results[i] = toolResultBlock(calls[i].block.ID, out, err)
+				res, err := executor.Execute(ctx, calls[i].block.Name, calls[i].block.Input)
+				resultSlices[i] = toolResultBlocks(calls[i].block.ID, res, err)
 			}(i)
 		}
 		wg.Wait()
-		return results, nil
+		return flattenResults(resultSlices), nil
 	}
 
 	streaming, hasStreaming := executor.(StreamingToolExecutor)
+	resultSlices = make([][]ContentBlock, len(calls))
 	for i := range calls {
 		b := calls[i].block
 		if calls[i].denyReason != "" {
-			results[i] = NewToolResultBlock(b.ID, calls[i].denyReason, true)
+			resultSlices[i] = []ContentBlock{NewToolResultBlock(b.ID, calls[i].denyReason, true)}
 			continue
 		}
 		var (
-			output  string
+			res     ToolResult
 			execErr error
 		)
 		if hasStreaming && handler != nil {
@@ -747,13 +750,13 @@ func dispatchTools(ctx context.Context, executor ToolExecutor, blocks []ContentB
 				}
 				handler(AgentEvent{Kind: EventToolProgress, ToolID: toolID, ToolName: toolName, Chunk: chunk})
 			}
-			output, execErr = streaming.ExecuteStream(ctx, b.Name, b.Input, progress)
+			res, execErr = streaming.ExecuteStream(ctx, b.Name, b.Input, progress)
 		} else {
-			output, execErr = executor.Execute(ctx, b.Name, b.Input)
+			res, execErr = executor.Execute(ctx, b.Name, b.Input)
 		}
-		results[i] = toolResultBlock(b.ID, output, execErr)
+		resultSlices[i] = toolResultBlocks(b.ID, res, execErr)
 	}
-	return results, nil
+	return flattenResults(resultSlices), nil
 }
 
 // canParallelize reports whether a batch can run concurrently: more than one
@@ -772,15 +775,30 @@ func canParallelize(calls []toolCall) bool {
 	return executable > 1
 }
 
-// toolResultBlock builds a tool_result, mapping an execution error onto an
-// IsError result carrying the error text. Both success output and error text
-// pass through microCompact so a single oversized result can't dominate the
-// context window.
-func toolResultBlock(id, output string, err error) ContentBlock {
+// toolResultBlocks builds a slice of content blocks from a ToolResult.
+// The first element is always the tool_result block; any additional blocks
+// (e.g. images) from the result are appended after it.
+func toolResultBlocks(id string, result ToolResult, err error) []ContentBlock {
 	if err != nil {
-		return NewToolResultBlock(id, microCompact(err.Error()), true)
+		return []ContentBlock{NewToolResultBlock(id, microCompact(err.Error()), true)}
 	}
-	return NewToolResultBlock(id, microCompact(output), false)
+	blocks := make([]ContentBlock, 0, 1+len(result.Blocks))
+	blocks = append(blocks, NewToolResultBlock(id, microCompact(result.Text), false))
+	blocks = append(blocks, result.Blocks...)
+	return blocks
+}
+
+// flattenResults collapses a per-tool slice-of-slices into a single flat slice.
+func flattenResults(slices [][]ContentBlock) []ContentBlock {
+	var total int
+	for _, s := range slices {
+		total += len(s)
+	}
+	out := make([]ContentBlock, 0, total)
+	for _, s := range slices {
+		out = append(out, s...)
+	}
+	return out
 }
 
 // textFromBlocks joins text from all "text" content blocks.

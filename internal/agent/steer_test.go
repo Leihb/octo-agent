@@ -163,10 +163,10 @@ type steeringExecutor struct {
 	fired bool
 }
 
-func (e *steeringExecutor) Execute(_ context.Context, _ string, _ map[string]any) (string, error) {
+func (e *steeringExecutor) Execute(_ context.Context, _ string, _ map[string]any) (ToolResult, error) {
 	if !e.fired {
 		e.a.Steer(e.steer)
 		e.fired = true
 	}
-	return "ok", nil
+	return ToolResult{Text: "ok"}, nil
 }

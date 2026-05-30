@@ -19,8 +19,8 @@ func TestWriteFile_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "12 bytes") || !strings.Contains(out, "2 lines") {
-		t.Errorf("status message wrong: %q", out)
+	if !strings.Contains(out.Text, "12 bytes") || !strings.Contains(out.Text, "2 lines") {
+		t.Errorf("status message wrong: %q", out.Text)
 	}
 	if got := readTestFile(t, path); got != "hello\nworld\n" {
 		t.Errorf("file content = %q", got)

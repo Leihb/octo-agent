@@ -31,7 +31,7 @@ func TestTerminal_SandboxConfinesIO(t *testing.T) {
 	out, err := reg.Execute(ctx, "terminal", map[string]any{
 		"command": "echo hi > " + inside + " && echo OK || echo FAIL:$?",
 	})
-	t.Logf("inside cmd → err=%v out=%q", err, out)
+	t.Logf("inside cmd → err=%v out=%q", err, out.Text)
 	if err != nil {
 		t.Fatalf("terminal execute (inside): %v", err)
 	}

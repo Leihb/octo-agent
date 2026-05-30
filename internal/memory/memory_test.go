@@ -168,7 +168,7 @@ func TestSlugify(t *testing.T) {
 		"Run tests before committing!": "run-tests-before-committing",
 		"  Hello, World  ":             "hello-world",
 		"用户偏好 Go":                      "go",
-		"!!! ":                         "",
+		"!!! ":                         "note-5cafe826",
 	}
 	for in, want := range cases {
 		if got := Slugify(in); got != want {

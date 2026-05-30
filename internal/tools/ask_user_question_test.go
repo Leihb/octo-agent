@@ -55,8 +55,8 @@ func TestAskUserQuestionTool_Execute_SingleChoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "User chose: OAuth" {
-		t.Errorf("Execute result = %q", out)
+	if out.Text != "User chose: OAuth" {
+		t.Errorf("Execute result = %q", out.Text)
 	}
 	if !stub.called {
 		t.Error("asker was never invoked")
@@ -81,8 +81,8 @@ func TestAskUserQuestionTool_Execute_MultiChoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "User chose: OAuth, API key" {
-		t.Errorf("Execute result = %q", out)
+	if out.Text != "User chose: OAuth, API key" {
+		t.Errorf("Execute result = %q", out.Text)
 	}
 	if !stub.lastReq.MultiSelect {
 		t.Error("multi_select flag not forwarded")
@@ -97,11 +97,11 @@ func TestAskUserQuestionTool_Execute_OtherFreeText(t *testing.T) {
 		"question": "Which auth method?",
 		"options":  []any{"OAuth", "API key"},
 	})
-	if !strings.HasPrefix(out, "User chose: Other — ") {
-		t.Errorf("free-text answer should be reported as Other — …, got %q", out)
+	if !strings.HasPrefix(out.Text, "User chose: Other — ") {
+		t.Errorf("free-text answer should be reported as Other — …, got %q", out.Text)
 	}
-	if !strings.Contains(out, "Kerberos with constrained delegation") {
-		t.Errorf("free-text payload lost: %q", out)
+	if !strings.Contains(out.Text, "Kerberos with constrained delegation") {
+		t.Errorf("free-text payload lost: %q", out.Text)
 	}
 }
 
@@ -114,8 +114,8 @@ func TestAskUserQuestionTool_Execute_Cancelled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "(user cancelled)" {
-		t.Errorf("cancellation = %q, want '(user cancelled)'", out)
+	if out.Text != "(user cancelled)" {
+		t.Errorf("cancellation = %q, want '(user cancelled)'", out.Text)
 	}
 }
 

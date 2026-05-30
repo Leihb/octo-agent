@@ -48,17 +48,17 @@ func (SkillTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (SkillTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+func (SkillTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	name, _ := input["name"].(string)
 	if name == "" {
-		return "", fmt.Errorf("skill: name is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("skill: name is required")
 	}
 	if !skillsEnabled() {
-		return "", fmt.Errorf("skill: no skills are available")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("skill: no skills are available")
 	}
 	s, ok := activeSkills.Get(name)
 	if !ok {
-		return "", fmt.Errorf("skill: unknown skill %q", name)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("skill: unknown skill %q", name)
 	}
-	return s.Body, nil
+	return agent.ToolResult{Text: s.Body}, nil
 }

@@ -71,7 +71,7 @@ func (TerminalTool) Definition() agent.ToolDefinition {
 // Internally this delegates to ExecuteStream with a nil progress callback so
 // both code paths share the same exec/scanner pipeline — only the streaming
 // behavior changes.
-func (t TerminalTool) Execute(ctx context.Context, name string, input map[string]any) (string, error) {
+func (t TerminalTool) Execute(ctx context.Context, name string, input map[string]any) (agent.ToolResult, error) {
 	return t.ExecuteStream(ctx, name, input, nil)
 }
 
@@ -89,13 +89,13 @@ func (t TerminalTool) ExecuteStream(
 	_ string,
 	input map[string]any,
 	progress func(chunk string),
-) (string, error) {
+) (agent.ToolResult, error) {
 	command, _ := input["command"].(string)
 	if command == "" {
-		return "", fmt.Errorf("terminal: command is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal: command is required")
 	}
 	if err := guardCommand(command); err != nil {
-		return "", err
+		return agent.ToolResult{Text: ""}, err
 	}
 
 	// Background launch: detach, no timeout, return the id immediately. The
@@ -103,9 +103,9 @@ func (t TerminalTool) ExecuteStream(
 	if bg, _ := input["background"].(bool); bg {
 		id, err := t.manager().Start(command)
 		if err != nil {
-			return "", err
+			return agent.ToolResult{Text: ""}, err
 		}
-		return fmt.Sprintf("Started background process %s.\nRead its output with the terminal_output tool (id: %q).", id, id), nil
+		return agent.ToolResult{Text: fmt.Sprintf("Started background process %s.\nRead its output with the terminal_output tool (id: %q).", id, id)}, nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, TerminalTimeout)
@@ -113,7 +113,7 @@ func (t TerminalTool) ExecuteStream(
 
 	cmd, err := shellCommand(ctx, command)
 	if err != nil {
-		return "", err
+		return agent.ToolResult{Text: ""}, err
 	}
 
 	// Merge stdout + stderr through a single pipe so the reader sees a
@@ -125,7 +125,7 @@ func (t TerminalTool) ExecuteStream(
 
 	if err := cmd.Start(); err != nil {
 		_ = pw.Close()
-		return "", fmt.Errorf("terminal: start: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal: start: %w", err)
 	}
 
 	// Reader goroutine forwards each line to progress and accumulates the
@@ -170,9 +170,9 @@ func (t TerminalTool) ExecuteStream(
 	if waitErr != nil {
 		// Match the original Execute contract: non-zero exit is surfaced as
 		// result text, not as a Go error, so the LLM can read and adapt.
-		return body + "\n[exit: " + waitErr.Error() + "]", nil
+		return agent.ToolResult{Text: body + "\n[exit: " + waitErr.Error() + "]"}, nil
 	}
-	return body, nil
+	return agent.ToolResult{Text: body}, nil
 }
 
 // TerminalOutputTool reads new output (and status) from a background process
@@ -208,20 +208,20 @@ func (TerminalOutputTool) Definition() agent.ToolDefinition {
 
 // Execute returns the new output plus a status line. Read-only — it never
 // terminates the process (that's kill_shell).
-func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	id, _ := input["id"].(string)
 	if id == "" {
-		return "", fmt.Errorf("terminal_output: id is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_output: id is required")
 	}
 	out, status, found := t.manager().Read(id)
 	if !found {
-		return "", fmt.Errorf("terminal_output: no background process %q", id)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_output: no background process %q", id)
 	}
 	header := "[status: " + status + "]"
 	if out == "" {
-		return header + "\n(no new output)", nil
+		return agent.ToolResult{Text: header + "\n(no new output)"}, nil
 	}
-	return header + "\n" + out, nil
+	return agent.ToolResult{Text: header + "\n" + out}, nil
 }
 
 // KillShellTool terminates a background process started by TerminalTool with
@@ -258,14 +258,14 @@ func (KillShellTool) Definition() agent.ToolDefinition {
 // Execute kills the process, then returns its final remaining output. An
 // unknown id is an error (Kill reports it); an already-exited process is a
 // no-op kill and still returns its last output.
-func (t KillShellTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+func (t KillShellTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	id, _ := input["id"].(string)
 	if id == "" {
-		return "", fmt.Errorf("kill_shell: id is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("kill_shell: id is required")
 	}
 	mgr := t.manager()
 	if !mgr.Kill(id) {
-		return "", fmt.Errorf("kill_shell: no background process %q", id)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("kill_shell: no background process %q", id)
 	}
 	// Give the process a moment to flush and the waiter to record exit.
 	time.Sleep(50 * time.Millisecond)
@@ -273,7 +273,7 @@ func (t KillShellTool) Execute(_ context.Context, _ string, input map[string]any
 	out, status, _ := mgr.Read(id) // found guaranteed: Kill succeeded
 	header := "[killed] [status: " + status + "]"
 	if out == "" {
-		return header + "\n(no new output)", nil
+		return agent.ToolResult{Text: header + "\n(no new output)"}, nil
 	}
-	return header + "\n" + out, nil
+	return agent.ToolResult{Text: header + "\n" + out}, nil
 }

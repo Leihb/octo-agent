@@ -20,8 +20,8 @@ func TestEditFile_UniqueReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "Replaced 1 occurrence") {
-		t.Errorf("status = %q", out)
+	if !strings.Contains(out.Text, "Replaced 1 occurrence") {
+		t.Errorf("status = %q", out.Text)
 	}
 	if !strings.Contains(readTestFile(t, path), `"hi there"`) {
 		t.Error("replacement did not land in file")
@@ -61,8 +61,8 @@ func TestEditFile_ReplaceAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "Replaced 3 occurrence(s)") {
-		t.Errorf("status = %q", out)
+	if !strings.Contains(out.Text, "Replaced 3 occurrence(s)") {
+		t.Errorf("status = %q", out.Text)
 	}
 	if got := readTestFile(t, path); got != "baz\nbaz\nbar\nbaz\n" {
 		t.Errorf("file = %q", got)
@@ -159,8 +159,8 @@ func TestEditFile_CRLFNormalization_MatchAndPreserve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "Replaced 1 occurrence") {
-		t.Errorf("status = %q", out)
+	if !strings.Contains(out.Text, "Replaced 1 occurrence") {
+		t.Errorf("status = %q", out.Text)
 	}
 	got := readTestFile(t, path)
 	want := "line one\r\nLINE TWO\r\nline three\r\n"

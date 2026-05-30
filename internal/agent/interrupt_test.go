@@ -96,9 +96,9 @@ func (s *toolThenCancelSender) SendMessagesWithTools(_ context.Context, _, _ str
 
 type cancelOnExecExecutor struct{ cancel context.CancelFunc }
 
-func (e cancelOnExecExecutor) Execute(ctx context.Context, _ string, _ map[string]any) (string, error) {
+func (e cancelOnExecExecutor) Execute(ctx context.Context, _ string, _ map[string]any) (ToolResult, error) {
 	e.cancel() // Ctrl-C arrives while the tool runs
-	return "", ctx.Err()
+	return ToolResult{}, ctx.Err()
 }
 
 func TestRun_InterruptDuringToolDispatch(t *testing.T) {

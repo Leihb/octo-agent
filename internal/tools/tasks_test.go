@@ -45,8 +45,8 @@ func TestTaskCreateTool_Execute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Created task #1") || !strings.Contains(out, "Migrate auth middleware") {
-		t.Errorf("Execute = %q", out)
+	if !strings.Contains(out.Text, "Created task #1") || !strings.Contains(out.Text, "Migrate auth middleware") {
+		t.Errorf("Execute = %q", out.Text)
 	}
 	got := store.List()
 	if len(got) != 1 || got[0].Subject != "Migrate auth middleware" {
@@ -96,8 +96,8 @@ func TestTaskUpdateTool_Execute_StatusChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "in_progress") {
-		t.Errorf("Execute = %q", out)
+	if !strings.Contains(out.Text, "in_progress") {
+		t.Errorf("Execute = %q", out.Text)
 	}
 	got, _ := store.Get(id)
 	if got.Status != tasks.InProgress {
@@ -180,8 +180,8 @@ func TestTaskListTool_Execute_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "No tasks yet." {
-		t.Errorf("empty list = %q", out)
+	if out.Text != "No tasks yet." {
+		t.Errorf("empty list = %q", out.Text)
 	}
 }
 
@@ -201,15 +201,15 @@ func TestTaskListTool_Execute_GroupsByStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"▶", "○", "✓", "first", "second", "third"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output missing %q:\n%s", want, out)
+		if !strings.Contains(out.Text, want) {
+			t.Errorf("output missing %q:\n%s", want, out.Text)
 		}
 	}
 	// In-progress (id1) should appear before pending (id3) which should
 	// appear before completed (id2) in the rendered text.
-	inProgPos := strings.Index(out, "first")
-	pendPos := strings.Index(out, "third")
-	donePos := strings.Index(out, "second")
+	inProgPos := strings.Index(out.Text, "first")
+	pendPos := strings.Index(out.Text, "third")
+	donePos := strings.Index(out.Text, "second")
 	if !(inProgPos < pendPos && pendPos < donePos) {
 		t.Errorf("status order wrong (in_prog<pending<done): %d<%d<%d", inProgPos, pendPos, donePos)
 	}
@@ -222,8 +222,8 @@ func TestTaskListTool_Execute_UsesActiveFormForInProgress(t *testing.T) {
 	_, _ = store.Update(id, tasks.UpdateField{Status: &inProg})
 
 	out, _ := TaskListTool{}.Execute(context.Background(), "task_list", nil)
-	if !strings.Contains(out, "Migrating auth middleware") {
-		t.Errorf("in-progress should use ActiveForm, got:\n%s", out)
+	if !strings.Contains(out.Text, "Migrating auth middleware") {
+		t.Errorf("in-progress should use ActiveForm, got:\n%s", out.Text)
 	}
 }
 

@@ -18,8 +18,8 @@ func TestReadFile_HappyPath(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	for _, want := range []string{"     1\tline1", "     2\tline2", "     3\tline3"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output missing %q\n%s", want, out)
+		if !strings.Contains(out.Text, want) {
+			t.Errorf("output missing %q\n%s", want, out.Text)
 		}
 	}
 }
@@ -43,11 +43,11 @@ func TestReadFile_OffsetAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "     3\tline3") || !strings.Contains(out, "     4\tline4") {
-		t.Errorf("offset/limit slice wrong:\n%s", out)
+	if !strings.Contains(out.Text, "     3\tline3") || !strings.Contains(out.Text, "     4\tline4") {
+		t.Errorf("offset/limit slice wrong:\n%s", out.Text)
 	}
-	if strings.Contains(out, "     2\tline2") || strings.Contains(out, "     5\tline5") {
-		t.Errorf("offset/limit returned unwanted lines:\n%s", out)
+	if strings.Contains(out.Text, "     2\tline2") || strings.Contains(out.Text, "     5\tline5") {
+		t.Errorf("offset/limit returned unwanted lines:\n%s", out.Text)
 	}
 }
 
@@ -83,8 +83,8 @@ func TestReadFile_EmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "empty") {
-		t.Errorf("expected empty-file marker, got %q", out)
+	if !strings.Contains(out.Text, "empty") {
+		t.Errorf("expected empty-file marker, got %q", out.Text)
 	}
 }
 
@@ -104,7 +104,6 @@ func TestReadFile_RejectsBinaryExtensions(t *testing.T) {
 	}{
 		{"exe", ".exe", "Windows executable"},
 		{"zip", ".zip", "ZIP archive"},
-		{"png", ".png", "PNG image"},
 		{"pdf", ".pdf", "PDF document"},
 		{"sqlite", ".sqlite", "SQLite database"},
 	}
@@ -120,6 +119,46 @@ func TestReadFile_RejectsBinaryExtensions(t *testing.T) {
 				t.Errorf("error should mention %q; got: %v", c.wantSub, err)
 			}
 		})
+	}
+}
+
+func TestReadFile_ReadsImage(t *testing.T) {
+	// A valid PNG header: 89 50 4E 47 0D 0A 1A 0A
+	pngHeader := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.png")
+	if err := os.WriteFile(path, pngHeader, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := ReadFileTool{}.Execute(context.Background(), "read_file", map[string]any{"path": path})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(res.Text, "image/png") {
+		t.Errorf("expected image description with MIME type, got: %q", res.Text)
+	}
+	if len(res.Blocks) != 1 || res.Blocks[0].Type != "image" {
+		t.Errorf("expected 1 image block, got %+v", res.Blocks)
+	}
+	if res.Blocks[0].Image == nil || res.Blocks[0].Image.MIMEType != "image/png" {
+		t.Errorf("image block MIME type wrong: %+v", res.Blocks[0].Image)
+	}
+}
+
+func TestReadFile_ImageTooLarge(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "big.png")
+	// Write a file larger than ReadFileImageMaxBytes
+	big := make([]byte, ReadFileImageMaxBytes+1)
+	big[0] = 0x89 // PNG magic byte so it passes the extension check
+	if err := os.WriteFile(path, big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ReadFileTool{}.Execute(context.Background(), "read_file", map[string]any{"path": path})
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("expected size-limit error, got: %v", err)
 	}
 }
 
@@ -168,8 +207,8 @@ func TestReadFile_AllowsDevNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("/dev/null should be readable (returns EOF): %v", err)
 	}
-	if !strings.Contains(out, "empty") {
-		t.Errorf("expected empty-file marker, got %q", out)
+	if !strings.Contains(out.Text, "empty") {
+		t.Errorf("expected empty-file marker, got %q", out.Text)
 	}
 }
 

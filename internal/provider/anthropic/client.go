@@ -3,6 +3,7 @@ package anthropic
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -384,11 +385,29 @@ func marshalBlocks(blocks []agent.ContentBlock) ([]map[string]any, error) {
 				m["is_error"] = true
 			}
 			out = append(out, m)
+		case "image":
+			// Anthropic image block: base64-encoded data with source type.
+			if b.Image == nil {
+				return nil, fmt.Errorf("anthropic: image block missing Image data")
+			}
+			out = append(out, map[string]any{
+				"type": "image",
+				"source": map[string]any{
+					"type":       "base64",
+					"media_type": b.Image.MIMEType,
+					"data":       encodeBase64(b.Image.Data),
+				},
+			})
 		default:
 			return nil, fmt.Errorf("anthropic: unknown block type %q", b.Type)
 		}
 	}
 	return out, nil
+}
+
+// encodeBase64 returns a standard base64 string.
+func encodeBase64(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
 }
 
 // fromAPIContentBlocks converts the response content blocks to agent.ContentBlock.

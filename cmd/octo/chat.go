@@ -121,8 +121,6 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-
-
 	// --list-sessions: print and exit, no provider needed.
 	if *listSessions {
 		sessions, err := agent.ListSessions(10)

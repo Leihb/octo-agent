@@ -269,6 +269,78 @@ func TestSend_ToolResultWithSteerText(t *testing.T) {
 	}
 }
 
+// TestSend_ImageBlock_WireFormat verifies that an image content block is
+// serialized as an Anthropic image source block with base64 data.
+func TestSend_ImageBlock_WireFormat(t *testing.T) {
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"x","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+
+	msgs := []agent.Message{
+		agent.NewUserMessage("describe this"),
+		agent.NewToolUseMessage([]agent.ContentBlock{
+			agent.NewToolUseBlock("call-1", "read_file", map[string]any{"path": "/tmp/img.png"}),
+		}),
+		agent.NewToolResultMessage([]agent.ContentBlock{
+			agent.NewToolResultBlock("call-1", "Image: /tmp/img.png (image/png, 12 B)", false),
+			agent.NewImageBlock("image/png", []byte{0x89, 0x50}),
+		}),
+	}
+
+	_, err := c.Send(context.Background(), provider.Request{Model: "x", Messages: msgs})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	var wireReq struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(capturedBody, &wireReq); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// user, assistant(tool_use), user(tool_result + image)
+	if len(wireReq.Messages) != 3 {
+		t.Fatalf("messages len = %d, want 3: %s", len(wireReq.Messages), capturedBody)
+	}
+
+	var userContent []map[string]any
+	if err := json.Unmarshal(wireReq.Messages[2].Content, &userContent); err != nil {
+		t.Fatalf("decode user content: %v", err)
+	}
+	if len(userContent) != 2 {
+		t.Fatalf("user content blocks = %d, want 2 (tool_result + image): %v", len(userContent), userContent)
+	}
+	if userContent[0]["type"] != "tool_result" {
+		t.Errorf("blocks[0].type = %v, want tool_result", userContent[0]["type"])
+	}
+	if userContent[1]["type"] != "image" {
+		t.Errorf("blocks[1].type = %v, want image", userContent[1]["type"])
+	}
+	src, ok := userContent[1]["source"].(map[string]any)
+	if !ok {
+		t.Fatalf("image source missing or wrong type")
+	}
+	if src["type"] != "base64" {
+		t.Errorf("source.type = %v, want base64", src["type"])
+	}
+	if src["media_type"] != "image/png" {
+		t.Errorf("source.media_type = %v, want image/png", src["media_type"])
+	}
+	if src["data"] != "iVA=" { // base64 of {0x89, 0x50}
+		t.Errorf("source.data = %v, want iVA=", src["data"])
+	}
+}
+
 // TestSendStream_ToolUse verifies that tool_use blocks emitted during a stream
 // are accumulated and returned in resp.Blocks, and that input_json_delta
 // fragments are correctly assembled into the final Input map.

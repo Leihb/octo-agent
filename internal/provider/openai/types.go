@@ -8,6 +8,11 @@
 // pointing Client.BaseURL at the alternative host.
 package openai
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // apiFunction describes the callable function part of a tool.
 type apiFunction struct {
 	Name        string         `json:"name"`
@@ -38,15 +43,81 @@ type apiRequest struct {
 // For plain turns Content is a string. For assistant turns with tool calls
 // ToolCalls is populated and Content may be empty. For tool result turns
 // Role is "tool" and ToolCallID identifies which call is being answered.
+//
+// When image blocks are present, ContentParts carries the array of text/image
+// content items and Content is left empty. The JSON serialization uses
+// "content" for both shapes (string or array) via custom MarshalJSON/UnmarshalJSON.
 type apiMessage struct {
 	Role       string        `json:"role"`
-	Content    string        `json:"content,omitempty"`
+	Content    string        `json:"-"`
 	ToolCalls  []apiToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string        `json:"tool_call_id,omitempty"`
 	// ReasoningContent is the thinking trace returned by reasoning models
 	// (deepseek-v4 etc.). It must be echoed back on the assistant message that
 	// carries tool_calls, or the next request is rejected; omitted otherwise.
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+	// ContentParts is the array form of content used for vision/multimodal
+	// messages. When non-empty it overrides Content in JSON serialization.
+	ContentParts []apiContentPart `json:"-"`
+}
+
+// apiContentPart is one element of a multimodal content array.
+type apiContentPart struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL *struct {
+		URL string `json:"url"`
+	} `json:"image_url,omitempty"`
+}
+
+// MarshalJSON emits Content as a string when ContentParts is empty, or as
+// an array when ContentParts is populated. This matches the OpenAI wire
+// format where "content" can be either shape.
+func (m apiMessage) MarshalJSON() ([]byte, error) {
+	type alias apiMessage // prevent recursion
+	raw := struct {
+		alias
+		Content any `json:"content,omitempty"`
+	}{
+		alias: alias(m),
+	}
+	if len(m.ContentParts) > 0 {
+		raw.Content = m.ContentParts
+	} else {
+		raw.Content = m.Content
+	}
+	return json.Marshal(raw)
+}
+
+// UnmarshalJSON reads "content" as either a string or an array of content
+// parts, populating Content or ContentParts accordingly.
+func (m *apiMessage) UnmarshalJSON(data []byte) error {
+	type alias apiMessage
+	var raw struct {
+		alias
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*m = apiMessage(raw.alias)
+
+	if len(raw.Content) == 0 || string(raw.Content) == "null" {
+		return nil
+	}
+	// Try string first.
+	var s string
+	if err := json.Unmarshal(raw.Content, &s); err == nil {
+		m.Content = s
+		return nil
+	}
+	// Fall back to array of content parts.
+	var parts []apiContentPart
+	if err := json.Unmarshal(raw.Content, &parts); err == nil {
+		m.ContentParts = parts
+		return nil
+	}
+	return fmt.Errorf("apiMessage.content: unsupported type: %s", string(raw.Content))
 }
 
 // apiToolCall is one element of apiMessage.ToolCalls (assistant turns).

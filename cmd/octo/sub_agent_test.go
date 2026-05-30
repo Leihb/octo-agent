@@ -41,8 +41,8 @@ func (s *subAgentSender) SendMessages(_ context.Context, model, system string, m
 // never produces tool_use blocks (so Execute is never invoked).
 type nilExecutor struct{}
 
-func (nilExecutor) Execute(_ context.Context, _ string, _ map[string]any) (string, error) {
-	return "", nil
+func (nilExecutor) Execute(_ context.Context, _ string, _ map[string]any) (agent.ToolResult, error) {
+	return agent.ToolResult{Text: ""}, nil
 }
 
 func TestAgentSpawner_RunsChildAndRollsTokensIntoParent(t *testing.T) {

@@ -57,8 +57,8 @@ func TestWebFetch_AgainstHTTPTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "Hello") || !strings.Contains(out, "markdown") {
-		t.Errorf("unexpected body: %q", out)
+	if !strings.Contains(out.Text, "Hello") || !strings.Contains(out.Text, "markdown") {
+		t.Errorf("unexpected body: %q", out.Text)
 	}
 }
 
@@ -84,12 +84,12 @@ func TestWebFetch_RefusesCrossHostRedirect(t *testing.T) {
 		"url": "https://example.com/x",
 	})
 	if err == nil {
-		t.Fatalf("expected cross-host redirect to be refused; got body %q", out)
+		t.Fatalf("expected cross-host redirect to be refused; got body %q", out.Text)
 	}
 	if !strings.Contains(err.Error(), "cross-host redirect") {
 		t.Errorf("error should mention cross-host redirect, got %v", err)
 	}
-	if strings.Contains(out, "secret internal content") {
+	if strings.Contains(out.Text, "secret internal content") {
 		t.Errorf("must not have followed the redirect to the destination")
 	}
 }
@@ -116,8 +116,8 @@ func TestWebFetch_FollowsSameHostRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("same-host redirect should be followed: %v", err)
 	}
-	if !strings.Contains(out, "arrived") {
-		t.Errorf("expected to reach the same-host redirect target, got %q", out)
+	if !strings.Contains(out.Text, "arrived") {
+		t.Errorf("expected to reach the same-host redirect target, got %q", out.Text)
 	}
 }
 
@@ -157,8 +157,8 @@ func TestWebFetch_Truncates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "truncated") {
-		t.Errorf("expected truncation marker, got tail: %q", out[max(0, len(out)-100):])
+	if !strings.Contains(out.Text, "truncated") {
+		t.Errorf("expected truncation marker, got tail: %q", out.Text[max(0, len(out.Text)-100):])
 	}
 }
 

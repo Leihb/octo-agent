@@ -43,8 +43,8 @@ func TestTerminalTool_Execute_Echo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if strings.TrimSpace(result) != "hello" {
-		t.Errorf("result = %q, want 'hello'", result)
+	if strings.TrimSpace(result.Text) != "hello" {
+		t.Errorf("result = %q, want 'hello'", result.Text)
 	}
 }
 
@@ -55,8 +55,8 @@ func TestTerminalTool_Execute_Multiline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(result, "line1") || !strings.Contains(result, "line2") {
-		t.Errorf("result = %q, want line1 and line2", result)
+	if !strings.Contains(result.Text, "line1") || !strings.Contains(result.Text, "line2") {
+		t.Errorf("result = %q, want line1 and line2", result.Text)
 	}
 }
 
@@ -70,11 +70,11 @@ func TestTerminalTool_Execute_NonZeroExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute should not return a Go error for non-zero exit: %v", err)
 	}
-	if !strings.Contains(result, "oops") {
-		t.Errorf("result should contain stdout: %q", result)
+	if !strings.Contains(result.Text, "oops") {
+		t.Errorf("result should contain stdout: %q", result.Text)
 	}
-	if !strings.Contains(result, "[exit:") {
-		t.Errorf("result should contain [exit:...]: %q", result)
+	if !strings.Contains(result.Text, "[exit:") {
+		t.Errorf("result should contain [exit:...]: %q", result.Text)
 	}
 }
 
@@ -103,8 +103,8 @@ func TestDefaultRegistry_Execute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute terminal: %v", err)
 	}
-	if strings.TrimSpace(result) != "registry" {
-		t.Errorf("result = %q", result)
+	if strings.TrimSpace(result.Text) != "registry" {
+		t.Errorf("result = %q", result.Text)
 	}
 }
 
@@ -132,8 +132,8 @@ func TestTerminalTool_ExecuteStream_LineByLine(t *testing.T) {
 			t.Errorf("got[%d] = %q, want %q", i, got[i], want)
 		}
 	}
-	if result != "line1\nline2\nline3" {
-		t.Errorf("aggregated result = %q", result)
+	if result.Text != "line1\nline2\nline3" {
+		t.Errorf("aggregated result = %q", result.Text)
 	}
 }
 
@@ -164,8 +164,8 @@ func TestTerminalTool_ExecuteStream_NilProgressIsExecute(t *testing.T) {
 		map[string]any{"command": "echo hi"}, func(string) {})
 	execResult, _ := TerminalTool{}.Execute(context.Background(), "terminal",
 		map[string]any{"command": "echo hi"})
-	if streamResult != execResult {
-		t.Errorf("stream=%q exec=%q — should match", streamResult, execResult)
+	if streamResult.Text != execResult.Text {
+		t.Errorf("stream=%q exec=%q — should match", streamResult.Text, execResult.Text)
 	}
 }
 
@@ -177,11 +177,11 @@ func TestTerminalTool_ExecuteStream_NonZeroExitPreservesContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("non-zero exit should NOT be a Go error: %v", err)
 	}
-	if !strings.Contains(result, "before-fail") {
-		t.Errorf("output should include pre-exit stdout: %q", result)
+	if !strings.Contains(result.Text, "before-fail") {
+		t.Errorf("output should include pre-exit stdout: %q", result.Text)
 	}
-	if !strings.Contains(result, "[exit:") {
-		t.Errorf("output should include exit annotation: %q", result)
+	if !strings.Contains(result.Text, "[exit:") {
+		t.Errorf("output should include exit annotation: %q", result.Text)
 	}
 }
 
@@ -208,8 +208,8 @@ func TestTerminalTool_ContextCancel_KillsChild(t *testing.T) {
 		t.Fatalf("Execute should not error on cancellation: %v", err)
 	}
 	// The result should mention the signal/kill, not a clean exit.
-	if !strings.Contains(result, "[exit:") {
-		t.Errorf("result should contain [exit:...] after kill; got: %q", result)
+	if !strings.Contains(result.Text, "[exit:") {
+		t.Errorf("result should contain [exit:...] after kill; got: %q", result.Text)
 	}
 	// Must finish well before 30s — the cancellation killed it.
 	if elapsed > 2*time.Second {

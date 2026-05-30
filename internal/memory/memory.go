@@ -429,6 +429,10 @@ func (s *Store) lock() (func(), error) {
 
 // Slugify turns text into a kebab-case filename stem (lowercase alphanumerics,
 // runs of other chars collapsed to one dash), capped so filenames stay sane.
+//
+// If the input contains no ASCII alphanumerics (e.g. pure CJK text), the naive
+// slug would be empty. In that case we fall back to a hash of the input so the
+// caller always gets a non-empty, filesystem-safe name.
 func Slugify(s string) string {
 	var b strings.Builder
 	prevDash := false
@@ -447,6 +451,11 @@ func Slugify(s string) string {
 	out := strings.Trim(b.String(), "-")
 	if len(out) > 50 {
 		out = strings.Trim(out[:50], "-")
+	}
+	if out == "" {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(s))
+		out = fmt.Sprintf("note-%08x", h.Sum32())
 	}
 	return out
 }

@@ -7,11 +7,12 @@ package agent
 //   - "tool_use"    — the model requesting a tool call (assistant turn)
 //   - "tool_result" — the result of a tool call (user turn)
 //   - "thinking"    — a reasoning model's extended-thinking trace (assistant turn)
+//   - "image"       — an image for multimodal model consumption (user turn)
 //
 // The zero value is not valid; use the New*Block helpers instead.
 type ContentBlock struct {
 	// Type distinguishes the block variant: "text", "tool_use", "tool_result",
-	// "thinking".
+	// "thinking", "image".
 	Type string `json:"type"`
 
 	// Text is the text payload (type=="text").
@@ -57,6 +58,18 @@ type ContentBlock struct {
 	// unless it's resent; the OpenAI adapter stashes it here so it round-trips
 	// through history. Providers that don't need it ignore the field.
 	Reasoning string `json:"reasoning,omitempty"`
+
+	// Image carries vision-model image data (type=="image"). Used when a tool
+	// result includes an image that should be rendered by a multimodal model
+	// (Claude, GPT-4o, Kimi k2.6, etc.). The provider adapter serialises it to
+	// the vendor-specific wire format (Anthropic base64 source, OpenAI data URL).
+	Image *ImageData `json:"-"`
+}
+
+// ImageData holds raw image bytes and their MIME type for multimodal uploads.
+type ImageData struct {
+	MIMEType string // e.g. "image/jpeg", "image/png"
+	Data     []byte // raw file bytes
 }
 
 // NewTextBlock creates a ContentBlock with Type=="text".
@@ -95,5 +108,15 @@ func NewToolResultBlock(toolUseID, result string, isError bool) ContentBlock {
 		ToolUseID: toolUseID,
 		Result:    result,
 		IsError:   isError,
+	}
+}
+
+// NewImageBlock creates a ContentBlock with Type=="image" for multimodal
+// model consumption. The provider adapter is responsible for converting this
+// to the vendor-specific wire format.
+func NewImageBlock(mimeType string, data []byte) ContentBlock {
+	return ContentBlock{
+		Type:  "image",
+		Image: &ImageData{MIMEType: mimeType, Data: data},
 	}
 }

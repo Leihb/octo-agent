@@ -11,11 +11,21 @@ type ToolDefinition struct {
 	Parameters  map[string]any `json:"parameters"` // JSON Schema object
 }
 
+// ToolResult is the return value from a tool execution. Text is the required
+// textual summary (shown in the UI and sent to the model as the primary
+// result). Blocks holds optional rich content — images for multimodal models,
+// structured data, etc. — that the provider adapter serialises into the
+// vendor-specific wire format.
+type ToolResult struct {
+	Text   string         // required textual summary
+	Blocks []ContentBlock // optional rich content (images, etc.)
+}
+
 // ToolExecutor dispatches tool calls on behalf of the agentic loop. Each
 // implementation maps a tool name to a function; unknown names should return
 // an error so the LLM sees a clean error result rather than a panic.
 type ToolExecutor interface {
-	Execute(ctx context.Context, name string, input map[string]any) (string, error)
+	Execute(ctx context.Context, name string, input map[string]any) (ToolResult, error)
 }
 
 // PermissionGate decides whether a tool call may proceed. The agent loop
@@ -46,8 +56,8 @@ type PermissionGate interface {
 // Otherwise the loop falls back to Execute.
 //
 // progress may be nil; implementations should treat a nil progress callback
-// as equivalent to non-streaming Execute. The (string, error) return is the
-// FULL aggregated output (same contract as Execute) — progress chunks are
+// as equivalent to non-streaming Execute. The (ToolResult, error) return is
+// the FULL aggregated result (same contract as Execute) — progress chunks are
 // for UI/observability only.
 type StreamingToolExecutor interface {
 	ToolExecutor
@@ -56,5 +66,5 @@ type StreamingToolExecutor interface {
 		name string,
 		input map[string]any,
 		progress func(chunk string),
-	) (string, error)
+	) (ToolResult, error)
 }

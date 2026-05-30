@@ -26,8 +26,8 @@ func TestRememberTool_Execute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "feedback") {
-		t.Errorf("confirmation should report the type: %q", out)
+	if !strings.Contains(out.Text, "feedback") {
+		t.Errorf("confirmation should report the type: %q", out.Text)
 	}
 
 	entries, _ := store.List()

@@ -31,8 +31,8 @@ func TestGrep_ContentMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "func Hello") || !strings.Contains(out, "func World") {
-		t.Errorf("expected both functions in output:\n%s", out)
+	if !strings.Contains(out.Text, "func Hello") || !strings.Contains(out.Text, "func World") {
+		t.Errorf("expected both functions in output:\n%s", out.Text)
 	}
 }
 
@@ -50,11 +50,11 @@ func TestGrep_FilesWithMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "a.txt") {
-		t.Errorf("expected a.txt in output:\n%s", out)
+	if !strings.Contains(out.Text, "a.txt") {
+		t.Errorf("expected a.txt in output:\n%s", out.Text)
 	}
-	if strings.Contains(out, "b.txt") {
-		t.Errorf("b.txt has no match — shouldn't appear:\n%s", out)
+	if strings.Contains(out.Text, "b.txt") {
+		t.Errorf("b.txt has no match — shouldn't appear:\n%s", out.Text)
 	}
 }
 
@@ -70,8 +70,8 @@ func TestGrep_NoMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute should not error on zero matches: %v", err)
 	}
-	if !strings.Contains(out, "no matches") {
-		t.Errorf("expected 'no matches' message: %q", out)
+	if !strings.Contains(out.Text, "no matches") {
+		t.Errorf("expected 'no matches' message: %q", out.Text)
 	}
 }
 
@@ -88,8 +88,8 @@ func TestGrep_CaseInsensitive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "HELLO") {
-		t.Errorf("case-insensitive should match: %q", out)
+	if !strings.Contains(out.Text, "HELLO") {
+		t.Errorf("case-insensitive should match: %q", out.Text)
 	}
 }
 
@@ -107,11 +107,11 @@ func TestGrep_IncludeGlob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out, "a.go") {
-		t.Errorf("a.go should match:\n%s", out)
+	if !strings.Contains(out.Text, "a.go") {
+		t.Errorf("a.go should match:\n%s", out.Text)
 	}
-	if strings.Contains(out, "b.txt") {
-		t.Errorf("b.txt should be excluded by include glob:\n%s", out)
+	if strings.Contains(out.Text, "b.txt") {
+		t.Errorf("b.txt should be excluded by include glob:\n%s", out.Text)
 	}
 }
 
@@ -151,14 +151,14 @@ func TestGrep_TruncatesLongMatchingLines(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	// The literal long run of 'a' must NOT appear in output.
-	if strings.Contains(out, strings.Repeat("a", 200)) {
-		sample := out
+	if strings.Contains(out.Text, strings.Repeat("a", 200)) {
+		sample := out.Text
 		if len(sample) > 200 {
 			sample = sample[:200]
 		}
 		t.Errorf("long line leaked through; head of output:\n%s", sample)
 	}
-	if !strings.Contains(out, "Omitted long matching line") {
-		t.Errorf("expected omission marker; output:\n%s", out)
+	if !strings.Contains(out.Text, "Omitted long matching line") {
+		t.Errorf("expected omission marker; output:\n%s", out.Text)
 	}
 }

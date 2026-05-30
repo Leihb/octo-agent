@@ -46,35 +46,35 @@ func (EditFileTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (EditFileTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+func (EditFileTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	path, _ := input["path"].(string)
 	if strings.TrimSpace(path) == "" {
-		return "", fmt.Errorf("edit_file: path is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("edit_file: path is required")
 	}
 	oldStr, ok1 := input["old_string"].(string)
 	newStr, ok2 := input["new_string"].(string)
 	if !ok1 {
-		return "", fmt.Errorf("edit_file: old_string is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("edit_file: old_string is required")
 	}
 	if !ok2 {
-		return "", fmt.Errorf("edit_file: new_string is required (use empty string to delete)")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("edit_file: new_string is required (use empty string to delete)")
 	}
 	if oldStr == "" {
-		return "", fmt.Errorf("edit_file: old_string must be non-empty")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("edit_file: old_string must be non-empty")
 	}
 	if oldStr == newStr {
-		return "", fmt.Errorf("edit_file: old_string and new_string are identical — nothing to do")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("edit_file: old_string and new_string are identical — nothing to do")
 	}
 	replaceAll, _ := input["replace_all"].(bool)
 
 	abs, err := resolvePath(path)
 	if err != nil {
-		return "", err
+		return agent.ToolResult{Text: ""}, err
 	}
 
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		return "", fmt.Errorf("edit_file: read %q: %w", path, err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("edit_file: read %q: %w", path, err)
 	}
 	body := string(data)
 
@@ -96,10 +96,10 @@ func (EditFileTool) Execute(_ context.Context, _ string, input map[string]any) (
 
 	count := strings.Count(bodyForMatch, oldForMatch)
 	if count == 0 {
-		return "", fmt.Errorf("edit_file: old_string not found in %s", path)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("edit_file: old_string not found in %s", path)
 	}
 	if count > 1 && !replaceAll {
-		return "", fmt.Errorf(
+		return agent.ToolResult{Text: ""}, fmt.Errorf(
 			"edit_file: old_string matches %d times — either include more context to make it unique, or set replace_all=true",
 			count,
 		)
@@ -116,11 +116,11 @@ func (EditFileTool) Execute(_ context.Context, _ string, input map[string]any) (
 	}
 
 	if err := os.WriteFile(abs, []byte(updated), 0o644); err != nil {
-		return "", fmt.Errorf("edit_file: write %q: %w", path, err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("edit_file: write %q: %w", path, err)
 	}
 
 	if replaceAll {
-		return fmt.Sprintf("Replaced %d occurrence(s) in %s", count, abs), nil
+		return agent.ToolResult{Text: fmt.Sprintf("Replaced %d occurrence(s) in %s", count, abs)}, nil
 	}
-	return fmt.Sprintf("Replaced 1 occurrence in %s", abs), nil
+	return agent.ToolResult{Text: fmt.Sprintf("Replaced 1 occurrence in %s", abs)}, nil
 }

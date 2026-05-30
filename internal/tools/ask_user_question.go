@@ -117,17 +117,17 @@ func (AskUserQuestionTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (AskUserQuestionTool) Execute(ctx context.Context, _ string, input map[string]any) (string, error) {
+func (AskUserQuestionTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	if !askerEnabled() {
-		return "", fmt.Errorf("ask_user_question: not available in this mode (REPL only)")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("ask_user_question: not available in this mode (REPL only)")
 	}
 	question := strings.TrimSpace(stringArg(input, "question"))
 	if question == "" {
-		return "", fmt.Errorf("ask_user_question: question is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("ask_user_question: question is required")
 	}
 	options := stringSliceArg(input, "options")
 	if len(options) < 2 || len(options) > 4 {
-		return "", fmt.Errorf("ask_user_question: options must have 2-4 entries (got %d)", len(options))
+		return agent.ToolResult{Text: ""}, fmt.Errorf("ask_user_question: options must have 2-4 entries (got %d)", len(options))
 	}
 	multi, _ := input["multi_select"].(bool)
 	header := strings.TrimSpace(stringArg(input, "header"))
@@ -139,9 +139,9 @@ func (AskUserQuestionTool) Execute(ctx context.Context, _ string, input map[stri
 		Header:      header,
 	})
 	if err != nil {
-		return "", fmt.Errorf("ask_user_question: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("ask_user_question: %w", err)
 	}
-	return formatAskResponse(res), nil
+	return agent.ToolResult{Text: formatAskResponse(res)}, nil
 }
 
 // formatAskResponse turns the asker's structured reply into the text the LLM

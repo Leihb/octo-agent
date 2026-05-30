@@ -63,8 +63,8 @@ func TestWebSearch_BravePreferred(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	var resp WebSearchResponse
-	if err := json.Unmarshal([]byte(out), &resp); err != nil {
-		t.Fatalf("output isn't valid JSON: %v\n%s", err, out)
+	if err := json.Unmarshal([]byte(out.Text), &resp); err != nil {
+		t.Fatalf("output isn't valid JSON: %v\n%s", err, out.Text)
 	}
 	if resp.Provider != "brave" {
 		t.Errorf("Provider = %q, want 'brave'", resp.Provider)
@@ -91,7 +91,7 @@ func TestWebSearch_TavilyWhenBraveAbsent(t *testing.T) {
 
 	out, _ := WebSearchTool{}.Execute(context.Background(), "web_search", map[string]any{"query": "x"})
 	var resp WebSearchResponse
-	_ = json.Unmarshal([]byte(out), &resp)
+	_ = json.Unmarshal([]byte(out.Text), &resp)
 	if resp.Provider != "tavily" || len(resp.Results) != 1 || resp.Results[0].URL != "https://t1" {
 		t.Errorf("unexpected: %+v", resp)
 	}
@@ -113,7 +113,7 @@ func TestWebSearch_SerperWhenOnlySerperSet(t *testing.T) {
 
 	out, _ := WebSearchTool{}.Execute(context.Background(), "web_search", map[string]any{"query": "x"})
 	var resp WebSearchResponse
-	_ = json.Unmarshal([]byte(out), &resp)
+	_ = json.Unmarshal([]byte(out.Text), &resp)
 	if resp.Provider != "serper" || resp.Results[0].URL != "https://s1" {
 		t.Errorf("unexpected: %+v", resp)
 	}
@@ -141,8 +141,8 @@ func TestWebSearch_FallsBackToDDG(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	var resp WebSearchResponse
-	if err := json.Unmarshal([]byte(out), &resp); err != nil {
-		t.Fatalf("decode: %v\n%s", err, out)
+	if err := json.Unmarshal([]byte(out.Text), &resp); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out.Text)
 	}
 	if resp.Provider != "duckduckgo" {
 		t.Errorf("Provider = %q, want 'duckduckgo'", resp.Provider)
@@ -184,7 +184,7 @@ func TestWebSearch_FallsBackToBing_WhenDDGReturnsZero(t *testing.T) {
 
 	out, _ := WebSearchTool{}.Execute(context.Background(), "web_search", map[string]any{"query": "x"})
 	var resp WebSearchResponse
-	_ = json.Unmarshal([]byte(out), &resp)
+	_ = json.Unmarshal([]byte(out.Text), &resp)
 	if resp.Provider != "bing" {
 		t.Errorf("Provider = %q, want 'bing'", resp.Provider)
 	}
@@ -209,9 +209,9 @@ func TestWebSearch_AllBackendsFail(t *testing.T) {
 		t.Fatalf("tool should not return Go error: %v", err)
 	}
 	var resp WebSearchResponse
-	_ = json.Unmarshal([]byte(out), &resp)
+	_ = json.Unmarshal([]byte(out.Text), &resp)
 	if resp.Error == "" {
-		t.Errorf("expected Error field set, got: %s", out)
+		t.Errorf("expected Error field set, got: %s", out.Text)
 	}
 	if resp.Count != 0 {
 		t.Errorf("expected zero results, got %d", resp.Count)
@@ -247,7 +247,7 @@ func TestWebSearch_RespectsMaxResults(t *testing.T) {
 		"max_results": 2,
 	})
 	var resp WebSearchResponse
-	_ = json.Unmarshal([]byte(out), &resp)
+	_ = json.Unmarshal([]byte(out.Text), &resp)
 	if len(resp.Results) != 2 {
 		t.Errorf("want 2 results, got %d", len(resp.Results))
 	}

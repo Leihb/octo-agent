@@ -7,7 +7,7 @@
 package version
 
 // Version is the SemVer string for this build. Overridden via -ldflags.
-var Version = "0.5.0-dev"
+var Version = "0.6.0-dev"
 
 // Commit is the short git SHA for this build. Overridden via -ldflags.
 // Empty in local `go build` invocations.

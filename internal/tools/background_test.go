@@ -93,15 +93,15 @@ func TestBackgroundManager_Kill(t *testing.T) {
 func TestTerminalTool_BackgroundLaunch(t *testing.T) {
 	m := NewBackgroundManager()
 	tool := TerminalTool{mgr: m}
-	res, err := tool.Execute(context.Background(), "terminal", map[string]any{
+	resTool, err := tool.Execute(context.Background(), "terminal", map[string]any{
 		"command":    "echo hi",
 		"background": true,
 	})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(res, "bg_1") {
-		t.Errorf("result = %q, want it to mention the bg id", res)
+	if !strings.Contains(resTool.Text, "bg_1") {
+		t.Errorf("result = %q, want it to mention the bg id", resTool.Text)
 	}
 	// The terminal guard (e.g. in-place sed) still applies to background launches.
 	if _, err := tool.Execute(context.Background(), "terminal", map[string]any{
@@ -126,11 +126,11 @@ func TestTerminalOutputTool(t *testing.T) {
 
 	var res string
 	waitFor(t, "terminal_output to show exit", func() bool {
-		r, err := outTool.Execute(context.Background(), "terminal_output", map[string]any{"id": "bg_1"})
+		rTool, err := outTool.Execute(context.Background(), "terminal_output", map[string]any{"id": "bg_1"})
 		if err != nil {
 			t.Fatalf("terminal_output: %v", err)
 		}
-		res += r
+		res += rTool.Text
 		return strings.Contains(res, "exited")
 	})
 	if !strings.Contains(res, "from-bg") {
@@ -158,12 +158,12 @@ func TestKillShellTool(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("launch: %v", err)
 	}
-	res, err := killTool.Execute(context.Background(), "kill_shell", map[string]any{"id": "bg_1"})
+	resKill, err := killTool.Execute(context.Background(), "kill_shell", map[string]any{"id": "bg_1"})
 	if err != nil {
 		t.Fatalf("kill_shell: %v", err)
 	}
-	if !strings.Contains(res, "killed") {
-		t.Errorf("result = %q, want it to note the kill", res)
+	if !strings.Contains(resKill.Text, "killed") {
+		t.Errorf("result = %q, want it to note the kill", resKill.Text)
 	}
 
 	// Unknown id is an error.
@@ -185,15 +185,15 @@ func TestTerminalOutputTool_ReadOnly(t *testing.T) {
 	}
 	// terminal_output no longer kills: a "kill" key is ignored and the process
 	// keeps running.
-	res, err := outTool.Execute(context.Background(), "terminal_output", map[string]any{
+	resOut, err := outTool.Execute(context.Background(), "terminal_output", map[string]any{
 		"id":   "bg_1",
 		"kill": true, // ignored
 	})
 	if err != nil {
 		t.Fatalf("terminal_output: %v", err)
 	}
-	if strings.Contains(res, "killed") {
-		t.Errorf("terminal_output must not kill, got %q", res)
+	if strings.Contains(resOut.Text, "killed") {
+		t.Errorf("terminal_output must not kill, got %q", resOut.Text)
 	}
 	if _, status, _ := m.Read("bg_1"); status != "running" {
 		t.Errorf("process should still be running after terminal_output, status=%q", status)

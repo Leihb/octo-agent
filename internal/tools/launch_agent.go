@@ -145,21 +145,21 @@ func (LaunchAgentTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (LaunchAgentTool) Execute(ctx context.Context, _ string, input map[string]any) (string, error) {
+func (LaunchAgentTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	if !spawnerEnabled() {
-		return "", fmt.Errorf("launch_agent: sub-agent dispatch is not configured for this session")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: sub-agent dispatch is not configured for this session")
 	}
 	if IsSubAgent(ctx) {
 		// Defense in depth — the Spawner is supposed to filter launch_agent
 		// out of a child's tool list, but a hallucinated tool call would
 		// otherwise still execute through the shared registry.
-		return "", fmt.Errorf("launch_agent: a sub-agent cannot spawn another sub-agent")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: a sub-agent cannot spawn another sub-agent")
 	}
 
 	desc := strings.TrimSpace(stringArg(input, "description"))
 	prompt := strings.TrimSpace(stringArg(input, "prompt"))
 	if prompt == "" {
-		return "", fmt.Errorf("launch_agent: prompt is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: prompt is required")
 	}
 	if desc == "" {
 		// Falling back to a truncated prompt is friendlier than an error —
@@ -175,16 +175,16 @@ func (LaunchAgentTool) Execute(ctx context.Context, _ string, input map[string]a
 	}
 	res, err := activeSpawner.Spawn(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("launch_agent: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: %w", err)
 	}
 	reply := strings.TrimSpace(res.Reply)
 	if reply == "" {
 		// A sub-agent that ended with no final text isn't fatal — it just
 		// has nothing to say. Surface that explicitly so the parent doesn't
 		// guess.
-		return "(sub-agent " + desc + " produced no reply)", nil
+		return agent.ToolResult{Text: "(sub-agent " + desc + " produced no reply)"}, nil
 	}
-	return withAgentTag(res.AgentID, reply), nil
+	return agent.ToolResult{Text: withAgentTag(res.AgentID, reply)}, nil
 }
 
 // stringSliceArg pulls an []string argument tolerating absence and the JSON

@@ -572,6 +572,6 @@ func TestREPL_MemoryNudge_AbsentWhenToolsOff(t *testing.T) {
 // that need cfg.tools to be non-empty but don't actually invoke any tools.
 type dummyExecutor struct{}
 
-func (dummyExecutor) Execute(_ context.Context, name string, _ map[string]any) (string, error) {
-	return "ok:" + name, nil
+func (dummyExecutor) Execute(_ context.Context, name string, _ map[string]any) (agent.ToolResult, error) {
+	return agent.ToolResult{Text: "ok:" + name}, nil
 }

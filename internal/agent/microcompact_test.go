@@ -56,8 +56,8 @@ func TestTruncateMiddle_ValidUTF8AtBoundary(t *testing.T) {
 // hugeExec returns a tool output far larger than the cap.
 type hugeExec struct{}
 
-func (hugeExec) Execute(_ context.Context, _ string, _ map[string]any) (string, error) {
-	return strings.Repeat("A", ToolResultMaxBytes*3), nil
+func (hugeExec) Execute(_ context.Context, _ string, _ map[string]any) (ToolResult, error) {
+	return ToolResult{Text: strings.Repeat("A", ToolResultMaxBytes*3)}, nil
 }
 
 func TestDispatchTools_TruncatesOversizedResult(t *testing.T) {

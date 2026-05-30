@@ -35,8 +35,8 @@ func TestSendMessageTool_ContinuesAndTagsReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "[agent a1b2c3d4] next round done" {
-		t.Errorf("Execute returned %q, want tagged reply", out)
+	if out.Text != "[agent a1b2c3d4] next round done" {
+		t.Errorf("Execute returned %q, want tagged reply", out.Text)
 	}
 	if stub.contAgentID != "a1b2c3d4" || stub.contMessage != "now do the second half" {
 		t.Errorf("Continue got (%q,%q)", stub.contAgentID, stub.contMessage)
@@ -52,8 +52,8 @@ func TestSendMessageTool_EmptyReplySurfaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "produced no reply") {
-		t.Errorf("empty reply should be surfaced, got %q", out)
+	if !strings.Contains(out.Text, "produced no reply") {
+		t.Errorf("empty reply should be surfaced, got %q", out.Text)
 	}
 }
 
@@ -142,7 +142,7 @@ func TestLaunchAgentTool_TagsReplyWithAgentID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "[agent deadbeef] the finding" {
-		t.Errorf("launch_agent reply should carry the agent tag, got %q", out)
+	if out.Text != "[agent deadbeef] the finding" {
+		t.Errorf("launch_agent reply should carry the agent tag, got %q", out.Text)
 	}
 }

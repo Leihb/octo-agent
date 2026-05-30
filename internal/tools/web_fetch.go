@@ -53,17 +53,17 @@ func (WebFetchTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (WebFetchTool) Execute(ctx context.Context, _ string, input map[string]any) (string, error) {
+func (WebFetchTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	raw, _ := input["url"].(string)
 	if strings.TrimSpace(raw) == "" {
-		return "", fmt.Errorf("web_fetch: url is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("web_fetch: url is required")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("web_fetch: parse url: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("web_fetch: parse url: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("web_fetch: only http/https URLs are allowed (got %q)", u.Scheme)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("web_fetch: only http/https URLs are allowed (got %q)", u.Scheme)
 	}
 
 	// Jina's contract is literal string concatenation: r.jina.ai/<rest>.
@@ -78,7 +78,7 @@ func (WebFetchTool) Execute(ctx context.Context, _ string, input map[string]any)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jinaURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("web_fetch: build request: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("web_fetch: build request: %w", err)
 	}
 	req.Header.Set("Accept", "text/markdown,text/plain,*/*")
 	// Identify ourselves so Jina can reach us about issues.
@@ -86,18 +86,18 @@ func (WebFetchTool) Execute(ctx context.Context, _ string, input map[string]any)
 
 	resp, err := webFetchHTTPClient().Do(req)
 	if err != nil {
-		return "", fmt.Errorf("web_fetch: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("web_fetch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return "", fmt.Errorf("web_fetch: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return agent.ToolResult{Text: ""}, fmt.Errorf("web_fetch: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, WebFetchMaxBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("web_fetch: read body: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("web_fetch: read body: %w", err)
 	}
 	truncated := false
 	if len(body) > WebFetchMaxBytes {
@@ -109,7 +109,7 @@ func (WebFetchTool) Execute(ctx context.Context, _ string, input map[string]any)
 	if truncated {
 		out += "\n\n…[truncated at " + strconv.Itoa(WebFetchMaxBytes) + " bytes]"
 	}
-	return out, nil
+	return agent.ToolResult{Text: out}, nil
 }
 
 // webHTTPClient is the shared http.Client used by the network backends of

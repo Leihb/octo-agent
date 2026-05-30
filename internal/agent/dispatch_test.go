@@ -63,13 +63,13 @@ type barrierExec struct {
 	order []string
 }
 
-func (b *barrierExec) Execute(_ context.Context, name string, _ map[string]any) (string, error) {
+func (b *barrierExec) Execute(_ context.Context, name string, _ map[string]any) (ToolResult, error) {
 	b.mu.Lock()
 	b.order = append(b.order, name)
 	b.mu.Unlock()
 	b.wg.Done() // arrived
 	b.wg.Wait() // release only once everyone has arrived → requires concurrency
-	return "ok:" + name, nil
+	return ToolResult{Text: "ok:" + name}, nil
 }
 
 func TestDispatchTools_ParallelReadOnly(t *testing.T) {
@@ -110,11 +110,11 @@ type countingExec struct {
 	called []string
 }
 
-func (c *countingExec) Execute(_ context.Context, name string, _ map[string]any) (string, error) {
+func (c *countingExec) Execute(_ context.Context, name string, _ map[string]any) (ToolResult, error) {
 	c.mu.Lock()
 	c.called = append(c.called, name)
 	c.mu.Unlock()
-	return "ok:" + name, nil
+	return ToolResult{Text: "ok:" + name}, nil
 }
 
 func TestDispatchTools_MixedBatchSerialCorrect(t *testing.T) {

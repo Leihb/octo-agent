@@ -75,13 +75,13 @@ func (TaskCreateTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (TaskCreateTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+func (TaskCreateTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	if !tasksEnabled() {
-		return "", fmt.Errorf("task_create: task tracking is not configured for this session")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("task_create: task tracking is not configured for this session")
 	}
 	subject := strings.TrimSpace(stringArg(input, "subject"))
 	if subject == "" {
-		return "", fmt.Errorf("task_create: subject is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("task_create: subject is required")
 	}
 	id, err := activeTasks.Create(
 		subject,
@@ -89,9 +89,9 @@ func (TaskCreateTool) Execute(_ context.Context, _ string, input map[string]any)
 		stringArg(input, "active_form"),
 	)
 	if err != nil {
-		return "", fmt.Errorf("task_create: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("task_create: %w", err)
 	}
-	return fmt.Sprintf("Created task #%d: %s", id, subject), nil
+	return agent.ToolResult{Text: fmt.Sprintf("Created task #%d: %s", id, subject)}, nil
 }
 
 // ============================================================================
@@ -142,13 +142,13 @@ func (TaskUpdateTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (TaskUpdateTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+func (TaskUpdateTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	if !tasksEnabled() {
-		return "", fmt.Errorf("task_update: task tracking is not configured for this session")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("task_update: task tracking is not configured for this session")
 	}
 	id := intArg(input, "task_id", 0)
 	if id <= 0 {
-		return "", fmt.Errorf("task_update: task_id is required (positive integer)")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("task_update: task_id is required (positive integer)")
 	}
 
 	var u tasks.UpdateField
@@ -173,14 +173,14 @@ func (TaskUpdateTool) Execute(_ context.Context, _ string, input map[string]any)
 	}
 
 	if u.Status == nil && u.Subject == nil && u.Description == nil && u.ActiveForm == nil {
-		return "", fmt.Errorf("task_update: nothing to update (provide status, subject, description, or active_form)")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("task_update: nothing to update (provide status, subject, description, or active_form)")
 	}
 
 	got, err := activeTasks.Update(id, u)
 	if err != nil {
-		return "", fmt.Errorf("task_update: %w", err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("task_update: %w", err)
 	}
-	return fmt.Sprintf("Updated task #%d (%s): %s", got.ID, got.Status, got.Subject), nil
+	return agent.ToolResult{Text: fmt.Sprintf("Updated task #%d (%s): %s", got.ID, got.Status, got.Subject)}, nil
 }
 
 // ============================================================================
@@ -205,11 +205,11 @@ func (TaskListTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (TaskListTool) Execute(_ context.Context, _ string, _ map[string]any) (string, error) {
+func (TaskListTool) Execute(_ context.Context, _ string, _ map[string]any) (agent.ToolResult, error) {
 	if !tasksEnabled() {
-		return "", fmt.Errorf("task_list: task tracking is not configured for this session")
+		return agent.ToolResult{}, fmt.Errorf("task_list: task tracking is not configured for this session")
 	}
-	return FormatTaskList(activeTasks.List()), nil
+	return agent.ToolResult{Text: FormatTaskList(activeTasks.List())}, nil
 }
 
 // FormatTaskList renders a slice of tasks for display. Used both by the

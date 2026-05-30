@@ -53,10 +53,10 @@ func (GlobTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (GlobTool) Execute(_ context.Context, _ string, input map[string]any) (string, error) {
+func (GlobTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	pattern, _ := input["pattern"].(string)
 	if strings.TrimSpace(pattern) == "" {
-		return "", fmt.Errorf("glob: pattern is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("glob: pattern is required")
 	}
 
 	root := "."
@@ -65,7 +65,7 @@ func (GlobTool) Execute(_ context.Context, _ string, input map[string]any) (stri
 	}
 	absRoot, err := resolvePath(root)
 	if err != nil {
-		return "", err
+		return agent.ToolResult{Text: ""}, err
 	}
 
 	type match struct {
@@ -111,7 +111,7 @@ func (GlobTool) Execute(_ context.Context, _ string, input map[string]any) (stri
 		return nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("glob: walk %q: %w", root, err)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("glob: walk %q: %w", root, err)
 	}
 
 	sort.Slice(matches, func(i, j int) bool { return matches[i].mtime > matches[j].mtime })
@@ -129,12 +129,12 @@ func (GlobTool) Execute(_ context.Context, _ string, input map[string]any) (stri
 		out.WriteByte('\n')
 	}
 	if out.Len() == 0 {
-		return fmt.Sprintf("(no matches for %q under %s)", pattern, absRoot), nil
+		return agent.ToolResult{Text: fmt.Sprintf("(no matches for %q under %s)", pattern, absRoot)}, nil
 	}
 	if truncated {
 		fmt.Fprintf(&out, "\n[truncated to first %d of %d matches]\n", GlobMaxResults, totalMatches)
 	}
-	return out.String(), nil
+	return agent.ToolResult{Text: out.String()}, nil
 }
 
 // globMatch matches a pattern against a relative path, supporting `**`
