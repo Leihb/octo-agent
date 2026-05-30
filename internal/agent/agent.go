@@ -260,9 +260,12 @@ func (a *Agent) TurnStream(
 }
 
 // defaultMaxTurns is the fallback per-Run loop cap when Agent.MaxTurns is
-// unset (<= 0). A "turn" here is one provider round-trip inside the agentic
+// unset (0). A "turn" here is one provider round-trip inside the agentic
 // loop; the cap stops a misbehaving model from looping on tools forever.
-const defaultMaxTurns = 20
+const defaultMaxTurns = 100
+
+// unlimitedTurns signals no cap (used for unattended runs).
+const unlimitedTurns = -1
 
 // Run is the agentic loop: it appends the user message to history then
 // repeatedly calls the provider until the model reaches end_turn (no more
@@ -411,7 +414,7 @@ func (a *Agent) runLoop(
 	a.History.Append(NewUserMessage(userInput))
 
 	limit := a.turnLimit()
-	for i := 0; i < limit; i++ {
+	for i := 0; limit == unlimitedTurns || i < limit; i++ {
 		// Interrupt (Ctrl-C) between iterations — e.g. right after a tool batch.
 		if ctx.Err() != nil {
 			return a.finishInterrupted(handler)
@@ -532,10 +535,17 @@ func (a *Agent) finishInterrupted(handler EventHandler) (Reply, error) {
 	return reply, context.Canceled
 }
 
-// turnLimit resolves the per-Run loop cap, applying the default when unset.
+// turnLimit resolves the per-Run loop cap.
+//
+//	> 0  → explicit cap
+//	0    → defaultMaxTurns (interactive default)
+//	< 0  → unlimited (unattended runs)
 func (a *Agent) turnLimit() int {
 	if a.MaxTurns > 0 {
 		return a.MaxTurns
+	}
+	if a.MaxTurns < 0 {
+		return unlimitedTurns
 	}
 	return defaultMaxTurns
 }

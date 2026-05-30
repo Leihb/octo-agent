@@ -36,9 +36,9 @@ const (
 
 // unattendedMaxTurns is the agentic-loop cap applied when --max-turns is left
 // at its auto-sentinel (0) and there's no interactive human to continue past
-// the limit (piped stdin, --prompt-file). Higher than the interactive default
-// (agent's 20) because a headless task can't be told to keep going.
-const unattendedMaxTurns = 60
+// the limit (piped stdin, --prompt-file). -1 means unlimited because a
+// headless task can't be told to keep going.
+const unattendedMaxTurns = -1
 
 // resolveMaxTurns picks the agentic-loop cap. An explicit --max-turns (any
 // non-zero flagVal) always wins. Otherwise an unattended run — seeded via
@@ -107,7 +107,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	quietFlag := fs.Bool("quiet", false, "Strip all status chrome (no spinner, no banner, no cache line). Also OCTO_VERBOSITY=quiet.")
 	verboseFlag := fs.Bool("verbose", false, "Print extra context (provider/model/endpoint, always-on cache line). Also OCTO_VERBOSITY=verbose.")
 	permMode := fs.String("permission-mode", "interactive", "Tool permission handling: interactive (prompt on ask) | strict (deny on ask)")
-	maxTurns := fs.Int("max-turns", 0, "Max provider round-trips per message in the agentic loop (0 = auto: 20 interactive, 60 unattended/--prompt-file)")
+	maxTurns := fs.Int("max-turns", 0, "Max provider round-trips per message in the agentic loop (0 = auto: 100 interactive, unlimited unattended/--prompt-file)")
 	maxCost := fs.Float64("max-cost", 0, "Stop the session once estimated cost (USD) reaches this; 0 = unlimited")
 	compactThreshold := fs.Int("compact-threshold", 0, "Compact older history once a turn's input crosses this many tokens; 0 = auto (~75% of the model's context window), <0 = disabled")
 	thinkingBudget := fs.Int("thinking-budget", 0, "Enable extended thinking with this token budget (Anthropic/Kimi); 0 = off")
