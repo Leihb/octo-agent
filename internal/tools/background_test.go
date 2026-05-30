@@ -177,15 +177,17 @@ func TestKillShellTool(t *testing.T) {
 // command which exceeds TerminalTimeout is killed and automatically restarted
 // as a background process. The agent receives partial output plus a bg id.
 func TestTerminalTool_TimeoutPromotesToBackground(t *testing.T) {
-	// Use a very short timeout so the test doesn't take 30 s.
+	// Use a short timeout so the test doesn't take 30 s.  500 ms is enough
+	// for POSIX `sh` and Windows PowerShell to start and emit a line, while
+	// keeping the test fast.
 	oldTimeout := TerminalTimeout
-	TerminalTimeout = 200 * time.Millisecond
+	TerminalTimeout = 500 * time.Millisecond
 	defer func() { TerminalTimeout = oldTimeout }()
 
 	m := NewBackgroundManager()
 	term := TerminalTool{mgr: m}
 
-	// Use `go env` (fast, cross-platform) piped to a long sleep.  On POSIX
+	// Use `echo` (fast, cross-platform) piped to a long sleep.  On POSIX
 	// `sleep` is available; on Windows we use `Start-Sleep` via PowerShell.
 	cmd := "echo partial && sleep 1"
 	if runtime.GOOS == "windows" {
