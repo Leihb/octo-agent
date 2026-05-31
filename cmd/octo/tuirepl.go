@@ -281,9 +281,6 @@ func newTUIModel(cfg replConfig) *tuiModel {
 	ta.Focus()
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
-	// Disable textarea's built-in newline on Enter so we can handle it
-	// ourselves (Enter = submit, Alt+Enter = insert newline).
-	ta.KeyMap.InsertNewline = key.Binding{}
 	// Disable up/down line navigation so we can use them for input-history
 	// recall instead.
 	ta.KeyMap.LineNext = key.Binding{}
