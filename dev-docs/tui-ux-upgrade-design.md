@@ -36,7 +36,7 @@
   │  > █                                    ← flat 输入行              │
   │  ───────────────────────────────────────                            │
   │  cwd: ~/proj · ctx: 42% · perm: interactive · elapsed: 5s          │
-  │  Enter steer · Alt+Enter queue · Esc interrupt                     │
+  │  Enter inbox · Alt+Enter queue · Esc interrupt                     │
   └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -81,7 +81,6 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 | `EventToolStarted` | 卡片工具：`m.running` 设为 live spinner；非卡片：`m.println("↳ tool: input")` |
 | `EventToolProgress` | 卡片工具：忽略；非卡片：`m.println("│ chunk")` |
 | `EventToolDone/Error` | 清除 `m.running`；卡片：`renderToolCard()` → `m.println()`；非卡片：`m.println("↳ tool ✓/✗")` |
-| `EventSteerInjected` | steered 文本 `m.println()` 到终端，加入 `inputHistory` |
 
 ---
 

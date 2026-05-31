@@ -1,14 +1,14 @@
-# TUI 输入模式 — Queue / Steer / Interrupt
+# TUI 输入模式 — Inbox / Queue / Interrupt
 
-> 交互式 REPL 在回合运行时也能输入:排队(queue)、中途引导(steer)、打断(interrupt)。
+> 交互式 REPL 在回合运行时也能输入:排队(queue)、中途引导(inbox)、打断(interrupt)。
 > 交互式 TTY 走 bubbletea 事件循环,非-TTY 与 `--no-tui` 走纯文本路径。
 
 ## 1. 目标
 
 REPL 主循环不再是「读一行 → 阻塞跑完回合 → 再读一行」。回合运行时:
 
-- **Steer**(裸 Enter):键入的话注入**正在跑的回合**,在下一个工具批次边界生效,引导
-  agent 改方向而不打断它。
+- **Inbox**(裸 Enter):键入的话进入 inbox,在**下次迭代开始时**（`think()` 之前）注入 history,
+  引导 agent 改方向而不打断它。
 - **Queue**(Alt+Enter):键入的话排队,当前回合完整结束后作为新回合自动执行。
 - **Interrupt**(Esc,无模态时):停掉当前在途回合;队列保留。
 
@@ -47,9 +47,10 @@ bubbletea 的事件循环占主 goroutine，agent loop 移到后台 goroutine；
    + live-delta、pre/post hook、auto-save、turnCtx 生命周期)抽进 `runTurn`,对外只认
    `ViewSink` 接口。TTY 视图(`tuiSink`)和纯文本视图(`plainView`)都驱动它。
 2. **agent loop 在后台 goroutine**:`tuiSink` 把 `AgentEvent` 包成 `tea.Msg` 投给 Model,
-   并经 channel 接收 steer/queue/interrupt 信号。
-3. **pending 缓冲 + 注入点**:steer 经 `Agent.Steer`,`runLoop` 在工具批次边界 drain 并入
-   tool_result;回合自然结束时若仍有 pending 则作为下一回合启动(queue / steer 降级)。
+   并经 channel 接收 inbox/queue/interrupt 信号。
+3. **inbox 缓冲 + 注入点**:用户输入经 `Agent.Inbox.Enqueue`,`runLoop` 在**每次迭代开始时**
+   drain 并追加为独立 user message;回合自然结束时若 inbox 仍有内容则作为下一回合启动
+   (inbox 降级)。
 
 ## 3. turn-core / ViewSink
 
@@ -71,41 +72,42 @@ type ViewSink interface {
 `a.RunStream(ctx, …, sink.Emit)`,返回的 reply/err 交 `sink.TurnEnded`。caller 仍管输入读取、
 slash 命令、turnCtx、save/loop 决策。
 
-## 4. steer 注入与降级
+## 4. inbox 注入与降级
 
-`runLoop` 每次工具批次后 history 以 `user(tool_result)` 结尾——这是 steer 能落脚的地方。
-在 append tool_result **之后** drain steer，把文本作为**独立 user 消息**追加（初版设计是并进
-tool_result 作为额外 text block，后改为独立 user 消息以获得一等 message boundary，
-模型更容易注意到被注入的提示——参见 `agent.go` drain 处注释）：
+`runLoop` 在**每次迭代开始时**（`think()` 之前）排空 inbox，把消息作为**独立 user message**
+追加到 history：
 
 ```go
-a.History.Append(NewToolResultMessage(resultBlocks))
-// Steer injection: drain pending steer messages and append them as
-// standalone user messages.
-if steer := a.drainSteer(); steer != "" {
-    a.History.Append(NewUserMessage(steer))
-    // emit EventSteerInjected for UI rendering
+for i := 0; limit == unlimitedTurns || i < limit; i++ {
+    // Drain inbox messages that arrived since the last iteration.
+    for _, m := range a.Inbox.Drain() {
+        a.History.Append(NewUserMessage(m))
+    }
+
+    reply, err := send(ctx, a.History.Snapshot())
+    // ...
 }
 ```
 
-消息序列：
+消息序列（多轮工具调用后用户输入）：
 ```
-... assistant(tool_use) → user(tool_result) → user(steer) → assistant(reply)
+... assistant(tool_use) → user(tool_result) → assistant(tool_use) → user(tool_result)
+→ user(inbox) → assistant(reply)
 ```
 
-对于要求严格 user/assistant 交替的 provider，适配器层（`provider/openai`）负责合并连续的
-user 消息。
+对于要求严格 user/assistant 交替的 provider，适配器层（`provider/anthropic`）负责合并连续的
+user 消息（将 tool_result 与 inbox 文本合并为一个 user message）。
 
-`Agent.Steer` 从 UI goroutine 写、`runLoop` 在自己 goroutine drain，无数据竞争（`steerMu`
-互斥锁保护）。
+`Agent.Inbox.Enqueue` 从 UI goroutine 写、`runLoop` 在自己 goroutine drain，无数据竞争
+（`Inbox` 内部互斥锁保护）。
 
-**降级**:回合走到终止(模型不再 tool_use)时若仍有 pending steer,turn-core 在回合结束后把
-它作为下一回合启动——这就是 steer-无边界 / queue 的统一兜底。
+**降级**:回合走到终止(模型不再 tool_use)时若 inbox 仍有内容,turn-core 在回合结束后把
+它作为下一回合启动——这就是 inbox 的统一兜底。
 
 ## 5. interrupt
 
 每回合独立 `turnCtx`。Esc(无模态)取消它,`runLoop` 在迭代边界检测 `ctx.Err()` 走
-`finishInterrupted` 把 history 收尾成 well-formed。**Esc 只取消 turnCtx,不动 pending**——
+`finishInterrupted` 把 history 收尾成 well-formed。**Esc 只取消 turnCtx,不动 queue/inbox**——
 pending 存活,turn-core 收尾后照常消费为后续回合。
 
 ## 6. permission gate / ask_user_question
@@ -131,7 +133,7 @@ Other 自由文本输入。
 
 | 键 | idle(无回合) | 回合运行中(无模态) | 模态打开时 |
 |---|---|---|---|
-| 裸 **Enter** | 提交,开新回合 | **steer**:注入 pending,下一边界生效(无边界→降级 queue) | 确认当前选项 |
+| 裸 **Enter** | 提交,开新回合 | **inbox**:进入 inbox,下次迭代生效 | 确认当前选项 |
 | **Alt+Enter** | (同 Enter) | **queue**:排队,回合结束后作新回合 | — |
 | **Ctrl+X** | — | **撤回**最近排队项(连按清空) | — |
 | **Esc** | 清空当前输入行 | **interrupt**:停当前回合,pending 保留 | **取消单个工具**,回合继续 |
@@ -162,18 +164,18 @@ useTUI := isREPL && stdinIsTTY(stdin) && !*noTUI && !tuiDisabledByEnv() && seedP
 ## 9. 依赖
 
 - `github.com/charmbracelet/bubbletea` — 事件循环。
-- `github.com/charmbracelet/bubbles/textinput` — 单行输入框(光标移动、词跳转、剪贴板等)。
+- `github.com/charmbracelet/bubbles/textarea` — 多行输入框(光标移动、词跳转、剪贴板等)。
 - 已有:`lipgloss`(渲染)、`go-isatty`(TTY 探测)、`chzyer/readline`(纯文本路径的 idle 行编辑)。
 
-↑/↓ 用于输入历史 recall,因此禁用 textinput 内置的 suggestion 导航(`NextSuggestion`/
-`PrevSuggestion` 设为空 KeyBinding)。Model 逻辑经 `Update` 直接单测,**不依赖** `teatest`。
+↑/↓ 用于输入历史 recall,因此禁用 textarea 内置的行导航(`LineNext`/`LinePrevious` 设为空
+KeyBinding)。Model 逻辑经 `Update` 直接单测,**不依赖** `teatest`。
 
 ## 10. 测试(stdlib,无外部框架)
 
-- **turn-core**:mock `ViewSink` 断言事件序列、`Ask` 请求-响应、pending 消费时机。
-- **steer/注入**:mock Sender 产 tool_use，断言 steer 作为独立 user message 追加在
-  tool_result 之后（非并进 tool_result）、无边界时降级；两个 provider 适配器的 wire 形态。
-- **interrupt**:cancel `turnCtx`,断言走 `finishInterrupted` 且 pending 存活、后续被消费。
-- **TUI Model**:经 `Update` 断言键位映射(Enter=steer/Alt+Enter=queue/Ctrl+X=unqueue/Esc)、
+- **turn-core**:mock `ViewSink` 断言事件序列、`Ask` 请求-响应、inbox 消费时机。
+- **inbox/注入**:mock Sender 产 tool_use，断言 inbox 作为独立 user message 追加在
+  迭代开始时、无边界时降级；两个 provider 适配器的 wire 形态。
+- **interrupt**:cancel `turnCtx`,断言走 `finishInterrupted` 且 inbox 存活、后续被消费。
+- **TUI Model**:经 `Update` 断言键位映射(Enter=inbox/Alt+Enter=queue/Ctrl+X=unqueue/Esc)、
   queue 入队与出队、降级、模态状态机、文本缓冲——无需真 TTY。
 - **纯文本路径回归**:既有 scanner-based REPL 测试继续绿,保证 `--no-tui` / 非-TTY 不变。

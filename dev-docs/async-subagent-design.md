@@ -253,11 +253,11 @@ The injected message becomes part of the conversation history. On the next LLM c
 **Open question**: If the parent is idle (no active LLM call) when the notification arrives, how is the next turn triggered?
 
 Options:
-1. **Steer queue**: Push into the existing steer mechanism. The next user message or auto-triggered turn will pick it up.
+1. **Inbox queue**: Push into the existing inbox mechanism. The next user message or auto-triggered turn will pick it up.
 2. **Auto-trigger**: The REPL automatically starts a new LLM turn when a notification arrives while idle. This may be surprising — the agent would "speak up" unprompted.
 3. **Hybrid**: Notifications accumulate in a queue. The REPL shows a "N pending notifications" indicator. The user can ask "what's new?" or the next natural turn processes them.
 
-**Recommendation**: Start with option 1 (steer queue). It reuses existing machinery and doesn't introduce unprompted agent speech. Evaluate option 3 if the UX feels laggy.
+**Recommendation**: Start with option 1 (inbox queue). It reuses existing machinery and doesn't introduce unprompted agent speech. Evaluate option 3 if the UX feels laggy.
 
 ### Concurrency Model
 
@@ -414,7 +414,7 @@ Mitigation:
 
 ## Open Questions
 
-1. **Notification auto-trigger**: Should the REPL automatically start a new LLM turn when a notification arrives while idle? (Currently: no, use steer queue.)
+1. **Notification auto-trigger**: Should the REPL automatically start a new LLM turn when a notification arrives while idle? (Currently: no, use inbox queue.)
 2. **Message queue depth**: How many pending messages per sub-agent? (Currently: 1.)
 3. **Sub-agent timeout**: Should async sub-agents have a global timeout? (Currently: no, rely on spawner/implementation.)
 4. **Result retention**: How long to keep sub-agent results after delivery? (Currently: until session end or `kill_agent`.)
@@ -423,4 +423,4 @@ Mitigation:
 
 - `internal/tools/background.go` — `BackgroundManager` pattern (direct model).
 - `internal/taskgraph/` — DAG scheduler for `octo task` (separate concern, but shares the async execution concept).
-- `dev-docs/tui-input-modes-design.md` — steer mechanism for mid-turn injection.
+- `dev-docs/tui-input-modes-design.md` — inbox mechanism for mid-turn injection.
