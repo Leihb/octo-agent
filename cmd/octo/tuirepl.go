@@ -549,6 +549,23 @@ func (m *tuiModel) handleEvent(ev agent.AgentEvent) {
 		}
 		m.commitToolLine(toolErrStyle.Render(fmt.Sprintf("↳ %s ✗ — %s", ev.ToolName, truncate1Line(ev.Err))))
 		return
+
+	case agent.EventSteerInjected:
+		// Inbox drained mid-turn: print the steer messages to the scrollback
+		// immediately so they appear in chronological order (before the next
+		// assistant reply), and remove them from the pending live display.
+		for _, s := range ev.Messages {
+			m.println(userEchoStyle.Render("> ") + s)
+		}
+		// pendingSteer is FIFO and mirrors the inbox, so the drained messages
+		// are always a prefix.
+		n := len(ev.Messages)
+		if n >= len(m.pendingSteer) {
+			m.pendingSteer = nil
+		} else {
+			m.pendingSteer = m.pendingSteer[n:]
+		}
+		return
 	}
 }
 
@@ -652,9 +669,9 @@ func (m *tuiModel) handleTurnFinished() (tea.Model, tea.Cmd) {
 	m.streaming = false
 	m.running = nil // clear any live tool indicator (e.g. on interrupt)
 
-	// Steer messages that were drained into history during the turn should
-	// appear in the scrollback like regular user messages. Print them before
-	// clearing the pending display.
+	// Any steer messages that weren't drained via EventSteerInjected during
+	// the turn (e.g. typed after the last loop iteration) are printed now so
+	// they don't vanish from the transcript.
 	for _, s := range m.pendingSteer {
 		m.println(userEchoStyle.Render("> ") + s)
 	}

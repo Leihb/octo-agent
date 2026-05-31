@@ -422,8 +422,13 @@ func (a *Agent) runLoop(
 		// Drain inbox messages that arrived since the last iteration.
 		// Done before the LLM call so the model sees mid-turn user input
 		// as a first-class message boundary, not folded into tool output.
-		for _, m := range a.Inbox.Drain() {
-			a.History.Append(NewUserMessage(m))
+		if steerMsgs := a.Inbox.Drain(); len(steerMsgs) > 0 {
+			for _, m := range steerMsgs {
+				a.History.Append(NewUserMessage(m))
+			}
+			if handler != nil {
+				handler(AgentEvent{Kind: EventSteerInjected, Messages: steerMsgs})
+			}
 		}
 
 		// Defensive check: ensure every tool_use block has a matching tool_result.

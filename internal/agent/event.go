@@ -50,6 +50,13 @@ const (
 	// after the assistant's final reply is committed to history. Reply
 	// carries the aggregated final Reply.
 	EventTurnDone EventKind = "turn_done"
+
+	// EventSteerInjected fires when the agent loop drains the inbox and
+	// injects mid-turn user messages into history. Messages carries the
+	// drained texts so observers (e.g. the TUI) can render them in the
+	// transcript at the correct chronological position — before the next
+	// assistant reply, not after the turn ends.
+	EventSteerInjected EventKind = "steer_injected"
 )
 
 // EventToolOutputCap is the maximum length of the Output field emitted on
@@ -71,6 +78,7 @@ const EventToolOutputCap = 512
 //   - EventToolDone:       ToolID, ToolName, Output
 //   - EventToolError:      ToolID, ToolName, Output (may be empty), Err
 //   - EventTurnDone:       Reply
+//   - EventSteerInjected:  Messages
 //
 // JSON tags are included so HTTP/SSE transports (M8 web server) can
 // marshal events directly without an intermediate type.
@@ -85,6 +93,7 @@ type AgentEvent struct {
 	Output     string         `json:"output,omitempty"`
 	Err        string         `json:"err,omitempty"`
 	Reply      *Reply         `json:"reply,omitempty"`
+	Messages   []string       `json:"messages,omitempty"`
 }
 
 // EventHandler is the callback type passed into Agent.RunStream. The handler
