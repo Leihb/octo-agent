@@ -4,11 +4,10 @@
 package tools
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
@@ -86,10 +85,10 @@ func (t TerminalTool) Execute(ctx context.Context, name string, input map[string
 // long line will get their final line truncated, but the more usual case of
 // many short lines is unaffected.
 //
-// Timeout promotion: if the command exceeds TerminalTimeout (30 s) it is
-// killed and automatically restarted as a background process so the work is
-// not lost. The caller receives the output produced so far plus a background
-// id and a clear instruction to wait for the completion notification.
+// Timeout promotion: if the command exceeds TerminalTimeout (30 s) the
+// original process continues running in the background (no restart). The
+// caller receives the output produced so far plus a background id and a
+// clear instruction to wait for the completion notification.
 func (t TerminalTool) ExecuteStream(
 	ctx context.Context,
 	_ string,
@@ -114,116 +113,66 @@ func (t TerminalTool) ExecuteStream(
 		return agent.ToolResult{Text: fmt.Sprintf("Started background process %s.\n\nDO NOT poll terminal_output. The system will automatically notify you when this process finishes, carrying its full output. You can continue with other tasks while it runs.", id)}, nil
 	}
 
-	// Synchronous path: run with a timeout. If the command exceeds the timeout
-	// it is killed and automatically restarted as a background process so the
-	// work is not lost. The agent receives the partial output plus a bg id.
-	//
-	// We use a manual timer instead of context.WithTimeout because
-	// exec.CommandContext kills the process on timeout and returns "signal:
-	// killed" rather than context.DeadlineExceeded, making it impossible to
-	// distinguish timeout from user interrupt.
-	cmdCtx, cmdCancel := context.WithCancel(context.Background())
-	defer cmdCancel()
+	// Synchronous path: start as a background process so that if we hit the
+	// timeout the original process simply keeps running — no kill, no restart.
+	// We attach an onLine callback to collect output and stream to progress in
+	// real time. The polling loop only checks status (exited/running).
+	var (
+		outMu sync.Mutex
+		out   strings.Builder
+	)
+	onLine := func(line string) {
+		outMu.Lock()
+		out.WriteString(line)
+		outMu.Unlock()
+		if progress != nil {
+			progress(strings.TrimRight(line, "\n"))
+		}
+	}
 
-	cmd, err := shellCommand(cmdCtx, command)
+	id, err := t.manager().Start(command, WithOnLine(onLine))
 	if err != nil {
 		return agent.ToolResult{Text: ""}, err
 	}
 
-	// Merge stdout + stderr through a single pipe so the reader sees a
-	// chronological stream. Doing `cmd.Stderr = cmd.Stdout` after StdoutPipe
-	// doesn't work in all Go versions; the io.Pipe pattern is portable.
-	pr, pw := io.Pipe()
-	cmd.Stdout = pw
-	cmd.Stderr = pw
+	// Poll until the process exits or the timeout fires.
+	timer := time.NewTimer(TerminalTimeout)
+	defer timer.Stop()
 
-	if err := cmd.Start(); err != nil {
-		_ = pw.Close()
-		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal: start: %w", err)
-	}
+	for {
+		select {
+		case <-timer.C:
+			// Timeout: the original process is still running in the background.
+			// Return what we have so far plus the bg id.
+			outMu.Lock()
+			body := strings.TrimRight(out.String(), "\n")
+			outMu.Unlock()
+			body = strings.ReplaceAll(body, "\t", "    ")
+			return agent.ToolResult{Text: fmt.Sprintf("%s\n\n[timeout: command exceeded %s and continues as background process %s]\n\nDO NOT poll terminal_output. The system will automatically notify you when this process finishes, carrying its full output. You can continue with other tasks while it runs.", body, TerminalTimeout, id)}, nil
+		case <-ctx.Done():
+			// User cancelled (Esc / Ctrl-C): kill the background process.
+			t.manager().Kill(id)
+			outMu.Lock()
+			body := strings.TrimRight(out.String(), "\n")
+			outMu.Unlock()
+			body = strings.ReplaceAll(body, "\t", "    ")
+			return agent.ToolResult{Text: body + "\n[exit: signal: killed]"}, nil
+		default:
+		}
 
-	// Reader goroutine forwards each line to progress and accumulates the
-	// full buffer for the eventual return value.
-	var (
-		out      strings.Builder
-		readDone = make(chan struct{})
-	)
-	go func() {
-		defer close(readDone)
-		scanner := bufio.NewScanner(pr)
-		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
-			out.WriteString(line)
-			out.WriteByte('\n')
-			if progress != nil {
-				progress(line)
+		_, status, _, _ := t.manager().Read(id)
+		if strings.HasPrefix(status, "exited") {
+			outMu.Lock()
+			body := strings.TrimRight(out.String(), "\n")
+			outMu.Unlock()
+			body = strings.ReplaceAll(body, "\t", "    ")
+			if status != "exited: 0" {
+				return agent.ToolResult{Text: body + "\n[exit: " + strings.TrimPrefix(status, "exited: ") + "]"}, nil
 			}
+			return agent.ToolResult{Text: body}, nil
 		}
-		// Drop scanner.Err here: the most common cause is a single
-		// over-cap line, which we recover from by simply not forwarding
-		// the rest. The Wait() error below is the canonical signal.
-	}()
-
-	// Kill the subprocess when the USER cancels the turn (Esc / Ctrl-C).
-	// The timeout is handled separately below.
-	// context.Background() (used in some tests) returns a nil Done channel;
-	// reading from a nil channel blocks forever, so we guard against it.
-	go func() {
-		if done := ctx.Done(); done != nil {
-			<-done
-			cmdCancel()
-			if cmd.Process != nil {
-				_ = killProcessGroup(cmd.Process)
-			}
-		}
-	}()
-
-	// Wait for the command to finish, but cap the wait at TerminalTimeout.
-	waitErr := make(chan error, 1)
-	go func() {
-		waitErr <- cmd.Wait()
-		_ = pw.Close() // unblocks the scanner's Read by EOF
-	}()
-
-	var (
-		timedOut bool
-		waitRes  error
-	)
-	select {
-	case waitRes = <-waitErr:
-	case <-time.After(TerminalTimeout):
-		timedOut = true
-		cmdCancel()
-		if cmd.Process != nil {
-			_ = killProcessGroup(cmd.Process)
-		}
-		waitRes = <-waitErr // drain the channel
+		time.Sleep(50 * time.Millisecond)
 	}
-	<-readDone // ensure goroutine has flushed before reading `out`
-
-	body := strings.TrimRight(out.String(), "\n")
-	// Tabs confuse the TUI's cursor-position math (bubbletea can't predict
-	// where a tab stop lands). Replace them with spaces so inline rendering
-	// stays aligned with the terminal's actual cursor.
-	body = strings.ReplaceAll(body, "\t", "    ")
-
-	// If the command timed out, restart it as a background process so the
-	// work is not lost. The agent gets the partial output plus a bg id.
-	if timedOut {
-		id, err := t.manager().Start(command)
-		if err != nil {
-			return agent.ToolResult{Text: body + "\n[timeout: command exceeded " + TerminalTimeout.String() + "]"}, nil
-		}
-		return agent.ToolResult{Text: fmt.Sprintf("%s\n\n[timeout: command exceeded %s and was restarted as background process %s]\n\nDO NOT poll terminal_output. The system will automatically notify you when this process finishes, carrying its full output. You can continue with other tasks while it runs.", body, TerminalTimeout, id)}, nil
-	}
-
-	if waitRes != nil {
-		// Match the original Execute contract: non-zero exit is surfaced as
-		// result text, not as a Go error, so the LLM can read and adapt.
-		return agent.ToolResult{Text: body + "\n[exit: " + waitRes.Error() + "]"}, nil
-	}
-	return agent.ToolResult{Text: body}, nil
 }
 
 // TerminalOutputTool reads new output (and status) from a background process

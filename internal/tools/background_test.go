@@ -179,8 +179,9 @@ func TestKillShellTool(t *testing.T) {
 }
 
 // TestTerminalTool_TimeoutPromotesToBackground verifies that a synchronous
-// command which exceeds TerminalTimeout is killed and automatically restarted
-// as a background process. The agent receives partial output plus a bg id.
+// command which exceeds TerminalTimeout continues running as the original
+// background process — no kill, no restart. The agent receives partial output
+// plus the bg id.
 func TestTerminalTool_TimeoutPromotesToBackground(t *testing.T) {
 	// Use a short timeout so the test doesn't take 30 s.  500 ms is enough
 	// for POSIX `sh` and Windows PowerShell to start and emit a line, while
@@ -209,7 +210,7 @@ func TestTerminalTool_TimeoutPromotesToBackground(t *testing.T) {
 	if !strings.Contains(res.Text, "partial") {
 		t.Errorf("result should contain partial output, got: %q", res.Text)
 	}
-	// Should mention the timeout and background promotion.
+	// Should mention the timeout and that it continues as background.
 	if !strings.Contains(res.Text, "timeout") {
 		t.Errorf("result should mention timeout, got: %q", res.Text)
 	}

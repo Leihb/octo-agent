@@ -32,15 +32,21 @@ type bgProcess struct {
 	done      bool
 	exitErr   error
 	pollCount int // consecutive empty reads while running
+
+	onLine func(string) // optional real-time callback for sync-mode streaming
 }
 
 func (p *bgProcess) append(b []byte) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.produced += int64(len(b))
 	p.buf = append(p.buf, b...)
 	if len(p.buf) > maxBgOutputBytes {
 		p.buf = p.buf[len(p.buf)-maxBgOutputBytes:]
+	}
+	onLine := p.onLine
+	p.mu.Unlock()
+	if onLine != nil {
+		onLine(string(b))
 	}
 }
 
@@ -127,10 +133,20 @@ func (m *BackgroundManager) SetOnExit(fn func(BgExit)) {
 	m.mu.Unlock()
 }
 
+// StartOption is a functional option for BackgroundManager.Start.
+type StartOption func(*bgProcess)
+
+// WithOnLine registers a callback that receives each line of output as it is
+// produced. Used by the synchronous path to forward output to the progress
+// callback in real time.
+func WithOnLine(fn func(string)) StartOption {
+	return func(p *bgProcess) { p.onLine = fn }
+}
+
 // Start launches command detached (via `sh -c`), with no timeout, and returns
 // its background id. Output streams into a capped buffer; the process is killed
 // if its context is cancelled (Kill / KillAll).
-func (m *BackgroundManager) Start(command string) (string, error) {
+func (m *BackgroundManager) Start(command string, opts ...StartOption) (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd, err := shellCommand(ctx, command)
 	if err != nil {
@@ -152,6 +168,9 @@ func (m *BackgroundManager) Start(command string) (string, error) {
 	m.seq++
 	id := fmt.Sprintf("bg_%d", m.seq)
 	p := &bgProcess{id: id, command: command, cancel: cancel, proc: cmd.Process, start: time.Now()}
+	for _, opt := range opts {
+		opt(p)
+	}
 	m.procs[id] = p
 	m.mu.Unlock()
 
