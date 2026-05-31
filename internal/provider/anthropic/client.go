@@ -317,10 +317,28 @@ func toAPITools(defs []agent.ToolDefinition) []apiTool {
 //
 // Messages with Blocks are serialized as a []apiContentBlock JSON array;
 // plain-text messages are serialized as a JSON string for compatibility.
+//
+// Consecutive user messages are merged into one so that a tool_use block is
+// immediately followed by its tool_result block with no intervening user
+// message boundary. This satisfies Anthropic's API requirement that every
+// tool_use id must have a matching tool_result in the next message.
 func toAPIMessages(in []agent.Message) ([]apiMessage, error) {
 	out := make([]apiMessage, 0, len(in))
 	for _, m := range in {
 		if m.Role == agent.RoleSystem {
+			continue
+		}
+
+		// Merge consecutive user messages: Anthropic requires strict
+		// user/assistant alternation, and a tool_use must be immediately
+		// followed by a tool_result in the next message. A steer message
+		// appended after the tool_result would break this pairing.
+		if m.Role == agent.RoleUser && len(out) > 0 && out[len(out)-1].Role == "user" {
+			merged, err := mergeUserMessages(out[len(out)-1], m)
+			if err != nil {
+				return nil, err
+			}
+			out[len(out)-1] = merged
 			continue
 		}
 
@@ -345,6 +363,41 @@ func toAPIMessages(in []agent.Message) ([]apiMessage, error) {
 		}
 	}
 	return out, nil
+}
+
+// mergeUserMessages combines two user-role messages into one. Both may be
+// plain string content or block-array content; the result is always a block
+// array so heterogeneous merges are uniform.
+func mergeUserMessages(prev apiMessage, next agent.Message) (apiMessage, error) {
+	// Decode prev content into blocks.
+	var prevBlocks []map[string]any
+	if err := json.Unmarshal(prev.Content, &prevBlocks); err != nil {
+		// prev was a plain string — promote to a single text block.
+		var s string
+		if err := json.Unmarshal(prev.Content, &s); err != nil {
+			return apiMessage{}, fmt.Errorf("anthropic: unmarshal prev user message: %w", err)
+		}
+		prevBlocks = []map[string]any{{"type": "text", "text": s}}
+	}
+
+	// Decode next content into blocks.
+	var nextBlocks []map[string]any
+	if len(next.Blocks) > 0 {
+		var err error
+		nextBlocks, err = marshalBlocks(next.Blocks)
+		if err != nil {
+			return apiMessage{}, err
+		}
+	} else {
+		nextBlocks = []map[string]any{{"type": "text", "text": next.Content}}
+	}
+
+	merged := append(prevBlocks, nextBlocks...)
+	raw, err := json.Marshal(merged)
+	if err != nil {
+		return apiMessage{}, fmt.Errorf("anthropic: marshal merged user message: %w", err)
+	}
+	return apiMessage{Role: "user", Content: raw}, nil
 }
 
 // marshalBlocks converts agent.ContentBlock slice to []apiContentBlock.
