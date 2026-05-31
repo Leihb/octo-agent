@@ -269,6 +269,123 @@ func TestSend_ToolResultWithSteerText(t *testing.T) {
 	}
 }
 
+// TestSend_MergesConsecutiveUserMessages verifies that consecutive user
+// messages (e.g. tool_result followed by a steer message) are merged into a
+// single user message so Anthropic's tool_use/tool_result pairing requirement
+// is satisfied.
+func TestSend_MergesConsecutiveUserMessages(t *testing.T) {
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"x","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+
+	// Simulate agent history where steer was appended as a standalone user
+	// message after the tool_result (the agent layer's design).
+	msgs := []agent.Message{
+		agent.NewUserMessage("run echo hi"),
+		agent.NewToolUseMessage([]agent.ContentBlock{
+			agent.NewToolUseBlock("call-1", "bash", map[string]any{"command": "echo hi"}),
+		}),
+		agent.NewToolResultMessage([]agent.ContentBlock{
+			agent.NewToolResultBlock("call-1", "hi", false),
+		}),
+		agent.NewUserMessage("also handle the error case"),
+	}
+
+	if _, err := c.Send(context.Background(), provider.Request{Model: "x", Messages: msgs, Tools: []agent.ToolDefinition{{Name: "bash"}}}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	var wireReq struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(capturedBody, &wireReq); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// Should be 3 messages: user text, assistant(tool_use), merged user(tool_result + steer text)
+	if len(wireReq.Messages) != 3 {
+		t.Fatalf("messages len = %d, want 3: %s", len(wireReq.Messages), capturedBody)
+	}
+
+	// Message 2 should be the merged user message with both tool_result and text.
+	if wireReq.Messages[2].Role != "user" {
+		t.Errorf("messages[2].role = %q, want user", wireReq.Messages[2].Role)
+	}
+	var userContent []map[string]any
+	if err := json.Unmarshal(wireReq.Messages[2].Content, &userContent); err != nil {
+		t.Fatalf("decode user content: %v", err)
+	}
+	if len(userContent) != 2 {
+		t.Fatalf("user content blocks = %d, want 2 (tool_result + text): %v", len(userContent), userContent)
+	}
+	if userContent[0]["type"] != "tool_result" {
+		t.Errorf("blocks[0].type = %v, want tool_result", userContent[0]["type"])
+	}
+	if userContent[1]["type"] != "text" || userContent[1]["text"] != "also handle the error case" {
+		t.Errorf("blocks[1] = %v, want text steer", userContent[1])
+	}
+}
+
+// TestSend_MergesConsecutivePlainUserMessages verifies that two plain-text
+// user messages are merged into a single user message with two text blocks.
+func TestSend_MergesConsecutivePlainUserMessages(t *testing.T) {
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"x","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+
+	msgs := []agent.Message{
+		agent.NewUserMessage("first message"),
+		agent.NewUserMessage("second message"),
+	}
+
+	if _, err := c.Send(context.Background(), provider.Request{Model: "x", Messages: msgs}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	var wireReq struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(capturedBody, &wireReq); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(wireReq.Messages) != 1 {
+		t.Fatalf("messages len = %d, want 1: %s", len(wireReq.Messages), capturedBody)
+	}
+
+	var content []map[string]any
+	if err := json.Unmarshal(wireReq.Messages[0].Content, &content); err != nil {
+		t.Fatalf("decode content: %v", err)
+	}
+	if len(content) != 2 {
+		t.Fatalf("content blocks = %d, want 2: %v", len(content), content)
+	}
+	if content[0]["type"] != "text" || content[0]["text"] != "first message" {
+		t.Errorf("blocks[0] = %v", content[0])
+	}
+	if content[1]["type"] != "text" || content[1]["text"] != "second message" {
+		t.Errorf("blocks[1] = %v", content[1])
+	}
+}
+
 // TestSend_ImageBlock_WireFormat verifies that an image content block is
 // serialized as an Anthropic image source block with base64 data.
 func TestSend_ImageBlock_WireFormat(t *testing.T) {
