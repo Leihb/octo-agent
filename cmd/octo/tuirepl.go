@@ -214,8 +214,11 @@ type tuiModel struct {
 	turnRunning bool
 	cancelTurn  context.CancelFunc
 
-	// partial holds the in-progress assistant line not yet committed to the
-	// scrollback (committed line-by-line on '\n').
+	// partial holds the in-progress assistant text not yet committed to the
+	// scrollback.  In the TUI the raw partial is rendered live in the View()
+	// area so the user sees tokens arrive in real time; only complete blocks
+	// (identified by splitCommittableMarkdown) are promoted to printlnBuf and
+	// flushed to the terminal scrollback via tea.Println.
 	partial strings.Builder
 	// streaming tracks whether the current turn has emitted any output yet
 	// (drives the "thinking…" placeholder).
@@ -372,7 +375,8 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 
 	case agentEventMsg:
-		return m, m.handleEvent(msg.ev)
+		m.handleEvent(msg.ev)
+		return m, m.flushPrints()
 
 	case noticeMsg:
 		m.println(noticeStyle.Render(msg.text))
@@ -482,13 +486,16 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, m.flushPrints()
 }
 
-// handleEvent commits streaming text and tool events to the scrollback,
-// line-by-line, returning a tea.Println Cmd for each completed line.
-func (m *tuiModel) handleEvent(ev agent.AgentEvent) tea.Cmd {
+// handleEvent updates model state for a streaming agent event.  Text deltas
+// are accumulated in m.partial so they render live in View(); only complete
+// markdown blocks are promoted to the scrollback via println/flushPrints.
+// Tool events flush any pending text first, then commit their line/card.
+func (m *tuiModel) handleEvent(ev agent.AgentEvent) {
 	m.streaming = true
 	switch ev.Kind {
 	case agent.EventTextDelta:
-		return m.appendText(ev.Text)
+		m.appendText(ev.Text)
+		return
 
 	case agent.EventToolStarted:
 		if m.toolInput == nil {
@@ -504,38 +511,42 @@ func (m *tuiModel) handleEvent(ev agent.AgentEvent) tea.Cmd {
 				target: cardTargetFor(ev.ToolName, ev.Input),
 				start:  time.Now(),
 			}
-			return nil
+			return
 		}
-		return m.commitToolLine(fmt.Sprintf("↳ %s: %s", ev.ToolName, summariseInput(ev.Input)))
+		m.commitToolLine(fmt.Sprintf("↳ %s: %s", ev.ToolName, summariseInput(ev.Input)))
+		return
 
 	case agent.EventToolProgress:
 		// Card tools defer all output to the done card; dropping progress avoids
 		// noise above the card.
 		if m.rendersCard(ev.ToolName) {
-			return nil
+			return
 		}
-		return m.commitToolLine("│ " + ev.Chunk)
+		m.commitToolLine("│ " + ev.Chunk)
+		return
 
 	case agent.EventToolDone:
 		input := m.toolInput[ev.ToolID]
 		delete(m.toolInput, ev.ToolID)
 		m.running = nil // the finished card replaces the live indicator
 		if m.rendersCard(ev.ToolName) {
-			return m.commitToolLine(renderToolCard(ev.ToolName, input, ev.Output, false))
+			m.commitToolLine(renderToolCard(ev.ToolName, input, ev.Output, false))
+			return
 		}
-		return m.commitToolLine(fmt.Sprintf("↳ %s ✓", ev.ToolName))
+		m.commitToolLine(fmt.Sprintf("↳ %s ✓", ev.ToolName))
+		return
 
 	case agent.EventToolError:
 		input := m.toolInput[ev.ToolID]
 		delete(m.toolInput, ev.ToolID)
 		m.running = nil
 		if m.rendersCard(ev.ToolName) {
-			return m.commitToolLine(renderToolCard(ev.ToolName, input, firstNonEmpty(ev.Output, ev.Err), true))
+			m.commitToolLine(renderToolCard(ev.ToolName, input, firstNonEmpty(ev.Output, ev.Err), true))
+			return
 		}
-		return m.commitToolLine(toolErrStyle.Render(fmt.Sprintf("↳ %s ✗ — %s", ev.ToolName, truncate1Line(ev.Err))))
-
+		m.commitToolLine(toolErrStyle.Render(fmt.Sprintf("↳ %s ✗ — %s", ev.ToolName, truncate1Line(ev.Err))))
+		return
 	}
-	return nil
 }
 
 // rendersCard reports whether the TUI should render this tool as a rich card.
@@ -545,34 +556,34 @@ func (m *tuiModel) rendersCard(toolName string) bool {
 	return !m.cfg.plain && cardVerbFor(toolName) != ""
 }
 
-// appendText buffers a streamed text delta. Under --plain it commits whole
-// lines as they complete (raw). Otherwise it accumulates markdown and commits
-// complete blocks (up to the last blank line outside a code fence) through
-// glamour, keeping the in-progress block live in the View region.
-func (m *tuiModel) appendText(text string) tea.Cmd {
+// appendText buffers a streamed text delta into m.partial.  The partial is
+// rendered live in View() so the user sees tokens arrive in real time.
+// When a complete block boundary is found (blank line outside a code fence),
+// that prefix is promoted to the scrollback via println/flushPrints so it
+// becomes part of the terminal's native scrollback history.
+func (m *tuiModel) appendText(text string) {
 	m.partial.WriteString(text)
 
 	if m.cfg.plain {
 		buf := m.partial.String()
 		idx := strings.LastIndexByte(buf, '\n')
 		if idx < 0 {
-			return nil
+			return
 		}
 		complete := buf[:idx]
 		m.partial.Reset()
 		m.partial.WriteString(buf[idx+1:])
 		m.println(complete)
-		return nil
+		return
 	}
 
 	commit, rest := splitCommittableMarkdown(m.partial.String())
 	if commit == "" {
-		return nil
+		return
 	}
 	m.partial.Reset()
 	m.partial.WriteString(rest)
 	m.println(m.md.render(commit, m.width))
-	return nil
 }
 
 // flushText commits whatever assistant text is still buffered (the final or
@@ -602,14 +613,13 @@ func (m *tuiModel) flushTextString() (string, bool) {
 	return m.md.render(p, m.width), true
 }
 
-// commitToolLine flushes any in-progress text, then appends the tool line/card
-// to the scrollback.
-func (m *tuiModel) commitToolLine(line string) tea.Cmd {
+// commitToolLine flushes any in-progress text to the scrollback, then appends
+// the tool line/card.
+func (m *tuiModel) commitToolLine(line string) {
 	if s, ok := m.flushTextString(); ok {
 		m.println(s)
 	}
 	m.println(line)
-	return nil
 }
 
 // println queues a line for output to the terminal scrollback via
