@@ -69,22 +69,31 @@ slash 命令、turnCtx、save/loop 决策。
 
 ## 4. steer 注入与降级
 
-`runLoop` 每次工具批次后 history 以 `user(tool_result)` 结尾——这是 steer 唯一能落脚的地方。
-在 append tool_result 之前 drain steer,把文本作为**额外 text block 并进同一条 tool_result
-消息**(而非新起一条 user 消息,否则连续两条 user role 破坏交替不变量;多-block 的
-`[tool_result…, text]` user 消息是 Messages API 官方形态):
+`runLoop` 每次工具批次后 history 以 `user(tool_result)` 结尾——这是 steer 能落脚的地方。
+在 append tool_result **之后** drain steer，把文本作为**独立 user 消息**追加（初版设计是并进
+tool_result 作为额外 text block，后改为独立 user 消息以获得一等 message boundary，
+模型更容易注意到被注入的提示——参见 `agent.go` drain 处注释）：
 
 ```go
-resultBlocks := /* dispatchTools 产出 */
-if steer := a.drainSteer(); steer != "" {
-    resultBlocks = append(resultBlocks, NewTextBlock(steer))
-}
 a.History.Append(NewToolResultMessage(resultBlocks))
+// Steer injection: drain pending steer messages and append them as
+// standalone user messages.
+if steer := a.drainSteer(); steer != "" {
+    a.History.Append(NewUserMessage(steer))
+    // emit EventSteerInjected for UI rendering
+}
 ```
 
-`Agent.Steer` 从 UI goroutine 写、`runLoop` 在自己 goroutine drain,无数据竞争(History 也有
-`sync.RWMutex` 兜底)。OpenAI 适配器把这条 user 消息的 tool_result 拆成 `role:"tool"` 消息、
-text block 作随后的 `role:"user"` 消息(对齐 Anthropic 的多-block 形态)。
+消息序列：
+```
+... assistant(tool_use) → user(tool_result) → user(steer) → assistant(reply)
+```
+
+对于要求严格 user/assistant 交替的 provider，适配器层（`provider/openai`）负责合并连续的
+user 消息。
+
+`Agent.Steer` 从 UI goroutine 写、`runLoop` 在自己 goroutine drain，无数据竞争（`steerMu`
+互斥锁保护）。
 
 **降级**:回合走到终止(模型不再 tool_use)时若仍有 pending steer,turn-core 在回合结束后把
 它作为下一回合启动——这就是 steer-无边界 / queue 的统一兜底。
@@ -158,8 +167,8 @@ useTUI := isREPL && stdinIsTTY(stdin) && !*noTUI && !tuiDisabledByEnv() && seedP
 ## 10. 测试(stdlib,无外部框架)
 
 - **turn-core**:mock `ViewSink` 断言事件序列、`Ask` 请求-响应、pending 消费时机。
-- **steer/注入**:mock Sender 产 tool_use,断言 steer 并进 tool_result 的 blocks(不产生连续
-  两条 user role)、无边界时降级;两个 provider 适配器的 wire 形态。
+- **steer/注入**:mock Sender 产 tool_use，断言 steer 作为独立 user message 追加在
+  tool_result 之后（非并进 tool_result）、无边界时降级；两个 provider 适配器的 wire 形态。
 - **interrupt**:cancel `turnCtx`,断言走 `finishInterrupted` 且 pending 存活、后续被消费。
 - **TUI Model**:经 `Update` 断言键位映射(Enter=steer/Alt+Enter=queue/Ctrl+X=unqueue/Esc)、
   queue 入队与出队、降级、模态状态机、文本缓冲——无需真 TTY。
