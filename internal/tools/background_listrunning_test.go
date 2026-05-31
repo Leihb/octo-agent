@@ -50,3 +50,31 @@ func TestRunningBackground_DefaultManagerDelegates(t *testing.T) {
 	// Smoke: the package-level helper reads the default manager without panicking.
 	_ = RunningBackground()
 }
+
+// TestBackgroundManager_ListRunning_ExcludesInvisible verifies that processes
+// started with visible=false do not appear in ListRunning until Promoted.
+func TestBackgroundManager_ListRunning_ExcludesInvisible(t *testing.T) {
+	m := NewBackgroundManager()
+	id, err := m.Start("sleep 2", WithVisible(false))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Invisible processes should not be listed.
+	if run := m.ListRunning(); len(run) != 0 {
+		t.Errorf("invisible process should not be listed; got %+v", run)
+	}
+
+	// After promotion it appears.
+	if !m.Promote(id) {
+		t.Fatal("Promote returned false for a live process")
+	}
+	if run := m.ListRunning(); len(run) != 1 {
+		t.Fatalf("after promote ListRunning = %d entries, want 1: %+v", len(run), run)
+	}
+
+	// Promote of unknown id returns false.
+	if m.Promote("bg_does_not_exist") {
+		t.Error("Promote of unknown id should return false")
+	}
+}
