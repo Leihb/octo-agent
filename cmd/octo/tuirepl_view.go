@@ -61,15 +61,16 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Idle: clear the input line.
 		m.ta.Reset()
 		m.inputHistoryIdx = -1
-		m.updateTextAreaHeight()
-		return m, nil
+		return m, m.updateTextAreaHeight()
 
 	case tea.KeyCtrlJ:
 		// Ctrl+J inserts a newline (LF) into the textarea. Works on all
 		// terminals, including those where Alt+Enter is not mapped.
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		m.updateTextAreaHeight()
+		if hcmd := m.updateTextAreaHeight(); hcmd != nil {
+			cmd = tea.Batch(cmd, hcmd)
+		}
 		return m, cmd
 
 	case tea.KeyCtrlQ:
@@ -120,7 +121,9 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Alt+Enter inserts a newline into the textarea.
 			var cmd tea.Cmd
 			m.ta, cmd = m.ta.Update(tea.KeyMsg{Type: tea.KeyEnter})
-			m.updateTextAreaHeight()
+			if hcmd := m.updateTextAreaHeight(); hcmd != nil {
+				cmd = tea.Batch(cmd, hcmd)
+			}
 			return m, cmd
 		}
 		return m.submit()
@@ -130,7 +133,7 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputHistoryIdx++
 			m.ta.SetValue(m.inputHistory[len(m.inputHistory)-1-m.inputHistoryIdx])
 			m.ta.CursorEnd()
-			m.updateTextAreaHeight()
+			return m, m.updateTextAreaHeight()
 		}
 		return m, nil
 
@@ -139,11 +142,11 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputHistoryIdx--
 			m.ta.SetValue(m.inputHistory[len(m.inputHistory)-1-m.inputHistoryIdx])
 			m.ta.CursorEnd()
-			m.updateTextAreaHeight()
+			return m, m.updateTextAreaHeight()
 		} else if m.inputHistoryIdx == 0 {
 			m.inputHistoryIdx = -1
 			m.ta.Reset()
-			m.updateTextAreaHeight()
+			return m, m.updateTextAreaHeight()
 		}
 		return m, nil
 	}
@@ -152,7 +155,9 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// is handled by bubbles/textarea.
 	var cmd tea.Cmd
 	m.ta, cmd = m.ta.Update(msg)
-	m.updateTextAreaHeight()
+	if hcmd := m.updateTextAreaHeight(); hcmd != nil {
+		cmd = tea.Batch(cmd, hcmd)
+	}
 	return m, cmd
 }
 
@@ -470,13 +475,24 @@ func (m *tuiModel) View() string {
 
 // updateTextAreaHeight sets the textarea height to match the number of lines
 // in the current value, capped at a maximum so it doesn't take over the screen.
-func (m *tuiModel) updateTextAreaHeight() {
+// When the height changes it sends a no-op key to the textarea so that its
+// internal repositionView runs with the new height, preventing the viewport
+// from scrolling past content that is still visible.
+func (m *tuiModel) updateTextAreaHeight() tea.Cmd {
 	lines := strings.Count(m.ta.Value(), "\n") + 1
 	maxH := min(6, m.height/4)
 	if maxH < 1 {
 		maxH = 1
 	}
-	m.ta.SetHeight(min(lines, maxH))
+	newH := min(lines, maxH)
+	if m.ta.Height() == newH {
+		return nil
+	}
+	m.ta.SetHeight(newH)
+	// Trigger repositionView with the updated height by sending a harmless key.
+	var cmd tea.Cmd
+	m.ta, cmd = m.ta.Update(tea.KeyMsg{Type: tea.KeyHome})
+	return cmd
 }
 
 func (m *tuiModel) renderInputBox() string {
