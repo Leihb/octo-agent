@@ -160,8 +160,8 @@ func (v *plainView) TurnEnded(reply agent.Reply, err error) {
 	v.spin.Stop() // belt-and-braces in case the turn produced zero events
 	switch {
 	case errors.Is(err, context.Canceled):
-		// Ctrl-C: the agent already finalized history into a well-formed state.
-		fmt.Fprintln(v.out, "\n^C interrupted")
+		// Ctrl-C / Esc: silently terminate. The agent already finalized
+		// history into a well-formed state.
 	case err != nil:
 		fmt.Fprintf(v.errOut, "\nerror: %v\n", err)
 	default:

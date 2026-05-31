@@ -426,8 +426,6 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.err != nil && msg.err != context.Canceled {
 			m.println(errorStyle.Render("error: " + msg.err.Error()))
-		} else if msg.err == context.Canceled {
-			m.println(noticeStyle.Render("^C interrupted"))
 		} else if c := cacheLine(m.cfg.verbosity, msg.reply); c != "" {
 			m.println(c)
 		}

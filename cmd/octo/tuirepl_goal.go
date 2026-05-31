@@ -191,10 +191,7 @@ func (m *tuiModel) onGoalDone(msg goalDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case msg.err != nil && errors.Is(msg.err, context.Canceled):
-		if b.Len() > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString(noticeStyle.Render("^C interrupted"))
+		// Goal interrupted: show task status without extra interrupt notice.
 	case msg.err != nil:
 		if b.Len() > 0 {
 			b.WriteByte('\n')
