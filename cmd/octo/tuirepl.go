@@ -306,25 +306,30 @@ func (m *tuiModel) startTurnEcho(line, echo string) tea.Cmd {
 }
 
 func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	return model, tea.Batch(cmd, m.flushPrints())
+}
+
+func (m *tuiModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ti.Width = msg.Width - 4 // account for border + padding
-		return m, m.flushPrints()
+		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
 	case turnStartedMsg:
-		return m, m.flushPrints()
+		return m, nil
 
 	case tickMsg:
 		// Animate while a turn runs OR while background processes are still
 		// going (so the live "background (N running)" panel keeps ticking even
 		// between turns); let the ticker die once both are quiet.
 		if !m.turnRunning && len(tools.RunningBackground()) == 0 {
-			return m, m.flushPrints()
+			return m, nil
 		}
 		m.spinnerFrame++
 		return m, tickCmd()
@@ -334,7 +339,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case noticeMsg:
 		m.println(noticeStyle.Render(msg.text))
-		return m, m.flushPrints()
+		return m, nil
 
 	case bgExitMsg:
 		// Async background-process completion: show a one-line scrollback notice
@@ -350,7 +355,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.startTurnEcho(s, "")
 			}
 		}
-		return m, m.flushPrints()
+		return m, nil
 
 	case subAgentNoteMsg:
 		// Async sub-agent completion: show a one-line scrollback notice (the
@@ -368,7 +373,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.startTurnEcho(s, "")
 			}
 		}
-		return m, m.flushPrints()
+		return m, nil
 
 	case turnEndedMsg:
 		// Flush any trailing assistant block (markdown-rendered); then render
@@ -383,14 +388,14 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if c := cacheLine(m.cfg.verbosity, msg.reply); c != "" {
 			m.println(c)
 		}
-		return m, m.flushPrints()
+		return m, nil
 
 	case turnFinishedMsg:
 		return m.handleTurnFinished()
 
 	case askMsg:
 		m.openModal(msg)
-		return m, m.flushPrints()
+		return m, nil
 
 	case goalPlannedMsg:
 		return m.onGoalPlanned(msg)
@@ -404,12 +409,12 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.println(noticeStyle.Render(fmt.Sprintf(
 			"Cancelled. Planned as %s — run later with /goal resume %s (or octo goal run %s).",
 			msg.task.ShortID(), msg.task.ShortID(), msg.task.ShortID())))
-		return m, m.flushPrints()
+		return m, nil
 
 	case goalDoneMsg:
 		return m.onGoalDone(msg)
 	}
-	return m, m.flushPrints()
+	return m, nil
 }
 
 // handleEvent commits streaming text and tool events to the scrollback,
