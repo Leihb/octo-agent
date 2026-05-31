@@ -231,6 +231,11 @@ type tuiModel struct {
 	// scrollback (0 = pinned to bottom, showing the newest content).
 	scrollOffset int
 
+	// sticky is true when the view should auto-follow new content (pinned to
+	// bottom). Set on new-turn start and scrollToBottom; cleared by any manual
+	// scroll (mouse wheel, keyboard nav). Mirrors Claude Code's stickyScroll.
+	sticky bool
+
 	// height is the terminal height in cells, updated by WindowSizeMsg.
 	height int
 }
@@ -285,6 +290,7 @@ func (m *tuiModel) startTurn(line string) tea.Cmd {
 func (m *tuiModel) startTurnEcho(line, echo string) tea.Cmd {
 	m.turnRunning = true
 	m.streaming = false
+	m.sticky = true
 	m.turnStart = time.Now()
 	m.spinnerFrame = 0
 	m.running = nil
@@ -564,12 +570,14 @@ func (m *tuiModel) commitToolLine(line string) tea.Cmd {
 }
 
 // pushScrollback appends a line to the internal scrollback buffer.
-// When scrollOffset == 0 (view pinned to bottom), the View() start calculation
-// naturally follows new content because start = len(scrollback) - available.
-// When the user has scrolled up (scrollOffset > 0), their position is preserved
-// — use mouse wheel or trackpad to scroll back down.
+// When sticky (auto-follow mode), keeps the view pinned to the bottom.
+// When the user has scrolled up (sticky=false, scrollOffset>0), their
+// position is preserved until they explicitly scrollToBottom or press End.
 func (m *tuiModel) pushScrollback(line string) {
 	m.scrollback = append(m.scrollback, line)
+	if m.sticky {
+		m.scrollOffset = 0
+	}
 }
 
 func (m *tuiModel) handleTurnFinished() (tea.Model, tea.Cmd) {

@@ -310,35 +310,74 @@ func TestTUI_SubmitSavesToHistory(t *testing.T) {
 	}
 }
 
-func TestTUI_ScrollbackAutoFollowsDuringTurn(t *testing.T) {
+func TestTUI_StickyFollowsContent(t *testing.T) {
 	m := newTestModel()
 	m.height = 30
 
-	// Pre-populate scrollback with enough lines to scroll.
 	for i := 0; i < 30; i++ {
 		m.pushScrollback("old line")
 	}
 
-	// User scrolls up.
-	m.scrollOffset = 5
-	if m.scrollOffset != 5 {
-		t.Fatal("scrollOffset should be 5 after scrolling up")
-	}
-
-	// New content arrives during a turn — should NOT reset scrollOffset.
-	// The user's scrolled position is preserved.
-	m.turnRunning = true
-	m.pushScrollback("new content")
-	if m.scrollOffset != 5 {
-		t.Errorf("pushScrollback should preserve scrollOffset when user scrolled up, got %d", m.scrollOffset)
-	}
-
-	// When at bottom (scrollOffset=0), new content is naturally followed
-	// because View() start = len(scrollback) - available.
+	// Sticky=true (default on new turn): pushScrollback keeps view at bottom.
+	m.sticky = true
 	m.scrollOffset = 0
+	m.pushScrollback("new content")
+	if m.scrollOffset != 0 {
+		t.Errorf("sticky pushScrollback should keep scrollOffset 0, got %d", m.scrollOffset)
+	}
+
+	// Sticky=true with non-zero scrollOffset: pull back to bottom.
+	m.scrollOffset = 10
 	m.pushScrollback("another line")
 	if m.scrollOffset != 0 {
-		t.Errorf("pushScrollback at bottom should keep scrollOffset 0, got %d", m.scrollOffset)
+		t.Errorf("sticky pushScrollback should reset scrollOffset to 0, got %d", m.scrollOffset)
+	}
+}
+
+func TestTUI_NotStickyPreservesPosition(t *testing.T) {
+	m := newTestModel()
+	m.height = 30
+
+	for i := 0; i < 30; i++ {
+		m.pushScrollback("old line")
+	}
+
+	// sticky=false (user has scrolled): pushScrollback preserves position.
+	m.sticky = false
+	m.scrollOffset = 5
+	m.pushScrollback("new content")
+	if m.scrollOffset != 5 {
+		t.Errorf("non-sticky pushScrollback should preserve scrollOffset, got %d", m.scrollOffset)
+	}
+}
+
+func TestTUI_MouseWheelClearsSticky(t *testing.T) {
+	m := newTestModel()
+	m.sticky = true
+
+	m.handleMouse(tea.MouseMsg{Type: tea.MouseWheelUp})
+	if m.sticky {
+		t.Error("MouseWheelUp should clear sticky")
+	}
+
+	m.sticky = true
+	m.handleMouse(tea.MouseMsg{Type: tea.MouseWheelDown})
+	if m.sticky {
+		t.Error("MouseWheelDown should clear sticky")
+	}
+}
+
+func TestTUI_EndKeyScrollsToBottom(t *testing.T) {
+	m := newTestModel()
+	m.sticky = false
+	m.scrollOffset = 20
+
+	_, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnd})
+	if m.scrollOffset != 0 {
+		t.Errorf("End key should reset scrollOffset to 0, got %d", m.scrollOffset)
+	}
+	if !m.sticky {
+		t.Error("End key should set sticky=true")
 	}
 }
 
@@ -350,12 +389,12 @@ func TestTUI_ScrollbackPreservesOffsetWhenIdle(t *testing.T) {
 	}
 
 	m.scrollOffset = 8
+	m.sticky = false
 
-	// No turn running — pushScrollback should preserve scrollOffset.
-	m.turnRunning = false
+	// sticky=false — pushScrollback should preserve scrollOffset.
 	m.pushScrollback("some notice line")
 	if m.scrollOffset != 8 {
-		t.Errorf("pushScrollback while idle should preserve scrollOffset, got %d", m.scrollOffset)
+		t.Errorf("pushScrollback while not sticky should preserve scrollOffset, got %d", m.scrollOffset)
 	}
 }
 

@@ -36,9 +36,11 @@ const wheelScrollLines = 4
 func (m *tuiModel) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.MouseWheelUp:
+		m.sticky = false
 		m.scrollOffset += wheelScrollLines
 		return m, nil
 	case tea.MouseWheelDown:
+		m.sticky = false
 		m.scrollOffset -= wheelScrollLines
 		if m.scrollOffset < 0 {
 			m.scrollOffset = 0
@@ -124,6 +126,12 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputHistoryIdx = -1
 			m.ti.Reset()
 		}
+		return m, nil
+
+	case tea.KeyEnd:
+		// Jump to bottom and re-engage auto-follow.
+		m.sticky = true
+		m.scrollOffset = 0
 		return m, nil
 	}
 
