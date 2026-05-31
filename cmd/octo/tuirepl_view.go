@@ -497,7 +497,7 @@ func (m *tuiModel) updateTextAreaHeight() tea.Cmd {
 }
 
 func (m *tuiModel) renderInputBox() string {
-	return promptStyle.Render("> ") + m.ta.View()
+	return m.ta.View()
 }
 
 // renderStatusBar renders the cwd / context% / permission / elapsed segments,

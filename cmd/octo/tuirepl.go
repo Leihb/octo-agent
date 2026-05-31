@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // runTUI is the interactive bubbletea REPL: the TTY counterpart to runREPL's
@@ -294,7 +295,9 @@ func newTUIModel(cfg replConfig) *tuiModel {
 	ta.Placeholder = "Ask anything…"
 	ta.Focus()
 	ta.ShowLineNumbers = false
-	ta.Prompt = ""
+	ta.Prompt = "> "
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(tui.ColBrand).Bold(true)
+	ta.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(tui.ColBrand).Bold(true)
 	// Disable up/down line navigation so we can use them for input-history
 	// recall instead.
 	ta.KeyMap.LineNext = key.Binding{}
@@ -359,7 +362,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.ta.SetWidth(msg.Width - 4) // account for border + padding
+		m.ta.SetWidth(msg.Width)
 		_ = m.updateTextAreaHeight()
 		return m, m.flushPrints()
 
