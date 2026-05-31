@@ -130,7 +130,7 @@ func (t TerminalTool) ExecuteStream(
 		}
 	}
 
-	id, err := t.manager().Start(command, WithOnLine(onLine))
+	id, err := t.manager().Start(command, WithOnLine(onLine), WithVisible(false))
 	if err != nil {
 		return agent.ToolResult{Text: ""}, err
 	}
@@ -142,8 +142,9 @@ func (t TerminalTool) ExecuteStream(
 	for {
 		select {
 		case <-timer.C:
-			// Timeout: the original process is still running in the background.
-			// Return what we have so far plus the bg id.
+			// Timeout: promote the hidden process to visible so it shows up
+			// in the TUI "background (N running)" panel, then return.
+			t.manager().Promote(id)
 			outMu.Lock()
 			body := strings.TrimRight(out.String(), "\n")
 			outMu.Unlock()

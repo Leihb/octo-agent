@@ -34,6 +34,12 @@ type bgProcess struct {
 	pollCount int // consecutive empty reads while running
 
 	onLine func(string) // optional real-time callback for sync-mode streaming
+
+	// visible controls whether the process appears in ListRunning /
+	// RunningBackground. Sync-started processes are hidden until they time
+	// out and become true background tasks, so the TUI "background (N)"
+	// panel doesn't flicker during a normal synchronous call.
+	visible bool
 }
 
 func (p *bgProcess) append(b []byte) {
@@ -143,6 +149,13 @@ func WithOnLine(fn func(string)) StartOption {
 	return func(p *bgProcess) { p.onLine = fn }
 }
 
+// WithVisible sets the process visibility in ListRunning. Sync-started
+// processes start hidden (visible=false) and are promoted to visible=true
+// when they time out.
+func WithVisible(v bool) StartOption {
+	return func(p *bgProcess) { p.visible = v }
+}
+
 // Start launches command detached (via `sh -c`), with no timeout, and returns
 // its background id. Output streams into a capped buffer; the process is killed
 // if its context is cancelled (Kill / KillAll).
@@ -167,7 +180,7 @@ func (m *BackgroundManager) Start(command string, opts ...StartOption) (string, 
 	m.mu.Lock()
 	m.seq++
 	id := fmt.Sprintf("bg_%d", m.seq)
-	p := &bgProcess{id: id, command: command, cancel: cancel, proc: cmd.Process, start: time.Now()}
+	p := &bgProcess{id: id, command: command, cancel: cancel, proc: cmd.Process, start: time.Now(), visible: true}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -235,7 +248,8 @@ type BgInfo struct {
 	Start   time.Time
 }
 
-// ListRunning returns the processes that haven't exited yet, oldest first.
+// ListRunning returns the visible processes that haven't exited yet, oldest first.
+// Processes started invisibly (e.g. sync mode) are excluded until promoted.
 func (m *BackgroundManager) ListRunning() []BgInfo {
 	m.mu.Lock()
 	procs := make([]*bgProcess, 0, len(m.procs))
@@ -248,13 +262,29 @@ func (m *BackgroundManager) ListRunning() []BgInfo {
 	for _, p := range procs {
 		p.mu.Lock()
 		done := p.done
+		visible := p.visible
 		p.mu.Unlock()
-		if !done {
+		if !done && visible {
 			out = append(out, BgInfo{ID: p.id, Command: p.command, Start: p.start})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
 	return out
+}
+
+// Promote makes a background process visible in ListRunning. Used when a
+// sync-started process times out and becomes a true background task.
+func (m *BackgroundManager) Promote(id string) bool {
+	m.mu.Lock()
+	p := m.procs[id]
+	m.mu.Unlock()
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	p.visible = true
+	p.mu.Unlock()
+	return true
 }
 
 // Kill terminates the process for id. Returns false when id is unknown.
