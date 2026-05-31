@@ -155,8 +155,15 @@ func (m *BackgroundManager) Start(command string) (string, error) {
 	m.procs[id] = p
 	m.mu.Unlock()
 
+	// readerDone is closed by the reader goroutine when it finishes
+	// draining the pipe. The waiter MUST wait on this before firing
+	// onExit — otherwise a fast-exiting process triggers the hook before
+	// the reader has flushed remaining pipe data, losing output.
+	readerDone := make(chan struct{})
+
 	// Reader: forward combined output into the capped buffer.
 	go func() {
+		defer close(readerDone)
 		scanner := bufio.NewScanner(pr)
 		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
@@ -166,18 +173,19 @@ func (m *BackgroundManager) Start(command string) (string, error) {
 			p.append(append(line, '\n')) // append copies
 		}
 	}()
-	// Waiter: record exit, unblock the reader via EOF, then fire the onExit
-	// hook (if any) with the final status + still-unread output.
+	// Waiter: wait for the process, close pipe so the reader sees EOF,
+	// then wait for the reader to drain before firing onExit.
 	go func() {
 		err := cmd.Wait()
 		_ = pw.Close()
+		<-readerDone // ensures reader flushed all pipe data
 		p.finish(err)
 
 		m.mu.Lock()
 		hook := m.onExit
 		m.mu.Unlock()
 		if hook != nil {
-			out, status, _ := p.readNew() // advances the cursor → dedup vs terminal_output
+			out, status, _ := p.readNew()
 			hook(BgExit{ID: p.id, Command: p.command, Status: status, NewOutput: out})
 		}
 	}()
