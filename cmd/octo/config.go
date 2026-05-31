@@ -27,7 +27,7 @@ func firstNonEmpty(vals ...string) string {
 // model (i.e. an unknown provider with no explicit model) — the caller prints
 // an error and exits.
 func resolveProviderModel(flagProvider, flagModel string, cfg config.Config) (provider, model string, ok bool) {
-	provider = firstNonEmpty(flagProvider, cfg.Provider, providerAnthropic)
+	provider = firstNonEmpty(flagProvider, os.Getenv("OCTO_PROVIDER"), cfg.Provider, providerAnthropic)
 	// Precedence: --model flag > env (ANTHROPIC_MODEL / OPENAI_MODEL) > config
 	// (same-provider only) > built-in default. The env tier mirrors how the
 	// base URL and key resolve env-first, so a third-party Claude-/OpenAI-
@@ -140,9 +140,11 @@ func runConfigShow(stdout, stderr io.Writer) int {
 	}
 	path, _ := config.Path()
 
-	provider := firstNonEmpty(cfg.Provider, providerAnthropic)
+	provider := firstNonEmpty(os.Getenv("OCTO_PROVIDER"), cfg.Provider, providerAnthropic)
 	provSrc := "default"
-	if cfg.Provider != "" {
+	if envProv := os.Getenv("OCTO_PROVIDER"); envProv != "" {
+		provSrc = "env"
+	} else if cfg.Provider != "" {
 		provSrc = "config"
 	}
 	model := firstNonEmpty(cfg.Model, defaultModels[provider])

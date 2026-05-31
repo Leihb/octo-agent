@@ -9,6 +9,10 @@ import (
 )
 
 func TestResolveBaseURL_Precedence(t *testing.T) {
+	// Isolate from host env vars so the test is deterministic.
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("OPENAI_BASE_URL", "")
+
 	// env wins over config.
 	t.Setenv("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
 	cfg := config.Config{Provider: providerAnthropic, BaseURL: "https://cfg.example"}
@@ -27,7 +31,6 @@ func TestResolveBaseURL_Precedence(t *testing.T) {
 	}
 
 	// No override anywhere → effectiveEndpoint shows the marked default.
-	t.Setenv("ANTHROPIC_BASE_URL", "")
 	empty := config.Config{}
 	if got := resolveBaseURL(providerAnthropic, empty); got != "" {
 		t.Errorf("no override should be empty, got %q", got)
@@ -69,6 +72,7 @@ func TestResolveProviderModel_Precedence(t *testing.T) {
 	// cases below are deterministic.
 	t.Setenv("ANTHROPIC_MODEL", "")
 	t.Setenv("OPENAI_MODEL", "")
+	t.Setenv("OCTO_PROVIDER", "")
 	cfg := config.Config{Provider: "openai", Model: "cfg-model"}
 	tests := []struct {
 		name              string
@@ -94,6 +98,25 @@ func TestResolveProviderModel_Precedence(t *testing.T) {
 					tc.flagProv, tc.flagMdl, tc.cfg, gotProv, gotMdl, ok, tc.wantProv, tc.wantMdl, tc.wantOK)
 			}
 		})
+	}
+}
+
+func TestResolveProviderModel_ProviderEnv(t *testing.T) {
+	// OCTO_PROVIDER beats config and default, but --provider flag still beats env.
+	t.Setenv("OCTO_PROVIDER", "openai")
+	t.Setenv("OPENAI_MODEL", "")
+	cfg := config.Config{Provider: providerAnthropic, Model: "cfg-model"}
+
+	if p, _, _ := resolveProviderModel("", "", cfg); p != "openai" {
+		t.Errorf("OCTO_PROVIDER should beat config, got %q", p)
+	}
+	if p, _, _ := resolveProviderModel("anthropic", "", cfg); p != "anthropic" {
+		t.Errorf("--provider flag should beat OCTO_PROVIDER, got %q", p)
+	}
+	// When OCTO_PROVIDER selects a provider, its model env var is read.
+	t.Setenv("OPENAI_MODEL", "deepseek-chat")
+	if _, m, _ := resolveProviderModel("", "", config.Config{}); m != "deepseek-chat" {
+		t.Errorf("OCTO_PROVIDER=openai + OPENAI_MODEL should resolve model, got %q", m)
 	}
 }
 
