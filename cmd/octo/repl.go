@@ -288,12 +288,11 @@ func skillTrigger(reg *skills.Registry, line string) (skills.Skill, string, bool
 }
 
 // inlineSkill builds the turn input for an explicit /<name> trigger: the skill
-// body, optionally followed by the user's trailing arguments.
-func inlineSkill(body, args string) string {
-	if args == "" {
-		return body
-	}
-	return body + "\n\nUser input: " + args
+// rendered with its directory header (so referenced files resolve) plus any
+// trailing user arguments. Same text the `skill` tool returns for a
+// model-initiated load — see skills.RenderSkill.
+func inlineSkill(s skills.Skill, args string) string {
+	return skills.RenderSkill(s, args)
 }
 
 // printSkills lists the discovered skills, or a hint when there are none.

@@ -262,7 +262,7 @@ func (m *tuiModel) dispatchSlash(text string) (tea.Model, tea.Cmd) {
 		if args != "" {
 			echo += " " + args
 		}
-		return m, m.startTurnEcho(inlineSkill(s.Body, args), echo)
+		return m, m.startTurnEcho(inlineSkill(s, args), echo)
 	}
 
 	first := strings.Fields(text)[0]

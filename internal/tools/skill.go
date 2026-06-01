@@ -60,5 +60,7 @@ func (SkillTool) Execute(_ context.Context, _ string, input map[string]any) (age
 	if !ok {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("skill: unknown skill %q", name)
 	}
-	return agent.ToolResult{Text: s.Body}, nil
+	// RenderSkill prefixes the skill's directory so the model can read any
+	// files the body references (scripts, templates, reference docs).
+	return agent.ToolResult{Text: skills.RenderSkill(s, "")}, nil
 }

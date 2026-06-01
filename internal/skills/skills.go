@@ -206,3 +206,24 @@ func RenderManifest(r *Registry) string {
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
+
+// RenderSkill produces the text handed to the model when a skill is loaded —
+// via the `skill` tool (model-initiated) or a /<name> trigger (user-initiated).
+// It prefixes a one-line location header so the model can resolve files the
+// SKILL.md references (scripts, templates, reference docs bundled in the skill
+// directory) with its file tools, then the body, then any trailing user args.
+// Without the header a relative reference like "see references/api.md" would be
+// resolved against the project cwd and miss.
+func RenderSkill(s Skill, args string) string {
+	var b strings.Builder
+	if s.Dir != "" {
+		fmt.Fprintf(&b, "[skill %q — bundled files live in: %s\n", s.Name, s.Dir)
+		b.WriteString("Resolve any paths this skill references (scripts, templates, reference docs) " +
+			"against that directory and read them with your file tools.]\n\n")
+	}
+	b.WriteString(s.Body)
+	if args != "" {
+		b.WriteString("\n\nUser input: " + args)
+	}
+	return b.String()
+}

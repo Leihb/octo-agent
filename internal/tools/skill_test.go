@@ -33,8 +33,13 @@ func TestSkillTool_Execute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if out.Text != "Step 1: be nice." {
-		t.Errorf("body = %q", out.Text)
+	// The body comes through, prefixed with a location header so the model can
+	// resolve files the skill references.
+	if !strings.Contains(out.Text, "Step 1: be nice.") {
+		t.Errorf("body missing from result: %q", out.Text)
+	}
+	if !strings.Contains(out.Text, "bundled files live in") || !strings.Contains(out.Text, filepath.Join(".octo", "skills", "greet")) {
+		t.Errorf("expected a skill-directory header; got: %q", out.Text)
 	}
 }
 

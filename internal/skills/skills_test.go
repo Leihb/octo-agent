@@ -172,3 +172,25 @@ func TestRenderManifest(t *testing.T) {
 		t.Errorf("manifest missing skill line:\n%s", m)
 	}
 }
+
+func TestRenderSkill(t *testing.T) {
+	// No Dir → bare body (and trailing args when given).
+	plain := Skill{Name: "x", Body: "DO THE THING"}
+	if got := RenderSkill(plain, ""); got != "DO THE THING" {
+		t.Errorf("no dir, no args → %q", got)
+	}
+	if got := RenderSkill(plain, "now"); got != "DO THE THING\n\nUser input: now" {
+		t.Errorf("no dir, with args → %q", got)
+	}
+
+	// With Dir → a location header is prefixed so referenced files resolve,
+	// and the body still follows.
+	s := Skill{Name: "review", Body: "Read references/spec.md", Dir: "/abs/skills/review"}
+	got := RenderSkill(s, "")
+	if !strings.Contains(got, "/abs/skills/review") {
+		t.Errorf("header should carry the skill dir; got:\n%s", got)
+	}
+	if !strings.HasSuffix(got, "Read references/spec.md") {
+		t.Errorf("body should follow the header; got:\n%s", got)
+	}
+}

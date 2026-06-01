@@ -60,11 +60,19 @@ func TestSkillTrigger(t *testing.T) {
 }
 
 func TestInlineSkill(t *testing.T) {
-	if got := inlineSkill("BODY", ""); got != "BODY" {
+	// No Dir → no location header, so the bare body (matching the old behaviour).
+	plain := skills.Skill{Body: "BODY"}
+	if got := inlineSkill(plain, ""); got != "BODY" {
 		t.Errorf("no args → %q", got)
 	}
-	if got := inlineSkill("BODY", "x"); got != "BODY\n\nUser input: x" {
+	if got := inlineSkill(plain, "x"); got != "BODY\n\nUser input: x" {
 		t.Errorf("with args → %q", got)
+	}
+	// With Dir → the directory header is prefixed so referenced files resolve.
+	withDir := skills.Skill{Name: "review", Body: "BODY", Dir: "/abs/skills/review"}
+	got := inlineSkill(withDir, "")
+	if !strings.Contains(got, "/abs/skills/review") || !strings.Contains(got, "BODY") {
+		t.Errorf("expected dir header + body; got:\n%s", got)
 	}
 }
 
