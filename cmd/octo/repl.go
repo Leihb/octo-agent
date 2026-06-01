@@ -186,9 +186,9 @@ func printMemory(w io.Writer, store *memory.Store) {
 	}
 
 	if len(active) > 0 {
-		fmt.Fprintln(w, "Active entries (not yet consolidated):")
+		fmt.Fprintln(w, "Active entries (not yet consolidated) — forgettable by name:")
 		for _, e := range active {
-			fmt.Fprintf(w, "  [%-9s] %s\n", e.Type, e.Description)
+			fmt.Fprintf(w, "  %-22s [%-9s] %s\n", e.Name, e.Type, e.Description)
 		}
 	}
 	for i, sb := range buckets {

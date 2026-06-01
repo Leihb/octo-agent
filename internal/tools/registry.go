@@ -34,6 +34,7 @@ var allTools = []tool{
 	WebSearchTool{},
 	SkillTool{},
 	RememberTool{},
+	ForgetTool{},
 	LaunchAgentTool{},
 	SendMessageTool{},
 	AgentStatusTool{},
@@ -213,6 +214,9 @@ func DefaultTools() []agent.ToolDefinition {
 			continue
 		}
 		if _, isRemember := t.(RememberTool); isRemember && !memoryOn {
+			continue
+		}
+		if _, isForget := t.(ForgetTool); isForget && !memoryOn {
 			continue
 		}
 		if _, isLaunch := t.(LaunchAgentTool); isLaunch && !mgrOn {

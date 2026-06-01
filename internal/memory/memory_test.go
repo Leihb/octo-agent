@@ -505,3 +505,39 @@ func TestSummaries_GlobalAndProject(t *testing.T) {
 		t.Errorf("project bucket should recover cwd from marker: %+v", buckets[1])
 	}
 }
+
+func TestStore_Delete(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+	mustSave := func(name, desc string, typ Type) {
+		t.Helper()
+		if err := s.Save(Entry{Name: name, Description: desc, Type: typ, Body: "x"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustSave("run-tests", "run tests before committing", TypeFeedback)
+	mustSave("prefers-go", "prefers Go", TypeUser)
+
+	if err := s.Delete("run-tests"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	entries, _ := s.List()
+	if len(entries) != 1 || entries[0].Name != "prefers-go" {
+		t.Fatalf("after delete, entries = %+v", entries)
+	}
+
+	// A trailing ".md" is tolerated.
+	if err := s.Delete("prefers-go.md"); err != nil {
+		t.Errorf("trailing .md should be tolerated: %v", err)
+	}
+	if entries, _ := s.List(); len(entries) != 0 {
+		t.Errorf("expected empty store, got %d", len(entries))
+	}
+
+	// Unknown name errors; path traversal is rejected.
+	if err := s.Delete("nope"); err == nil {
+		t.Error("deleting an unknown entry should error")
+	}
+	if err := s.Delete("../escape"); err == nil {
+		t.Error("path traversal should be rejected")
+	}
+}

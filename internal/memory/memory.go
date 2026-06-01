@@ -191,6 +191,42 @@ func (s *Store) Save(e Entry) error {
 	return nil
 }
 
+// Delete removes the <name>.md entry and rebuilds the index, holding the lock —
+// the inverse of Save. It returns an error when no such entry exists.
+// filepath.Base + the equality check guard against a name that tries to escape
+// the memory dir; a trailing ".md" is tolerated.
+func (s *Store) Delete(name string) error {
+	name = strings.TrimSuffix(strings.TrimSpace(name), ".md")
+	if name == "" {
+		return fmt.Errorf("memory: name is required")
+	}
+	if filepath.Base(name) != name || name == "." || name == ".." {
+		return fmt.Errorf("memory: invalid name %q", name)
+	}
+
+	unlock, err := s.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	path := filepath.Join(s.dir, name+".md")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("memory: no entry named %q", name)
+		}
+		return err
+	}
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	if err := s.rebuildIndex(); err != nil {
+		return err
+	}
+	s.maybeCommit("forget: " + name)
+	return nil
+}
+
 func (s *Store) writeEntry(e Entry) error {
 	if err := s.ensureDir(); err != nil {
 		return err
@@ -370,7 +406,7 @@ func (s *Store) RenderInjection(cwd string) (string, error) {
 		if e.Cwd != "" && e.Cwd != cwd {
 			continue // belongs to a different project
 		}
-		fmt.Fprintf(&recent, "- [%s] %s\n", e.Type, e.Description)
+		fmt.Fprintf(&recent, "- %s [%s]: %s\n", e.Name, e.Type, e.Description)
 	}
 	if recent.Len() > 0 {
 		sections = append(sections, "## Recent (not yet consolidated)\n\n"+strings.TrimRight(recent.String(), "\n"))
