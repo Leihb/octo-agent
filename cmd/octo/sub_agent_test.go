@@ -180,6 +180,63 @@ func TestAgentSpawner_SpawnReturnsIDAndContinueResumesSameChild(t *testing.T) {
 	}
 }
 
+// TestSubAgentManager_SendResumesSameChildThroughSpawner exercises the full
+// async path: SubAgentManager hands the model an agent_N handle, but the
+// resumable child lives in childRegistry under an 8-hex id. send_message
+// (Manager.Send → Spawner.Continue) must reach the same child, not miss the
+// registry and report "no longer alive".
+func TestSubAgentManager_SendResumesSameChildThroughSpawner(t *testing.T) {
+	send := &subAgentSender{reply: "round one", inputTokens: 100, outputTokens: 40}
+	parent := agent.New(send, "parent-model")
+	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+
+	mgr := tools.NewSubAgentManager(sp)
+	notes := make(chan tools.SubAgentNotification, 4)
+	mgr.SetOnExit(func(ev tools.SubAgentNotification) { notes <- ev })
+
+	id, err := mgr.Start(tools.SpawnRequest{Description: "x", Prompt: "first task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waitNote := func(kind string) tools.SubAgentNotification {
+		t.Helper()
+		select {
+		case ev := <-notes:
+			if ev.Kind != kind {
+				t.Fatalf("got notification kind %q, want %q (result: %q)", ev.Kind, kind, ev.Result)
+			}
+			return ev
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timeout waiting for %q notification", kind)
+			return tools.SubAgentNotification{}
+		}
+	}
+
+	spawnNote := waitNote("spawn_done")
+	if spawnNote.Result != "round one" {
+		t.Errorf("spawn_done result = %q, want %q", spawnNote.Result, "round one")
+	}
+
+	send.reply = "round two"
+	if err := mgr.Send(id, "second task"); err != nil {
+		t.Fatal(err)
+	}
+
+	reply := waitNote("message_reply")
+	if strings.Contains(reply.Result, "no longer alive") {
+		t.Fatalf("send_message failed to reach the child: %q", reply.Result)
+	}
+	if reply.Result != "round two" {
+		t.Errorf("message_reply result = %q, want %q", reply.Result, "round two")
+	}
+	// The continuation must reuse the same child: its history now carries
+	// [user1, assistant1, user2] = 3 messages.
+	if got := len(send.lastMessages); got != 3 {
+		t.Errorf("after send_message, child saw %d messages, want 3 (same child resumed)", got)
+	}
+}
+
 func TestAgentSpawner_ContinueAccruesOnlyDeltaTokens(t *testing.T) {
 	send := &subAgentSender{reply: "ok", inputTokens: 200, outputTokens: 80}
 	parent := agent.New(send, "parent-model")

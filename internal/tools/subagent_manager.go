@@ -40,6 +40,7 @@ type asyncSubAgent struct {
 	mu           sync.Mutex
 	busy         bool   // true while processing a Spawn or Continue
 	pending      string // queued message waiting to be sent
+	backingID    string // Spawner-side id (the resumable child's handle); set once Spawn returns. Continue/Send address the child by this, not by the manager's agent_N.
 	result       string // latest result (truncated to maxSubAgentResultBytes)
 	exited       bool   // true if the sub-agent context was cancelled / killed
 	exitErr      error
@@ -165,6 +166,9 @@ func (m *SubAgentManager) Start(req SpawnRequest) (string, error) {
 	go func() {
 		res, err := m.spawner.Spawn(ctx, req)
 		if err == nil {
+			agent.mu.Lock()
+			agent.backingID = res.AgentID // remember the resumable child so Send can reach it
+			agent.mu.Unlock()
 			agent.setResult(res.Reply, res.InputTokens, res.OutputTokens)
 		}
 		agent.setDone(err)
@@ -236,9 +240,12 @@ func (m *SubAgentManager) runContinue(agentID, message string) {
 	// Replace the agent's cancel so Kill targets the current operation.
 	agent.mu.Lock()
 	agent.cancel = cancel
+	backingID := agent.backingID
 	agent.mu.Unlock()
 
-	res, err := m.spawner.Continue(ctx, agentID, message)
+	// Continue addresses the child by its Spawner-side id, not the manager's
+	// agent_N handle — the two id spaces are distinct.
+	res, err := m.spawner.Continue(ctx, backingID, message)
 	if err == nil {
 		agent.setResult(res.Reply, res.InputTokens, res.OutputTokens)
 	}

@@ -28,6 +28,9 @@ func TestSendMessageTool_Schema(t *testing.T) {
 func TestSendMessageTool_AsyncDelivery(t *testing.T) {
 	contCalled := make(chan struct{})
 	stub := &stubSpawner{
+		// Spawn hands back the resumable child's id; send_message must address
+		// the child by THIS, not by the manager's agent_N handle.
+		replies:       []SpawnResult{{AgentID: "a1b2c3d4", Reply: "first done"}},
 		continueReply: SpawnResult{AgentID: "a1b2c3d4", Reply: "next round done"},
 		contCalled:    contCalled,
 	}
@@ -55,8 +58,8 @@ func TestSendMessageTool_AsyncDelivery(t *testing.T) {
 		t.Fatal("timeout waiting for Continue to be called")
 	}
 
-	if stub.contAgentID != "agent_1" || stub.contMessage != "now do the second half" {
-		t.Errorf("Continue got (%q,%q)", stub.contAgentID, stub.contMessage)
+	if stub.contAgentID != "a1b2c3d4" || stub.contMessage != "now do the second half" {
+		t.Errorf("Continue got (%q,%q), want backing id a1b2c3d4", stub.contAgentID, stub.contMessage)
 	}
 }
 
