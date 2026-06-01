@@ -4,7 +4,7 @@ Guidance for Claude Code and other AI coding agents working in this repository. 
 
 ## Project
 
-`octo-agent` — a Go 1.22+ AI agent CLI distributed as a single binary. Module path: `github.com/Leihb/octo-agent`. Roadmap and milestone plan: `dev-docs/go-rewrite-roadmap.md`.
+`octo-agent` — a Go 1.22+ AI agent CLI distributed as a single binary. Module path: `github.com/Leihb/octo-agent`. Per-feature design notes live under `dev-docs/`.
 
 ## Commands
 
@@ -60,12 +60,12 @@ From `.octorules`:
 
 ## Common pitfalls (from prior incidents)
 
-- **Sending `Accept-Encoding: gzip` to Bing's HTML search endpoint** returns a ~39 KB JavaScript skeleton instead of the ~120 KB real results page. The M6 `web_search` tool must omit this header. See `dev-docs/go-rewrite-roadmap.md` M6 section for the full list of HTML-scraping gotchas.
+- **Sending `Accept-Encoding: gzip` to Bing's HTML search endpoint** returns a ~39 KB JavaScript skeleton instead of the ~120 KB real results page. The `web_search` tool must omit this header.
 - **OpenAI streaming + `stream_options.include_usage`.** Third-party OpenAI-compatible servers diverge on support; we don't send it. The trade-off is that streamed OpenAI turns report zero token counts in `Reply.InputTokens` / `OutputTokens` — buffered (`Send`) responses carry full usage.
 - **OpenAI tool calls in streaming.** Function arguments arrive as JSON **fragments** across multiple chunks. The aggregator must concatenate by `tool_calls[i].index` before parsing.
 - **`finish_reason: "tool_calls"` (OpenAI) vs `stop_reason: "tool_use"` (Anthropic).** The OpenAI adapter normalises `tool_calls` → `tool_use` on the agent-facing surface; the agent loop only ever sees `"tool_use"`.
 
 ## When in doubt
 
-- Verify external claims (API endpoints, third-party SDK existence, dates) before committing them. `dev-docs/go-rewrite-roadmap.md` is a deliberate example: every claim about the WeChat iLink protocol was checked against the npm registry and live API hosts before landing.
+- Verify external claims (API endpoints, third-party SDK existence, dates) before committing them. The WeChat iLink integration is a deliberate example: every claim about the protocol was checked against the npm registry and live API hosts before landing.
 - If `go test ./...` fails because of an environment issue (missing key, blocked network), say so explicitly rather than commenting out the test.

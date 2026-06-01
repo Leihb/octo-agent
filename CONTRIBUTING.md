@@ -5,7 +5,7 @@ Thanks for taking the time to contribute. Every PR is reviewed by a human; bots 
 ## Before you start
 
 - **Read `.octorules` and `CLAUDE.md`** — they cover the layering, conventions, and common pitfalls. Most "is this PR going to land" questions are answered there.
-- **Check the roadmap** — `dev-docs/go-rewrite-roadmap.md`. If your change advances a planned milestone, mention it in the PR. If it goes outside the roadmap, the PR description should justify why.
+- **Skim the design docs** — `dev-docs/` holds the per-feature design notes (sandbox, memory, skills, sub-agents, …). If your change touches an area covered there, keep the doc and your PR in sync.
 - **Open an issue first for substantial work.** Small fixes go straight to PR; new providers, new tools, or anything touching the agent loop benefit from a short upfront discussion.
 
 ## Workflow

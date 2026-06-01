@@ -13,7 +13,7 @@ A functionality-first AI agent, distributed as a single Go binary. Speaks two na
 
 ## Status
 
-> **Pre-1.0.** CLI is functional today; Web UI and IM bridges land in later milestones — see [`dev-docs/go-rewrite-roadmap.md`](dev-docs/go-rewrite-roadmap.md).
+> **Pre-1.0.** All three interfaces are live: the CLI/REPL, a local web server (`octo serve`), and an IM bridge (`octo channel`, WeChat iLink). On top of the agent loop there are skills, MCP clients, OS-level sandboxing, persistent memory, sub-agents, and a task graph for autonomous multi-step goals.
 
 ## Install
 
@@ -89,6 +89,17 @@ octo init
 
 # List discovered skills
 octo chat --list-skills
+
+# Web server + dashboard (binds localhost by default)
+octo serve --addr 127.0.0.1:8080
+
+# IM bridge (WeChat iLink): scan-to-login, then run the daemon
+octo channel login
+octo channel start
+
+# Autonomous multi-step goal: plan into a subtask DAG and run it
+octo goal start "Add a --json flag to octo config show"
+octo goal status <id>
 ```
 
 ## Configuration
@@ -156,14 +167,19 @@ octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatabl
 | Memory & config | done | `~/.octo/octorules.md`, `.octorules`, `octo init`, `@include` |
 | Skills | done | Claude Code-compatible SKILL.md loader (`--list-skills`, `/skills`, `/<name>`) |
 | Sandbox | done | OS-enforced `--sandbox` (macOS / Linux) |
-| Web UI / IM bridges | planned | See [`dev-docs/go-rewrite-roadmap.md`](dev-docs/go-rewrite-roadmap.md) |
+| MCP client | done | `mcp.json` stdio + Streamable HTTP servers, tools/resources/prompts, device-flow OAuth |
+| Memory | done | Persistent cross-session memory under `~/.octo/memory/`, auto extract/consolidate |
+| Sub-agents | done | `launch_agent` fan-out, async + resumable (`send_message`, `agent_status`, `kill_agent`) |
+| Task graph | done | `octo goal` — plan a goal into a subtask DAG, run it via sub-agents, resume after crash |
+| Web server | done | `octo serve` — REST + SSE, embedded dashboard UI (bind localhost) |
+| IM bridge | done | `octo channel` — WeChat iLink adapter (QR login, per-user sessions, slash commands) |
 
 ## Architecture
 
 Layered, one-directional dependency graph:
 
 ```
-cmd/octo/          CLI entry (chat, REPL, sessions, slash commands)
+cmd/octo/          CLI entry (chat, REPL, serve, channel, goal, mcp, slash commands)
    ↓
 internal/agent/    History, sessions, content blocks, Sender interface,
                    Agent.Turn / TurnStream / Run (tool-calling loop)
@@ -175,6 +191,11 @@ internal/provider/ Provider interface + concrete implementations
 internal/tools/    ToolExecutor implementations — terminal (+ background),
                    file read/write/edit, glob, grep, web fetch/search, skill
 internal/skills/   SKILL.md discovery + system-prompt manifest
+internal/permission/  allow/deny/ask rule engine gating every tool call
+internal/mcp/      MCP client (stdio + HTTP, OAuth)
+internal/server/   octo serve — HTTP REST + SSE + embedded dashboard
+internal/channel/  IM bridge — adapter interface + WeChat iLink adapter
+internal/taskgraph/  octo goal — subtask DAG planner + scheduler
 ```
 
 Each provider implements both **buffered** (`Send`) and **streaming** (`SendStream`) variants. The agent layer mirrors with `Sender` / `StreamingSender` / `ToolSender` / `ToolStreamingSender` — interfaces are added incrementally so non-streaming providers still work.
