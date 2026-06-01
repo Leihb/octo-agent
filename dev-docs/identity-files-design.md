@@ -1,8 +1,8 @@
 # 身份文件（soul.md / user.md）design
 
 > openclaw / hermes 式的 persona 配置：`soul.md`（agent 身份与行为规范）+ `user.md`
-> （用户个人信息）。手写、会话启动注入 system prompt。独立于 C9 auto-memory
-> （`c9-memory-design.md`）——这是手写的**第一层**，C9 是自动的第二层。
+> （用户个人信息）。手写、会话启动注入 system prompt。独立于自动记忆
+> （`memory-design.md`）——身份文件是手写的层，自动记忆是 agent 自管的层。
 
 ## 1. 目标与范围
 
@@ -65,10 +65,10 @@ persona 与行为风格，但**不应覆盖** base 的硬规范（read-before-wr
 
 ## 6. 与 C9 的协调
 
-- `user.md` 是用户**手写的稳定画像**（名字、角色、长期偏好）；C9 的 user-type auto-memory
-  是 agent **自动提取的增长部分**。两者都注入，互补。
-- 避免冗余：C9 的提取 prompt（`c9-memory-design.md` §4b）应说明「不重复 user.md 已有的
-  事实」。
+- `user.md` 是用户**手写的稳定画像**（名字、角色、长期偏好）；自动记忆
+  （`memory-design.md`）是 agent **自管的增长部分**。两者都注入，互补。
+- 避免冗余：base.md 的记忆指引提醒 agent「不要记录 repo / CLAUDE.md / 这些身份文件里
+  已有的事实」，所以 user.md 已写明的画像不会被自动记忆重复。
 - 注入顺序里 `user.md` 紧跟 `memory`，二者相邻，便于模型把"手写画像 + 自动观察"作为一组
   用户上下文理解。
 
