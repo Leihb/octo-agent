@@ -59,6 +59,10 @@ type SpawnResult struct {
 	Reply        string
 	InputTokens  int
 	OutputTokens int
+	// StopReason carries why the sub-agent stopped. Empty for normal
+	// completion; "max_turns" when the loop budget was exhausted. The parent
+	// uses this to distinguish "task done" from "needs continuation".
+	StopReason string
 }
 
 // activeSpawner, when non-nil, backs the launch_agent tool and gates its

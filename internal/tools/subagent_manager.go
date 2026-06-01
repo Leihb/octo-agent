@@ -20,6 +20,9 @@ type SubAgentNotification struct {
 	Result       string // final reply text
 	InputTokens  int
 	OutputTokens int
+	// StopReason is empty for normal completion, "max_turns" when the sub-agent
+	// hit its loop budget. The parent uses this to decide whether to continue.
+	StopReason string
 }
 
 // SubAgentInfo is a snapshot of a sub-agent for listing.
@@ -44,6 +47,7 @@ type asyncSubAgent struct {
 	result       string // latest result (truncated to maxSubAgentResultBytes)
 	exited       bool   // true if the sub-agent context was cancelled / killed
 	exitErr      error
+	stopReason   string // "max_turns" when the loop budget was exhausted
 	inputTokens  int
 	outputTokens int
 }
@@ -62,13 +66,14 @@ func (a *asyncSubAgent) setBusy(v bool) {
 	a.busy = v
 }
 
-func (a *asyncSubAgent) setDone(err error) {
+func (a *asyncSubAgent) setDone(err error, stopReason string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err != nil {
 		a.exited = true
 	}
 	a.exitErr = err
+	a.stopReason = stopReason
 	a.busy = false
 }
 
@@ -80,12 +85,13 @@ func (a *asyncSubAgent) setExited(err error) {
 	a.busy = false
 }
 
-func (a *asyncSubAgent) readState() (result, status string, busy, exited bool) {
+func (a *asyncSubAgent) readState() (result, status string, busy, exited bool, stopReason string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	result = a.result
 	busy = a.busy
 	exited = a.exited
+	stopReason = a.stopReason
 	if a.exited {
 		if a.exitErr != nil {
 			status = "exited: " + a.exitErr.Error()
@@ -165,19 +171,21 @@ func (m *SubAgentManager) Start(req SpawnRequest) (string, error) {
 
 	go func() {
 		res, err := m.spawner.Spawn(ctx, req)
+		stopReason := ""
 		if err == nil {
 			agent.mu.Lock()
 			agent.backingID = res.AgentID // remember the resumable child so Send can reach it
 			agent.mu.Unlock()
 			agent.setResult(res.Reply, res.InputTokens, res.OutputTokens)
+			stopReason = res.StopReason
 		}
-		agent.setDone(err)
+		agent.setDone(err, stopReason)
 
 		m.mu.Lock()
 		hook := m.onExit
 		m.mu.Unlock()
 		if hook != nil {
-			result, _, _, _ := agent.readState()
+			result, _, _, _, sr := agent.readState()
 			if err != nil {
 				result = err.Error()
 			}
@@ -192,6 +200,7 @@ func (m *SubAgentManager) Start(req SpawnRequest) (string, error) {
 				Result:       result,
 				InputTokens:  inTok,
 				OutputTokens: outTok,
+				StopReason:   sr,
 			})
 		}
 	}()
@@ -246,16 +255,18 @@ func (m *SubAgentManager) runContinue(agentID, message string) {
 	// Continue addresses the child by its Spawner-side id, not the manager's
 	// agent_N handle — the two id spaces are distinct.
 	res, err := m.spawner.Continue(ctx, backingID, message)
+	stopReason := ""
 	if err == nil {
 		agent.setResult(res.Reply, res.InputTokens, res.OutputTokens)
+		stopReason = res.StopReason
 	}
-	agent.setDone(err)
+	agent.setDone(err, stopReason)
 
 	m.mu.Lock()
 	hook := m.onExit
 	m.mu.Unlock()
 	if hook != nil {
-		result, _, _, _ := agent.readState()
+		result, _, _, _, sr := agent.readState()
 		if err != nil {
 			result = err.Error()
 		}
@@ -270,6 +281,7 @@ func (m *SubAgentManager) runContinue(agentID, message string) {
 			Result:       result,
 			InputTokens:  inTok,
 			OutputTokens: outTok,
+			StopReason:   sr,
 		})
 	}
 
@@ -295,7 +307,7 @@ func (m *SubAgentManager) Read(id string) (result, status string, found bool) {
 	if agent == nil {
 		return "", "", false
 	}
-	result, status, _, _ = agent.readState()
+	result, status, _, _, _ = agent.readState()
 	return result, status, true
 }
 
@@ -332,7 +344,7 @@ func (m *SubAgentManager) ListRunning() []SubAgentInfo {
 
 	var out []SubAgentInfo
 	for _, a := range agents {
-		_, _, busy, done := a.readState()
+		_, _, busy, done, _ := a.readState()
 		if !done {
 			out = append(out, SubAgentInfo{
 				ID:          a.id,
