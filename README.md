@@ -13,7 +13,7 @@ A functionality-first AI agent, distributed as a single Go binary. Speaks two na
 
 ## Status
 
-> **Pre-1.0.** All three interfaces are live: the CLI/REPL, a local web server (`octo serve`), and an IM bridge (`octo channel`, WeChat iLink). On top of the agent loop there are skills, MCP clients, OS-level sandboxing, persistent memory, sub-agents, and a task graph for autonomous multi-step goals.
+> **Pre-1.0.** All three interfaces are live: the CLI (an interactive TUI in a terminal, a headless agentic one-shot everywhere else), a local web server (`octo serve`), and an IM bridge (`octo channel`, WeChat iLink). On top of the agent loop there are skills, MCP clients, OS-level sandboxing, persistent memory, sub-agents, and a task graph for autonomous multi-step goals.
 
 ## Install
 
@@ -53,17 +53,23 @@ export ANTHROPIC_API_KEY=sk-ant-...      # or OPENAI_API_KEY=...
 # One-time setup: save your default provider/model (skip the export above next time)
 octo config
 
-# Single-shot
-octo chat "Explain ring buffers in 100 words"
+# Headless one-shot (claude -p style): one prompt → full agentic tool loop → exit.
+# Built-in tools (shell, read/edit files, search), MCP servers, and skills are
+# all on by default, so a single message can actually do work.
+octo chat "Add a --json flag to 'octo config show' and run the tests"
 
-# Interactive REPL (multi-turn, session auto-saved)
+# The prompt can also come from a pipe or a file — handy for scripts / CI:
+echo "Summarise what changed in the last commit" | octo chat
+octo chat --prompt-file ./task.md
+
+# Interactive multi-turn: run octo in a terminal with no message to get the TUI
+# (rich tool cards, session auto-saved). Resume a previous session with -c.
 octo chat
-
-# Resume a previous session
 octo chat --list-sessions
 octo chat -c <session-id>
 
-# Streaming on by default; turn off with --stream=false
+# Streaming on by default; --stream=false buffers and prints only the final
+# reply text (clean for capturing into a file).
 octo chat --stream=false "..."
 
 # OpenAI / DeepSeek / Bailian (OpenAI-compatible)
@@ -73,16 +79,11 @@ octo chat --provider openai --model gpt-4o-mini "..."
 ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
   octo chat --model deepseek-chat "..."
 
-# The interactive REPL is a full agent out of the box — built-in tools
-# (shell, read/edit files, search), MCP servers, and skills are all on by
-# default. Risky actions still prompt for approval (interactive permission).
-octo chat
-
 # Plain chat with no tools / MCP / skills
-octo chat --no-tools
+octo chat --no-tools "..."
 
 # Sandbox the tool commands: confine the terminal tool to the project dir + tmp, no network
-octo chat --sandbox
+octo chat --sandbox "..."
 
 # Generate a .octorules guide for this repo
 octo init
@@ -109,7 +110,7 @@ Octo composes its system prompt from several optional layers (later overrides ea
 - `~/.octo/soul.md` — agent identity & behavior, an openclaw/hermes-style persona.
 - `~/.octo/user.md` — who you are; a profile injected into every session.
 - `~/.octo/octorules.md` — your global, cross-project rules and preferences.
-- `.octorules` — per-repo conventions, committed with the project. Generate one with `octo init` (or `/init` in the REPL).
+- `.octorules` — per-repo conventions, committed with the project. Generate one with `octo init` (or `/init` in the TUI).
 - `--system "..."` — a one-off override for a single run.
 
 The identity and rule files support `@include path/to/fragment.md` to pull in shared content.
@@ -143,7 +144,7 @@ description: Review the current diff for correctness and style
 Walk the diff hunk by hunk and flag correctness bugs first, then style.
 ```
 
-At session start Octo lists each skill's name and description in the system prompt; the model loads a skill's full instructions on demand (via the `skill` tool) when a task matches. You can also trigger one explicitly — `octo chat --list-skills` to see what's discovered, then `/skills` to list and `/<name>` (e.g. `/review`) to run one in the REPL.
+At session start Octo lists each skill's name and description in the system prompt; the model loads a skill's full instructions on demand (via the `skill` tool) when a task matches. You can also trigger one explicitly — `octo chat --list-skills` to see what's discovered, then `/skills` to list and `/<name>` (e.g. `/review`) to run one in the TUI.
 
 ## Sandboxing
 
@@ -160,7 +161,7 @@ octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatabl
 
 | Area | Status | Description |
 |------|--------|-------------|
-| Core CLI | done | Single-turn + interactive REPL, streaming, session persistence (`~/.octo/sessions/`), `/cost` `/save` `/sessions` |
+| Core CLI | done | Headless agentic one-shot (`claude -p` style) + interactive TUI, streaming, session persistence (`~/.octo/sessions/`), `/cost` `/save` `/sessions` |
 | Providers | done | Anthropic Messages + OpenAI Chat Completions, plus any compatible third party |
 | Tools | done | `terminal` (+ background), file read/write/edit, glob, grep, web fetch/search |
 | Agentic loop | done | Multi-step tool calling, permission gating, history compaction, graceful Ctrl-C |
@@ -179,7 +180,7 @@ octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatabl
 Layered, one-directional dependency graph:
 
 ```
-cmd/octo/          CLI entry (chat, REPL, serve, channel, goal, mcp, slash commands)
+cmd/octo/          CLI entry (chat one-shot + TUI, serve, channel, goal, mcp, slash commands)
    ↓
 internal/agent/    History, sessions, content blocks, Sender interface,
                    Agent.Turn / TurnStream / Run (tool-calling loop)
