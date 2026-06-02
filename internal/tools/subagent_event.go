@@ -26,7 +26,7 @@ type subAgentSinkKey struct{}
 // WithSubAgentEventSink returns a context carrying sink, which the execution
 // layer (the agentSpawner) pulls out to forward a child's runtime events. The
 // SubAgentManager stamps this in before calling Spawn/Continue, so the Spawner
-// interface itself stays unchanged and the taskgraph path (no sink) emits
+// interface itself stays unchanged and the non-TUI path (no sink) emits
 // nothing.
 func WithSubAgentEventSink(ctx context.Context, sink func(SubAgentEvent)) context.Context {
 	if sink == nil {
@@ -36,7 +36,7 @@ func WithSubAgentEventSink(ctx context.Context, sink func(SubAgentEvent)) contex
 }
 
 // SubAgentEventSink returns the sink stamped by WithSubAgentEventSink, or nil
-// when none is set (taskgraph, tests, or a manager with no onEvent hook).
+// when none is set (headless, tests, or a manager with no onEvent hook).
 func SubAgentEventSink(ctx context.Context) func(SubAgentEvent) {
 	sink, _ := ctx.Value(subAgentSinkKey{}).(func(SubAgentEvent))
 	return sink

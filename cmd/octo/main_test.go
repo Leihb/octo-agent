@@ -73,7 +73,7 @@ func TestRun_HelpWithSubcommand_PrintsRichHelp(t *testing.T) {
 		wantHits []string
 	}{
 		{"chat", []string{"octo chat", "Examples:", "ANTHROPIC_API_KEY", "octo chat -c last"}},
-		{"goal", []string{"octo goal", "Examples:", "ID shortcuts", "octo goal start"}},
+		{"conduct", []string{"octo conduct", "Examples:", "ID shortcuts", "octo conduct resume"}},
 		{"memory", []string{"octo memory", "octo memory list"}},
 		{"init", []string{"octo init", ".octorules"}},
 		{"mcp", []string{"octo mcp", "mcp.json", "mcp__"}},

@@ -69,8 +69,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runConfig(args[1:], stdin, stdout, stderr)
 	case "memory":
 		return runMemory(args[1:], stdout, stderr)
-	case "goal":
-		return runTask(args[1:], stdin, stdout, stderr)
 	case "conduct":
 		return runConduct(args[1:], stdin, stdout, stderr)
 	case "skills":
@@ -104,7 +102,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  serve      Start the HTTP server (REST + SSE + Web UI)")
 	fmt.Fprintln(w, "  init       Analyze the repo and generate/update .octorules")
 	fmt.Fprintln(w, "  memory     Manage cross-session memory (e.g. `octo memory list`)")
-	fmt.Fprintln(w, "  goal       Autonomous task orchestration (M11; `octo goal start \"<goal>\"`)")
 	fmt.Fprintln(w, "  conduct    Unattended long-horizon orchestration (`octo conduct \"<goal>\"`)")
 	fmt.Fprintln(w, "  completion Print shell-completion snippet (bash | zsh | fish)")
 	fmt.Fprintln(w, "  version    Print the version and exit")

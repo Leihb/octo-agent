@@ -14,8 +14,6 @@ func printCommandHelp(name string, w io.Writer) bool {
 	switch name {
 	case "chat":
 		chatHelp(w)
-	case "goal":
-		taskHelp(w)
 	case "conduct":
 		conductHelp(w)
 	case "memory":
@@ -157,37 +155,6 @@ ID shortcuts (every <id> argument accepts these):
   last                     The most recently created ledger
   <8-char hex>             The trailing short ID shown by 'octo conduct list'
   any unique substring     Resolves if it matches exactly one ledger`)
-}
-
-func taskHelp(w io.Writer) {
-	fmt.Fprintln(w, `octo goal — autonomous task orchestration (M11). Plan a goal into a DAG of
-subtasks, then dispatch one sub-agent per ready node in parallel.
-
-Examples:
-  octo goal start "refactor the cache layer"      Plan + run end-to-end
-  octo goal start "..." --plan-only               Just plan; don't execute
-  octo goal list                                  Show every task on disk (alias: ls)
-  octo goal status last                           DAG state of the most recent task
-  octo goal status a3b2c1d4                       DAG state by short ID
-  octo goal show <id> <subtask-id>                Full result/error for one subtask
-  octo goal resume <id>                           Re-run a Failed / Cancelled task
-  octo goal cancel <id>                           Mark a task Cancelled
-
-ID shortcuts (every <id> argument accepts these):
-  last                     The most recently created task
-  <8-char hex>             The trailing short ID shown by 'octo goal list'
-  any unique substring     Resolves if it matches exactly one task
-
-Common flags (for start / run / resume):
-  --provider <name>        anthropic (default) | openai
-  --model <name>           Override the default planner / sub-agent model
-  --plan-only              start: produce the plan but don't run subtasks
-
-Environment:
-  ANTHROPIC_API_KEY / OPENAI_API_KEY    Required for the planner + sub-agents
-
-Task state lives at ~/.octo/tasks/<id>.json — fsync'd on every transition, so a
-kill -9 mid-run resumes cleanly via "octo goal resume".`)
 }
 
 func memoryHelp(w io.Writer) {

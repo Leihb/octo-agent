@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/Leihb/octo-agent/internal/agent"
-	"github.com/Leihb/octo-agent/internal/taskgraph"
+	"github.com/Leihb/octo-agent/internal/conductor"
 )
 
 // `octo completion <shell>` and the hidden `octo __complete <words…>` work
@@ -25,7 +25,7 @@ import (
 //
 // Dynamic completion sources:
 //   - session IDs (full + short) for `octo chat -c <TAB>`
-//   - task IDs (full + short) for `octo goal status|show|resume|cancel|run <TAB>`
+//   - ledger IDs (full + short) for `octo conduct status|resume <TAB>`
 // Both always include "last" as the first candidate.
 
 // runCompletion handles `octo completion <shell>`: prints the shell snippet
@@ -80,12 +80,8 @@ func completionCandidates(words []string) []string {
 	switch cmd {
 	case "chat":
 		return chatCandidates(words, prev)
-	case "goal":
-		return taskCandidates(words, prev)
 	case "conduct":
-		if len(words) == 3 {
-			return []string{"list", "status", "resume"}
-		}
+		return conductCandidates(words, prev)
 	case "memory":
 		return memoryCandidates(words)
 	case "init":
@@ -97,7 +93,7 @@ func completionCandidates(words []string) []string {
 	case "help":
 		// `octo help <TAB>` → list of help targets.
 		if len(words) == 3 {
-			return []string{"chat", "config", "goal", "conduct", "memory", "init", "completion", "mcp"}
+			return []string{"chat", "config", "conduct", "memory", "init", "completion", "mcp"}
 		}
 	case "completion":
 		if len(words) == 3 {
@@ -127,39 +123,40 @@ func chatCandidates(words []string, prev string) []string {
 	return chatFlags
 }
 
-func taskCandidates(words []string, prev string) []string {
-	// `octo goal <TAB>` → subcommand list.
+func conductCandidates(words []string, prev string) []string {
+	// `octo conduct <TAB>` → subcommand list (or the start of a goal string).
 	if len(words) == 3 {
-		return taskSubcommands
+		return []string{"list", "status", "resume"}
 	}
 	sub := words[2]
 	switch sub {
-	case "status", "show", "resume", "cancel", "run":
-		// First positional after the verb is the task ID. For "show" the
-		// second positional is the subtask-id — left freeform for v1.
+	case "status", "resume":
+		// First positional after the verb is the ledger ID.
 		if len(words) == 4 {
-			return taskIDCandidates()
+			return conductIDCandidates()
 		}
-		// Flag values for `task run` / `task resume` (they accept
-		// --provider / --model).
-		if sub == "run" || sub == "resume" {
-			return taskRunFlagCandidates(prev)
+		if sub == "resume" {
+			return conductFlagCandidates(prev)
 		}
-	case "start":
-		// `octo goal start "<goal>" [flags]` — the goal is freeform.
-		return taskRunFlagCandidates(prev)
+	case "list":
+		return nil
+	default:
+		// `octo conduct "<goal>" [flags]` — the goal is freeform.
+		return conductFlagCandidates(prev)
 	}
 	return nil
 }
 
-func taskRunFlagCandidates(prev string) []string {
+func conductFlagCandidates(prev string) []string {
 	switch prev {
 	case "--provider":
 		return []string{"anthropic", "openai"}
-	case "--model":
+	case "--model", "--verify":
 		return nil
 	}
-	return []string{"--provider", "--model", "--plan-only"}
+	return []string{"--provider", "--model", "--plan-only", "--verify",
+		"--max-attempts", "--max-iterations", "--stall-rounds", "--concurrency",
+		"--no-worktree", "--replan"}
 }
 
 func memoryCandidates(words []string) []string {
@@ -198,19 +195,19 @@ func sessionIDCandidates() []string {
 	return out
 }
 
-// taskIDCandidates is the symmetric helper for tasks.
-func taskIDCandidates() []string {
+// conductIDCandidates is the symmetric helper for conducted ledgers.
+func conductIDCandidates() []string {
 	out := []string{"last"}
-	store, err := taskgraph.NewStore()
+	store, err := conductor.NewStore()
 	if err != nil {
 		return out
 	}
-	tasks, err := store.List()
+	leds, err := store.List()
 	if err != nil {
 		return out
 	}
-	for _, t := range tasks {
-		out = append(out, t.ShortID(), t.ID)
+	for _, l := range leds {
+		out = append(out, l.ShortID(), l.ID)
 	}
 	return out
 }
@@ -232,7 +229,7 @@ What it completes:
   - Top-level subcommands (chat, task, memory, init, …).
   - Subcommands of task / memory / help / completion.
   - Session IDs after "octo chat -c " — full + short + "last".
-  - Task IDs after "octo goal status|show|resume|cancel|run " — full + short + "last".
+  - Ledger IDs after "octo conduct status|resume " — full + short + "last".
   - Fixed values for --provider (anthropic|openai) and --permission-mode
     (interactive|strict|auto).
 
@@ -245,12 +242,8 @@ new flags / subcommands are added.`))
 // ── Static lists ─────────────────────────────────────────────────────────
 
 var topLevelCommands = []string{
-	"chat", "config", "init", "memory", "goal", "conduct",
+	"chat", "config", "init", "memory", "conduct",
 	"version", "help", "completion",
-}
-
-var taskSubcommands = []string{
-	"start", "run", "list", "ls", "status", "show", "resume", "cancel", "help",
 }
 
 // chatFlags + initFlags are intentionally not the full flag list — we ship

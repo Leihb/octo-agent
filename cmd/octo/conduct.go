@@ -331,6 +331,20 @@ func buildConductAgent(f conductFlags, stdout, stderr io.Writer) (*agent.Agent, 
 	return a, func() { tools.SetSpawner(nil) }, 0
 }
 
+// defaultMaxTokensForPlanner caps the planner/replanner side-call output.
+const defaultMaxTokensForPlanner = 4096
+
+// oneLine collapses a multi-line string to a single-line preview, truncated so
+// it doesn't wrap awkwardly in status lines.
+func oneLine(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 80 {
+		s = s[:77] + "…"
+	}
+	return s
+}
+
 // spawnerWorker adapts the package-global tools.ActiveSpawner into a
 // conductor.Worker. A max-turns checkpoint surfaces as Incomplete=true (the
 // conductor continues from it) rather than an error.

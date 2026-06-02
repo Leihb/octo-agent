@@ -208,6 +208,28 @@ func (m *tuiModel) onConductDone(msg conductDoneMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// teaScrollbackWriter adapts an io.Writer (the conductor's progress stream)
+// into TUI scrollback lines: each '\n'-terminated line becomes a noticeMsg; a
+// trailing unterminated fragment is held until the next write.
+type teaScrollbackWriter struct {
+	prog interface{ Send(tea.Msg) }
+	buf  []byte
+}
+
+func (w *teaScrollbackWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		line := string(w.buf[:i])
+		w.buf = append([]byte(nil), w.buf[i+1:]...)
+		w.prog.Send(noticeMsg{text: line})
+	}
+	return len(p), nil
+}
+
 func (m *tuiModel) conductResume(idArg string) (tea.Model, tea.Cmd) {
 	store, err := conductor.NewStore()
 	if err != nil {

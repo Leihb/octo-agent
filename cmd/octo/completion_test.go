@@ -31,7 +31,7 @@ func TestCompletionCandidates_TopLevel(t *testing.T) {
 	}
 	for _, words := range cases {
 		got := completionCandidates(words)
-		if !containsAll(got, []string{"chat", "goal", "memory", "init", "help", "completion"}) {
+		if !containsAll(got, []string{"chat", "conduct", "memory", "init", "help", "completion"}) {
 			t.Errorf("words=%v missing top-level commands; got %v", words, got)
 		}
 	}
@@ -86,29 +86,31 @@ func TestCompletionCandidates_SessionIDsAfterDashC(t *testing.T) {
 	}
 }
 
-func TestCompletionCandidates_TaskSubcommands(t *testing.T) {
-	got := completionCandidates([]string{"octo", "goal", ""})
-	for _, want := range []string{"start", "run", "list", "status", "show", "resume", "cancel"} {
+func TestCompletionCandidates_ConductSubcommands(t *testing.T) {
+	got := completionCandidates([]string{"octo", "conduct", ""})
+	for _, want := range []string{"list", "status", "resume"} {
 		if !sliceContains(got, want) {
-			t.Errorf("task subcommand completion missing %q; got %v", want, got)
+			t.Errorf("conduct subcommand completion missing %q; got %v", want, got)
 		}
 	}
 }
 
-func TestCompletionCandidates_TaskIDsAfterVerbs(t *testing.T) {
-	withFakeHome(t)
-	// No tasks seeded — at minimum we expect "last" (the empty store is fine).
-	for _, verb := range []string{"status", "show", "resume", "cancel", "run"} {
-		got := completionCandidates([]string{"octo", "goal", verb, ""})
+func TestCompletionCandidates_ConductIDsAfterVerbs(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	// No ledgers seeded — at minimum we expect "last" (the empty store is fine).
+	for _, verb := range []string{"status", "resume"} {
+		got := completionCandidates([]string{"octo", "conduct", verb, ""})
 		if len(got) < 1 || got[0] != "last" {
-			t.Errorf("task %s ID completion missing 'last'; got %v", verb, got)
+			t.Errorf("conduct %s ID completion missing 'last'; got %v", verb, got)
 		}
 	}
 }
 
 func TestCompletionCandidates_HelpTargets(t *testing.T) {
 	got := completionCandidates([]string{"octo", "help", ""})
-	want := []string{"chat", "config", "goal", "conduct", "memory", "init", "completion", "mcp"}
+	want := []string{"chat", "config", "conduct", "memory", "init", "completion", "mcp"}
 	if !sliceEq(got, want) {
 		t.Errorf("help target completion = %v, want %v", got, want)
 	}
@@ -211,7 +213,7 @@ func TestRun_CompleteViaMain(t *testing.T) {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"chat", "goal", "memory"} {
+	for _, want := range []string{"chat", "conduct", "memory"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

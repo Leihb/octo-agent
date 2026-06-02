@@ -1,13 +1,12 @@
 # 自主编排器设计(Conductor)
 
 把一个大目标(如「把某 TS 代码库整体翻译成 Go」)交给 octo-agent **无人值守**地跑完。
-这是 `/goal` 的演进:`/goal` 适合「几个互不相关的小杂活并行跑」,对需要全局一致性、
-边做边发现、长程迭代的大重构结构上做不到。
+`octo conduct` / `/conduct` 是 octo 唯一的编排入口。
 
-## 为什么不是 /goal
+## 设计动机:扇出一次的 DAG 为什么不行
 
-现有 `/goal`(`internal/taskgraph` + `cmd/octo/tuirepl_goal.go`)是「开工前一次性拍定、
-扇出一次、彼此隔离且互相看不见结果的无状态子 agent DAG」。五个结构性缺陷:
+conductor 取代了早期的一次性 DAG 编排器(曾叫 `/goal`,已移除)。那种「开工前一次性拍定、
+扇出一次、彼此隔离且互相看不见结果的无状态子 agent DAG」有五个结构性缺陷,conductor 逐条规避:
 
 1. **子任务零共享状态**。`Executor.Execute(ctx, description)` 唯一输入是 planner 最初写下的
    一行静态描述;上游 `sub.Result` 存了但从不拼进下游 prompt。下游 worker 对上游产出是瞎的。
@@ -145,18 +144,18 @@ type Verdict struct { Green bool; Summary string; Details string }
 
 | 复用 | 位置 |
 |------|------|
-| worker 派生 + 续跑 | `cmd/octo/sub_agent.go` 的 `agentSpawner.Spawn/Continue`(`Continue` 现未被 goal 用) |
+| worker 派生 + 续跑 | `cmd/octo/sub_agent.go` 的 `agentSpawner.Spawn/Continue` |
 | 隔离 child(共享 Sender/System、独立 History、防递归) | 同上 |
-| 磁盘持久化模式(双 fsync/批次、短 id、resume) | `internal/taskgraph.Store` |
 | 流式事件 → 实时面板 | `tools.SubAgentEventSink` / `RunStream` handler |
+| 规划 side-call | `internal/agent` 的 `PlanTask` |
 
-| 新增 | 说明 |
+| 组成 | 说明 |
 |------|------|
-| `internal/conductor`(Conductor 循环 + LEDGER 模型) | 取代 `taskgraph` 的不可变 DAG 调度 |
-| `Verifier` 接口 + Go 实现(build/vet/test) | 客观闸门 |
-| `WorktreeManager`(create/merge/cleanup) | git worktree 隔离 + 串行合并 |
+| `internal/conductor`(Conductor 循环 + LEDGER 模型 + 原子 Store) | 单线程编排 + 活台账 |
+| `Verifier` 接口 + `CmdVerifier`(build/vet/test) | 客观闸门 |
+| `gitWorktrees`(create/commit/merge/cleanup) | git worktree 隔离 + 串行合并 |
 | 共享文档约定(LEDGER/CONVENTIONS/JOURNAL 读写) | worker 间共享记忆 |
-| `/goal` 演进为 `/conduct`(或 `/goal` 增 `--conduct`) | TUI + headless 两条入口 |
+| `octo conduct` CLI + `/conduct` TUI | headless + 交互两条入口 |
 
 ## 对 CC TS→Go 用例具体长什么样
 

@@ -115,7 +115,7 @@ func (s *agentSpawner) Continue(ctx context.Context, agentID, message string) (t
 // A max-turns checkpoint is NOT an error: the partial reply and StopReason
 // ("max_turns") are returned so a caller (the conductor) can checkpoint and
 // Continue. Tokens spent on the partial round are still accrued. Callers that
-// want the old stop-on-fail behaviour (the taskgraph `/goal` path) inspect
+// drive a continuation (the conductor) inspect
 // StopReason themselves.
 func (s *agentSpawner) runChild(ctx context.Context, lc *liveChild, prompt string) (reply string, in, out int, stopReason string, err error) {
 	lc.mu.Lock()
@@ -126,7 +126,7 @@ func (s *agentSpawner) runChild(ctx context.Context, lc *liveChild, prompt strin
 	// When the manager stamped an event sink into ctx (TUI live panel), stream
 	// the child's tool-level activity to it. Only tool_started/tool_error are
 	// forwarded — not per-token text — to keep event volume sane with several
-	// sub-agents running at once. No sink (taskgraph/headless) => nil handler =>
+	// sub-agents running at once. No sink (conductor/headless) => nil handler =>
 	// RunStream behaves exactly like Run.
 	var handler agent.EventHandler
 	if sink := tools.SubAgentEventSink(ctx); sink != nil {
@@ -282,7 +282,7 @@ func (r *childRegistry) evictLocked() {
 }
 
 // freshIDLocked returns an 8-hex-char id not currently in use. Same shape as
-// agent.Session / taskgraph short ids. Caller holds r.mu.
+// agent.Session / conductor short ids. Caller holds r.mu.
 func (r *childRegistry) freshIDLocked() string {
 	for {
 		var b [4]byte

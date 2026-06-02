@@ -16,7 +16,7 @@ const planMaxTokens = 4096
 
 // planSystem is the planner's standalone system prompt. The model gets the
 // user's goal as a user message and emits a JSON object describing a DAG of
-// subtasks the M11 scheduler will execute via M10 sub-agents.
+// subtasks the conductor/orchestrator will execute via sub-agents.
 //
 // The prompt borrows the same shape as extract.go (no-op gate, schema
 // up-front, anti-patterns, output discipline) so a planner side-call has
@@ -102,7 +102,7 @@ const projectContextFile = ".octorules"
 
 // PlanTask runs the planner side-call over goal and returns the resulting
 // subtask DAG. It does not write anything to disk — the caller persists
-// via internal/taskgraph.
+// via internal/conductor.
 //
 // A zero PlanResult means the planner emitted nothing usable (no JSON
 // object found, or an empty subtasks array). Callers should treat that as
@@ -223,7 +223,7 @@ func formatHistoryForPlanner(h *History) string {
 
 // parsePlan extracts the JSON object from the planner's reply (tolerating
 // a code fence or surrounding prose) and validates the rough structure.
-// Doesn't check DAG invariants (that's taskgraph.validateSubtasks); just
+// Doesn't check DAG invariants (that's conductor.validateUnits); just
 // surfaces obviously-broken planner output before we reach the persistence
 // layer.
 func parsePlan(s string) (PlanResult, error) {
