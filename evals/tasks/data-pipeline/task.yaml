@@ -1,0 +1,9 @@
+name: data-pipeline
+timeout: 6m
+prompt: |
+  The file input.csv in the current directory has the columns
+  region,product,units,unit_price. Compute the total revenue across all rows,
+  where each row's revenue is units × unit_price. Write ONLY the total — a single
+  number formatted with exactly two decimal places (e.g. 1234.56) — to a file
+  named result.txt in the current directory, with no other text. Prefer writing
+  and running a small script over computing by hand, so the result is exact.

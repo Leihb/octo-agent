@@ -1,0 +1,16 @@
+name: tech-doc
+timeout: 6m
+prompt: |
+  Write a clear technical comparison document, saved as comparison.md in the
+  current directory, comparing REST and gRPC for building backend service APIs.
+  It should be genuinely useful to a backend engineer choosing between them.
+  Cover, with real substance:
+    - A short intro framing the decision.
+    - How each works (protocol, payload format, contract/schema).
+    - A tradeoff comparison across performance, streaming, browser/client
+      support, tooling, and human-debuggability — ideally including a comparison
+      table.
+    - Concrete "use REST when…" / "use gRPC when…" guidance.
+    - A brief summary recommendation.
+  Use proper Markdown structure (headings, lists, a table). Be accurate and
+  specific, not vague or filler.

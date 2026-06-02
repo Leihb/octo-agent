@@ -81,6 +81,7 @@ func runRun(args []string) error {
 	workdir := fs.String("workdir", filepath.Join(os.TempDir(), "octo-eval"), "scratch dir for per-task copies + octo HOME")
 	filter := fs.String("filter", "", "run only tasks whose name contains this substring")
 	maxTurns := fs.Int("max-turns", 50, "octo --max-turns: model round-trips per task")
+	maxTokens := fs.Int("max-tokens", 8192, "octo --max-tokens per response; generative tasks emit a whole file in one tool call, which the provider default (e.g. 4096) truncates")
 	timeout := fs.Duration("timeout", 5*time.Minute, "per-task octo timeout (a task's own timeout overrides)")
 	verifyTimeout := fs.Duration("verify-timeout", 2*time.Minute, "cap on a task's verify command")
 	allowNet := fs.Bool("allow-net", false, "allow octo network access (default false — hermetic)")
@@ -109,6 +110,7 @@ func runRun(args []string) error {
 		Model:       *model,
 		Provider:    *provider,
 		MaxTurns:    *maxTurns,
+		MaxTokens:   *maxTokens,
 		AllowNet:    *allowNet,
 		Timeout:     *timeout,
 		VerifyAfter: *verifyTimeout,
@@ -125,6 +127,11 @@ func runRun(args []string) error {
 		case res.Resolved:
 			resolved++
 			fmt.Printf("        ✓ resolved (%.1fs)\n", res.Duration.Seconds())
+			// Surface the judge verdict on generative tasks (e.g. "score=8/10");
+			// deterministic verifies print nothing on success, so this is empty.
+			if line := lastLines(res.Verify, 1); line != "" {
+				fmt.Printf("          %s\n", line)
+			}
 		default:
 			fmt.Printf("        ✗ unresolved (%.1fs) — log: %s\n", res.Duration.Seconds(), res.OctoLog)
 			if tail := lastLines(res.Verify, 8); tail != "" {

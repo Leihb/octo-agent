@@ -1,0 +1,19 @@
+name: photographer-homepage
+timeout: 8m
+prompt: |
+  Build a single-page personal website for a fictional fine-art photographer,
+  "Mira Solveig", as index.html in the current directory. It should feel
+  artistic and editorial — the kind of site a working photographer would be
+  proud to show clients. Requirements:
+    - One self-contained index.html: all CSS (and any JS) inline, no external
+      files or CDNs. It must render correctly opened directly from disk.
+    - A hero/intro section with the photographer's name and a short tagline.
+    - A gallery section: use at least 6 image placeholders. Since you have no
+      real photos, use inline SVG or CSS-generated visuals (gradients, shapes,
+      duotone blocks) as artful stand-ins — do NOT hotlink remote images.
+    - An "About" section with a few sentences of real bio copy, and a "Contact"
+      section with an email and social links.
+    - A navigation bar linking to the sections.
+    - Strong art direction: an intentional palette, elegant typography, generous
+      whitespace, and a layout with visual rhythm — not a generic template.
+  Build only index.html. Double-check it is valid, self-contained HTML.

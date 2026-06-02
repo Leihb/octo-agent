@@ -18,6 +18,7 @@ type Options struct {
 	Model       string        // empty = octo default
 	Provider    string        // empty = octo default
 	MaxTurns    int           // octo --max-turns
+	MaxTokens   int           // octo --max-tokens per response (0 = provider default)
 	AllowNet    bool          // allow octo network access (default false)
 	Timeout     time.Duration // per-task default; a task's own timeout overrides
 	VerifyAfter time.Duration // cap on the verify command itself
@@ -61,12 +62,13 @@ func RunTask(ctx context.Context, t Task, opt Options) Result {
 
 	evalHome := filepath.Join(taskWork, "home")
 	octoOut, oerr := driveOcto(octoCtx, octoOptions{
-		Bin:      opt.OctoBin,
-		EvalHome: evalHome,
-		Model:    opt.Model,
-		Provider: opt.Provider,
-		MaxTurns: opt.MaxTurns,
-		AllowNet: opt.AllowNet,
+		Bin:       opt.OctoBin,
+		EvalHome:  evalHome,
+		Model:     opt.Model,
+		Provider:  opt.Provider,
+		MaxTurns:  opt.MaxTurns,
+		MaxTokens: opt.MaxTokens,
+		AllowNet:  opt.AllowNet,
 	}, work, t.Prompt)
 
 	logPath := filepath.Join(taskWork, "octo.log")

@@ -12,12 +12,13 @@ import (
 
 // octoOptions configures how the harness drives the octo binary.
 type octoOptions struct {
-	Bin      string // path to the octo binary
-	EvalHome string // isolated HOME so octo's ~/.octo never touches the user's
-	Model    string // empty = octo default
-	Provider string // empty = octo default
-	MaxTurns int    // octo --max-turns (0 = octo default)
-	AllowNet bool   // false adds --sandbox (hermetic: no gold-patch leak via web tools)
+	Bin       string // path to the octo binary
+	EvalHome  string // isolated HOME so octo's ~/.octo never touches the user's
+	Model     string // empty = octo default
+	Provider  string // empty = octo default
+	MaxTurns  int    // octo --max-turns (0 = octo default)
+	MaxTokens int    // octo --max-tokens per response (0 = provider default)
+	AllowNet  bool   // false adds --sandbox (hermetic: no gold-patch leak via web tools)
 }
 
 // driveOcto runs octo as a headless one-shot inside workDir, handing it prompt
@@ -44,6 +45,13 @@ func driveOcto(ctx context.Context, opt octoOptions, workDir, prompt string) (st
 	}
 	if opt.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(opt.MaxTurns))
+	}
+	if opt.MaxTokens > 0 {
+		// A large single-file artifact (a full HTML homepage) is emitted as one
+		// write_file tool call, so its content counts against the per-response
+		// output cap. The provider default (e.g. 4096 on DeepSeek) truncates it
+		// mid-write and nothing lands; a higher cap gives generative tasks room.
+		args = append(args, "--max-tokens", strconv.Itoa(opt.MaxTokens))
 	}
 	if opt.Model != "" {
 		args = append(args, "--model", opt.Model)

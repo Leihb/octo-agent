@@ -1,0 +1,13 @@
+name: html-slides
+timeout: 8m
+prompt: |
+  Create a self-contained HTML slide deck in a single file named index.html, in
+  the current directory. The deck presents "The History of Coffee" in at least 6
+  slides, advancing with the left/right arrow keys. Requirements:
+    - All CSS and JavaScript inline in index.html — no external files or CDNs
+      (it must work opened directly from disk with no network).
+    - One slide visible at a time; arrow keys (and on-screen prev/next) navigate.
+    - A title slide, at least 4 content slides with real text, and a closing slide.
+    - Cohesive visual design: a deliberate color palette, readable typography,
+      and consistent spacing.
+  Build only index.html. When done, double-check it is valid, self-contained HTML.

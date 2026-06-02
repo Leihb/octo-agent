@@ -12,21 +12,69 @@ Each directory under `evals/tasks/` is one task:
 
 ```
 evals/tasks/<name>/
-  task.yaml      # name + prompt (+ optional `timeout: 5m`)
-  repo/          # fixture source octo edits — the only thing octo sees
-  hidden/        # files injected AFTER octo runs; octo can't read or game them
-  verify.sh      # run from the working copy after injection; exit 0 == resolved
+  task.yaml      # name + prompt (+ optional `timeout: 5m`)        [required]
+  repo/          # starting point octo edits — the only thing octo sees [required]
+  verify.sh      # run from the working copy; exit 0 == resolved    [required]
+  hidden/        # files injected AFTER octo runs; octo never sees them [optional]
+  rubric.md      # scoring criteria for an LLM judge                [optional]
 ```
 
-The `hidden/` + `verify.sh` split is the anti-gaming mechanism: the judging
-files don't exist in the working copy while octo edits, so it can only ever see
-`repo/`.
+`verify.sh` is the universal contract: it runs with cwd = the working copy and
+its exit code (0 = resolved) is the only signal the harness reads. Everything
+else is a convention layered on top.
 
-Fixtures are hand-written Go modules. Each carries its own nested `go.mod`, so
-the parent module's `go test ./...` and `go vet ./...` skip them — the
-intentionally-broken fixtures never run in CI. `verify.sh` runs `go test ./...`
-inside the working copy; the framework itself is language-agnostic (any
-`verify.sh` that exits 0 on success works).
+When present, the `hidden/` + `verify.sh` split is the anti-gaming mechanism:
+the judging files don't exist in the working copy while octo edits, so it can
+only ever see `repo/`. For a generative task with no hidden tests, octo just
+starts from an empty `repo/` (a `.keep` placeholder).
+
+## Two kinds of task
+
+**Deterministic** — there's an objectively correct outcome. `verify.sh` checks
+it and nothing else.
+- *Coding* fixtures (`fix-off-by-one`, `add-json-field`, `fix-nil-panic`) are
+  hand-written Go modules with a hidden `*_test.go`; `verify.sh` runs
+  `go test ./...`. Each carries its own nested `go.mod` (see *CI exclusion*
+  below).
+- *Data* tasks (`data-pipeline`) give octo an input and a fixed expected answer;
+  `verify.sh` checks the produced file against the canonical value.
+
+**Open-ended / generative** — the result is subjective (an *artistic*
+photographer homepage, a *clear* comparison doc), so there's no single correct
+output. These use a two-stage gate in `verify.sh`:
+
+1. A **structural gate** — cheap, deterministic assertions for the objective
+   minimum (file exists, is HTML, is self-contained, isn't a stub). Kept
+   intentionally loose so it never kills a reasonable result.
+2. An **LLM judge** — `evals/lib/llm-judge.sh` scores the artifact against the
+   task's `rubric.md` on a 0-10 scale and exits non-zero below a threshold. The
+   specific requirements ("≥6 slides", "a gallery", "a comparison table") live
+   in the rubric, not the structural gate, so quality — not just presence — is
+   what's measured.
+
+`html-slides`, `photographer-homepage`, and `tech-doc` are generative tasks.
+
+### The LLM judge
+
+`evals/lib/llm-judge.sh <rubric> <threshold> <artifact...>` builds a judging
+prompt from the rubric + artifact, calls a chat-completions endpoint at
+`temperature 0`, parses a `{"score", "reason"}` verdict, and exits 0 iff
+`score >= threshold`. It **fails closed**: a missing key, unreachable API, or
+unparseable response exits 2, so a broken judge never silently passes a task.
+
+Env: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and a judge model from
+`OCTO_EVAL_JUDGE_MODEL` (preferred) or `OPENAI_MODEL`. Prefer a *different*
+judge model than the one under test to avoid self-grading. Judges are not
+perfectly repeatable even at `temperature 0`, so treat generative scores as a
+coarse signal and calibrate thresholds against real runs.
+
+### CI exclusion
+
+`evals/` is its own Go module (`evals/go.mod`), so the parent module's
+`go test ./...` / `go vet ./...` skip the whole tree — the intentionally-broken
+coding fixtures never run in CI. The harness copies a fixture's `repo/` into a
+scratch dir at eval time; that copy gets its own `go.mod` and compiles
+standalone.
 
 ## Architecture
 
@@ -61,26 +109,50 @@ go build -o octo-eval ./cmd/octo-eval
 
 ./octo-eval list                        # show the suite
 
+# Anthropic-protocol provider:
 ANTHROPIC_API_KEY=… ANTHROPIC_BASE_URL=… \
   ./octo-eval run --octo ./octo --model <model> --provider anthropic
+
+# OpenAI-protocol provider (also feeds the LLM judge via the same env):
+OPENAI_API_KEY=… OPENAI_BASE_URL=https://api.deepseek.com \
+OCTO_EVAL_JUDGE_MODEL=<judge-model> \
+  ./octo-eval run --octo ./octo --model <model> --provider openai --allow-net
 
 ./octo-eval run --filter fix-nil-panic  # one task
 ```
 
+Generative tasks need the judge env (`OPENAI_API_KEY` / `OPENAI_BASE_URL` /
+`OCTO_EVAL_JUDGE_MODEL`) set even when octo itself runs on an Anthropic
+provider, since `verify.sh` calls the judge over the OpenAI-protocol endpoint.
+
 Flags: `--tasks-dir` (default `evals/tasks`), `--octo`, `--model`, `--provider`,
-`--workdir`, `--filter`, `--max-turns` (default 50), `--timeout` (per-task octo
-cap, default 5m; a task's own `timeout` overrides), `--verify-timeout`,
-`--allow-net`.
+`--workdir`, `--filter`, `--max-turns` (default 50), `--max-tokens` (per-response
+output cap, default 8192 — the provider default of 4096 truncates a large
+single-file artifact mid-write), `--timeout` (per-task octo cap, default 5m; a
+task's own `timeout` overrides), `--verify-timeout`, `--allow-net`.
 
 ## Adding a task
 
+**Deterministic (coding/data):**
+
 1. `mkdir -p evals/tasks/<name>/{repo,hidden}`
-2. Write the broken fixture under `repo/` (with a `go.mod`) and the judging
-   `*_test.go` under `hidden/`.
+2. Write the broken fixture under `repo/` (Go fixtures need a `go.mod`) and the
+   judging `*_test.go` under `hidden/`.
 3. `task.yaml` with `name` + a `prompt` that names the file and the expected
    behaviour, and tells octo to edit source only.
-4. `verify.sh` → `go test ./...`.
-5. Confirm the fixture **fails unfixed**: copy `repo/` + `hidden/` into a temp
-   dir and run `go test ./...` — it must fail (proving the bug is real and the
-   test catches it).
-```
+4. `verify.sh` → `go test ./...` (or check the produced output against a fixed
+   expected value).
+5. Confirm it **fails unfixed**: copy `repo/` + `hidden/` into a temp dir and
+   run `verify.sh` — it must fail (proving the check is real). Confirm a correct
+   fix flips it to pass.
+
+**Generative (open-ended):**
+
+1. `mkdir -p evals/tasks/<name>/repo` and add `repo/.keep`.
+2. `task.yaml` with a `prompt` describing the artifact and its requirements, and
+   a `timeout` (generative runs take longer).
+3. `rubric.md` with the scoring criteria — put the *specific* requirements here.
+4. `verify.sh`: a loose structural gate (file exists, right format, not a stub),
+   then `sh "$here/../../lib/llm-judge.sh" "$here/rubric.md" <threshold> <artifact>`.
+5. Calibrate `<threshold>` against a couple of real runs: too high and even good
+   output fails, too low and there's no discrimination.

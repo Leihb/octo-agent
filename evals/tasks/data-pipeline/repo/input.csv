@@ -1,0 +1,16 @@
+region,product,units,unit_price
+North,Widget,12,2.50
+North,Gadget,4,9.00
+North,Gizmo,7,12.00
+South,Widget,9,2.50
+South,Gadget,15,9.00
+South,Gizmo,3,12.00
+East,Widget,21,2.50
+East,Gadget,6,9.00
+East,Gizmo,11,12.00
+West,Widget,5,2.50
+West,Gadget,18,9.00
+West,Gizmo,2,12.00
+Central,Widget,33,2.50
+Central,Gadget,7,9.00
+Central,Gizmo,9,12.00
