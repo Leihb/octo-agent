@@ -5,7 +5,10 @@
 # that matches wins. If no rule matches, the implicit default is `ask`.
 #
 # Pattern rules (for `terminal`) are case-sensitive SUBSTRING matches
-# against the input command. Path rules use glob syntax with `**` meaning
+# against the input command. Exception: a pattern ending in `/` or `~`
+# (a filesystem-root marker) only matches when that marker ends an
+# argument, so `rm -rf /` blocks a root wipe but not `rm -rf /path/under`.
+# Path rules use glob syntax with `**` meaning
 # "any number of directory components". Hostname rules use glob with `*`
 # matching a single label (so `*.dev` matches `foo.dev` but not `foo.bar.dev`).
 

@@ -41,6 +41,29 @@ func TestDefaultRules_TerminalCommon(t *testing.T) {
 	}
 }
 
+func TestDefaultRules_TerminalRootHomeDenyIsBoundaryAnchored(t *testing.T) {
+	// The catastrophic `rm -rf /` / `rm -rf ~` deny rules must only fire when
+	// the target IS root/home — a delete of a path *beneath* them is a normal
+	// risky operation that should fall through to the `ask: rm -rf` rule, not
+	// get hard-denied. Regression for the substring false-positive where
+	// `rm -rf /Users/me/project` matched `rm -rf /`.
+	e := newDefaultEngine(t)
+	cases := map[string]Decision{
+		"rm -rf /":                    Deny, // root wipe
+		"rm -rf /*":                   Deny, // everything in root
+		"rm -rf / --no-preserve-root": Deny, // root with trailing arg
+		"rm -rf ~":                    Deny, // home wipe
+		"rm -rf /Users/me/project":    Ask,  // absolute subpath — legit, ask
+		"rm -rf /tmp/build":           Ask,
+		"rm -rf ~/.cache/go-build":    Ask, // subpath under home — legit, ask
+	}
+	for cmd, want := range cases {
+		if got := e.Check("terminal", map[string]any{"command": cmd}); got != want {
+			t.Errorf("terminal %q: got %s, want %s", cmd, got, want)
+		}
+	}
+}
+
 func TestDefaultRules_TerminalCredentialPathsBeatSafeVerb(t *testing.T) {
 	// A "safe" verb like cat would auto-allow, but a credential path in the
 	// command must win because its rule precedes the allow rules.

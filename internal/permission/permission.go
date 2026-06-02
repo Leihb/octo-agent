@@ -287,8 +287,49 @@ func (e *Engine) matches(toolName string, r Rule, input map[string]any) bool {
 			// that exposes the file via input["file"] still works.
 			cmd = stringifyInput(input)
 		}
-		return strings.Contains(cmd, r.Pattern)
+		return patternMatches(cmd, r.Pattern)
 	}
+}
+
+// patternMatches reports whether cmd triggers a terminal pattern rule. The
+// documented semantics are a case-sensitive substring match, with one
+// refinement: a pattern ending in a filesystem-root marker (`/` or `~`) only
+// matches when that marker sits at an argument boundary — i.e. the command
+// targets root/home itself, not a path beneath it.
+//
+// Without this, `deny: rm -rf /` (intended to block a root wipe) is a literal
+// substring of every absolute-path delete like `rm -rf /Users/me/project`,
+// hard-denying legitimate operations that should instead fall through to the
+// `ask: rm -rf` rule. The boundary check keeps `rm -rf /`, `rm -rf /*`, and
+// `rm -rf ~` blocked while letting a delete of a specific subpath ask.
+func patternMatches(cmd, pattern string) bool {
+	if pattern == "" {
+		return true
+	}
+	if last := pattern[len(pattern)-1]; last != '/' && last != '~' {
+		return strings.Contains(cmd, pattern)
+	}
+	// Boundary-anchored: the character after a match must terminate the
+	// argument (end of command, whitespace, or a `*` glob), otherwise the
+	// match is a longer path under root/home and the rule does not apply.
+	from := 0
+	for {
+		i := strings.Index(cmd[from:], pattern)
+		if i < 0 {
+			return false
+		}
+		end := from + i + len(pattern)
+		if end >= len(cmd) || isArgBoundary(cmd[end]) {
+			return true
+		}
+		from += i + 1
+	}
+}
+
+// isArgBoundary reports whether c ends a shell argument for the purposes of
+// patternMatches' root/home anchoring.
+func isArgBoundary(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '*'
 }
 
 // signature returns a stable hash of (tool, input) for the remember
