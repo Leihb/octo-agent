@@ -354,7 +354,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// Two surfaces only. An interactive terminal drives the bubbletea TUI;
 	// everything else is a headless one-shot — octo's claude -p mode. A
 	// positional message, --prompt-file, piped/redirected stdin, --no-tui, or
-	// OCTO_TUI=0 all take the one-shot path (tests, mswe-eval, CI included).
+	// OCTO_TUI=0 all take the one-shot path (tests, octo-eval, CI included).
 	useTUI := isREPL && stdinIsTTY(stdin) && !*noTUI && !tuiDisabledByEnv() && seedPrompt == ""
 
 	// Resuming a session (-c) is an interactive affordance — it only makes sense

@@ -54,5 +54,5 @@ emits escape sequences, and repaints. Headless consumers need a clean,
 scriptable, single-shot surface. Folding the old tool-less single-turn mode and
 the old line-per-turn piped REPL into one agentic one-shot removed a footgun
 (piping a multi-line prompt used to be shredded into one turn per line) and gave
-`octo chat "msg"` the full tool loop. mswe-eval drives this path via
+`octo chat "msg"` the full tool loop. octo-eval drives this path via
 `--prompt-file`.

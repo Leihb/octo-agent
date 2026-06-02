@@ -120,4 +120,4 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 - alt-screen / 内部 scrollback（已移除，inline 模式更可靠）
 - Web / IM 端富渲染（各端自有渲染模型）
 - 内联图形 / 图片
-- mswe-eval / headless 路径（纯文本不变）
+- octo-eval / headless 路径（纯文本不变）

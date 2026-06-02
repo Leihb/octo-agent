@@ -1,0 +1,6 @@
+name: fix-nil-panic
+prompt: |
+  EffectiveTimeout in config.go panics with a nil-pointer dereference when
+  Config.Timeout is nil. Fix it so that when Timeout is nil it returns the
+  default of 30, and otherwise returns the pointed-to value. Edit source only —
+  do not add or modify any _test.go files. Make sure `go build ./...` passes.

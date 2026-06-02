@@ -1,0 +1,7 @@
+name: fix-off-by-one
+prompt: |
+  In this Go package, the LastN function in lastn.go is supposed to return the
+  last n elements of the slice, but it has an off-by-one bug and drops one
+  element. Fix LastN so it returns exactly the last n elements. Edit source
+  only — do not add or modify any _test.go files. Make sure `go build ./...`
+  still passes.

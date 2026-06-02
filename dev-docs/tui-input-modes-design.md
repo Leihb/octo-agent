@@ -157,7 +157,7 @@ useTUI := isREPL && stdinIsTTY(stdin) && !*noTUI && !tuiDisabledByEnv() && seedP
 `OCTO_TUI=0` 强制纯文本(dumb terminal / SSH / tmux / 屏幕阅读器兜底);`--prompt-file`
 (`seedPrompt`)的非交互单发也走纯文本。
 
-**非-TTY 必然走纯文本**:管道 stdin 的 `stdinIsTTY` 恒 false,所以 `mswe-eval`(piped-REPL
+**非-TTY 必然走纯文本**:管道 stdin 的 `stdinIsTTY` 恒 false,所以 `octo-eval`(piped-REPL
 驱动)、测试(`strings.Reader`)、CI 都走 `runREPL`,bubbletea 永不激活——piped-REPL 契约
 天然保留,无需专用 headless 入口。
 

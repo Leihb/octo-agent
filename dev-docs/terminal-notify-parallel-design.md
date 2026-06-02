@@ -117,7 +117,7 @@ if p.onExit != nil {
 }
 ```
 
-- `onExit` 由 turn-core 建 manager 时注入：TTY 视图 → 包成 `AgentEvent` 投事件总线；headless 视图 → 一个纯文本打印（或 no-op）的回调，`--no-tui`/mswe-eval 行为可控。
+- `onExit` 由 turn-core 建 manager 时注入：TTY 视图 → 包成 `AgentEvent` 投事件总线；headless 视图 → 一个纯文本打印（或 no-op）的回调，`--no-tui`/octo-eval 行为可控。
 - 线程安全：回调在 waiter goroutine 触发，写的是 tui §5.1 的线程安全 inbox 缓冲；`History` 本身也有 `sync.RWMutex` 兜底（`internal/agent/history.go`）。
 
 ### 4.2 注入形态（决策#2）
@@ -199,7 +199,7 @@ inbox 条目带 `kind`：`typed`（用户输入）/ `bg`（后台完成）。dra
 - **时机**：mock Sender 产 tool_use → 回合运行中 bg 完成走下个迭代开始注入；idle → 暂存 → 下个回合前置注入、**不自动起回合**。
 - **并发**：起 N 个 bg、令其乱序完成，断言通知按完成序、同 drain 周期内多个完成合并成一条（决策#7）。
 - **interrupt 存活**：cancel `turnCtx`，断言后台进程未被杀、bg inbox 仍被后续回合消费（决策#8）。
-- **headless 回归**：`onExit` 走纯文本回调，`--no-tui`/mswe-eval/管道行为可控、既有测试绿。
+- **headless 回归**：`onExit` 走纯文本回调，`--no-tui`/octo-eval/管道行为可控、既有测试绿。
 
 ---
 

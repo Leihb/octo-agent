@@ -1,0 +1,3 @@
+#!/bin/sh
+# Resolved when the hidden test passes. Run from the working copy (cwd).
+go test ./...

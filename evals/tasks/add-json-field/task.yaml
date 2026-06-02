@@ -1,0 +1,5 @@
+name: add-json-field
+prompt: |
+  The User struct in user.go is missing an age field. Add an exported Age field
+  of type int that serializes to JSON as "age". Edit source only — do not add or
+  modify any _test.go files. Make sure `go build ./...` still passes.

@@ -12,11 +12,11 @@
 #   make tidy       go mod tidy
 #   make clean      remove build artefacts
 #
-# Multi-SWE-bench eval (manual; needs a model key + Docker + Python, NOT in CI):
-#   make eval-mswe-build                build the ./mswe-eval tool
-#   make eval-mswe-inspect DATASET=...  confirm the dataset schema
-#   make eval-mswe DATASET=...          generate patches with octo, then judge
-# See dev-docs/mswe-eval.md.
+# octo-eval — lightweight eval (manual; needs a model key, NOT in CI):
+#   make eval-build           build the ./octo-eval tool
+#   make eval-list            list the task suite
+#   make eval EVAL_FLAGS=...  run the suite (pass --provider/--model/… via EVAL_FLAGS)
+# See dev-docs/octo-eval.md.
 
 GOTAGS ?=
 GOFLAGS ?=
@@ -49,7 +49,7 @@ RG_EMBED_DIR := internal/tools/rgembed/binaries
 RG_EMBED_BIN := $(RG_EMBED_DIR)/rg
 
 .PHONY: all build install test cover vet fmt fmt-check tidy clean \
-        eval-mswe-build eval-mswe-inspect eval-mswe \
+        eval-build eval-list eval \
         rg-embed rg-embed-clean
 
 all: test
@@ -87,7 +87,7 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -f octo octo.exe mswe-eval coverage.out coverage.html
+	rm -f octo octo.exe octo-eval coverage.out coverage.html
 	rm -rf dist/
 	rm -f $(RG_EMBED_BIN) $(RG_EMBED_BIN).exe
 
@@ -133,17 +133,17 @@ $(RG_EMBED_BIN):
 rg-embed-clean:
 	rm -f $(RG_EMBED_BIN) $(RG_EMBED_BIN).exe
 
-# ── Multi-SWE-bench eval (manual; see dev-docs/mswe-eval.md) ────────────────
-# DATASET must point at a Go-filtered Multi-SWE-bench JSONL. LIMIT caps the
-# instance count. These call a real model and (for judging) Docker + Python —
-# never run them in CI.
-LIMIT  ?= 5
+# ── octo-eval — lightweight eval (manual; see dev-docs/octo-eval.md) ─────────
+# Each task under evals/tasks/ is a local fixture; no Docker, no clone. Calls a
+# real model, so never run in CI. Pass provider/model/etc through EVAL_FLAGS,
+# e.g. make eval EVAL_FLAGS='--provider openai --model deepseek-v4-flash --allow-net'.
+EVAL_FLAGS ?=
 
-eval-mswe-build:
-	go build $(GOFLAGS) -o mswe-eval ./cmd/mswe-eval
+eval-build:
+	go build $(GOFLAGS) -o octo-eval ./cmd/octo-eval
 
-eval-mswe-inspect: eval-mswe-build build
-	./mswe-eval inspect --dataset '$(DATASET)' --limit $(LIMIT)
+eval-list: eval-build
+	./octo-eval list
 
-eval-mswe: eval-mswe-build build
-	./mswe-eval run --dataset '$(DATASET)' --limit $(LIMIT) --octo ./octo --out predictions.jsonl
+eval: eval-build build
+	./octo-eval run --octo ./octo $(EVAL_FLAGS)
