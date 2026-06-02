@@ -34,6 +34,7 @@ import (
 //   - Ctrl+D             → save & quit
 func runTUI(cfg replConfig) int {
 	defer tools.KillAllBackground()
+	defer tools.CleanSpillFiles()
 
 	m := newTUIModel(cfg)
 	p := tea.NewProgram(m, tea.WithFilter(shiftEnterFilter))

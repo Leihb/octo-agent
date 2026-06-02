@@ -149,6 +149,7 @@ func (t TerminalTool) ExecuteStream(
 			body := strings.TrimRight(out.String(), "\n")
 			outMu.Unlock()
 			body = strings.ReplaceAll(body, "\t", "    ")
+			body = MaybeSpillOutput(id, body)
 			return agent.ToolResult{Text: fmt.Sprintf("%s\n\n[timeout: command exceeded %s and continues as background process %s]\n\nDO NOT poll terminal_output. The system will automatically notify you when this process finishes, carrying its full output. You can continue with other tasks while it runs.", body, TerminalTimeout, id)}, nil
 		case <-ctx.Done():
 			// User cancelled (Esc / Ctrl-C): kill the background process.
@@ -167,6 +168,7 @@ func (t TerminalTool) ExecuteStream(
 			body := strings.TrimRight(out.String(), "\n")
 			outMu.Unlock()
 			body = strings.ReplaceAll(body, "\t", "    ")
+			body = MaybeSpillOutput(id, body)
 			if status != "exited: 0" {
 				return agent.ToolResult{Text: body + "\n[exit: " + strings.TrimPrefix(status, "exited: ") + "]"}, nil
 			}
@@ -228,7 +230,7 @@ func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[strin
 		}
 		return agent.ToolResult{Text: header + "\n(no new output)"}, nil
 	}
-	return agent.ToolResult{Text: header + "\n" + out}, nil
+	return agent.ToolResult{Text: header + "\n" + MaybeSpillOutput(id, out)}, nil
 }
 
 // KillShellTool terminates a background process started by TerminalTool with
@@ -282,5 +284,5 @@ func (t KillShellTool) Execute(_ context.Context, _ string, input map[string]any
 	if out == "" {
 		return agent.ToolResult{Text: header + "\n(no new output)"}, nil
 	}
-	return agent.ToolResult{Text: header + "\n" + out}, nil
+	return agent.ToolResult{Text: header + "\n" + MaybeSpillOutput(id, out)}, nil
 }

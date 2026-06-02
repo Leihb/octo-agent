@@ -19,7 +19,10 @@ func formatBgNote(e tools.BgExit) string {
 	fmt.Fprintf(&b, "Background process %s (`%s`) %s.", e.ID, e.Command, e.Status)
 	if out := strings.TrimRight(e.NewOutput, "\n"); out != "" {
 		b.WriteString("\nOutput since last check:\n")
-		b.WriteString(out)
+		// A long-running build/test that finished in the background can emit
+		// far more than fits a single notice — spill it to a temp file and
+		// show a head+tail preview, same as the synchronous terminal path.
+		b.WriteString(tools.MaybeSpillOutput(e.ID, out))
 	} else {
 		b.WriteString("\n(no new output)")
 	}

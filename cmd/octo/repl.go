@@ -76,6 +76,7 @@ func runOnce(cfg replConfig, prompt string, stream bool) int {
 
 	// Reap background processes the turn spawned so none outlive the run.
 	defer tools.KillAllBackground()
+	defer tools.CleanSpillFiles()
 
 	// Sub-agent completions and background-process notices ride the inbox, so a
 	// later iteration of this single agentic turn picks them up (the agent

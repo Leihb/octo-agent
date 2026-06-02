@@ -93,6 +93,7 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	handler := replToolEventHandler(stdout, *plain)
 	_, err = a.RunStream(context.Background(), initInstruction, tools.DefaultTools(), tools.NewDefaultRegistry(), handler)
 	tools.KillAllBackground()
+	tools.CleanSpillFiles()
 	fmt.Fprintln(stdout)
 	if err != nil {
 		fmt.Fprintf(stderr, "octo init: %v\n", err)
