@@ -35,7 +35,11 @@ func NetworkAllowed() bool {
 // OS sandbox is macOS/Linux-only, so the Windows branch is never sandboxed).
 func shellCommand(ctx context.Context, command string) (*exec.Cmd, error) {
 	if activeSandbox != nil {
-		return sandbox.Command(ctx, command, *activeSandbox)
+		cmd, err := sandbox.Command(ctx, command, *activeSandbox)
+		if err == nil && cmd != nil {
+			applyWorkingDir(ctx, cmd)
+		}
+		return cmd, err
 	}
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -48,7 +52,17 @@ func shellCommand(ctx context.Context, command string) (*exec.Cmd, error) {
 	if attr := setProcessGroupOpts(); attr != nil {
 		cmd.SysProcAttr = attr
 	}
+	applyWorkingDir(ctx, cmd)
 	return cmd, nil
+}
+
+// applyWorkingDir roots the command in the conductor-stamped working directory
+// (a unit's worktree) when one is present in ctx. No-op otherwise, so every
+// other caller keeps running in the process CWD.
+func applyWorkingDir(ctx context.Context, cmd *exec.Cmd) {
+	if dir := WorkingDir(ctx); dir != "" {
+		cmd.Dir = dir
+	}
 }
 
 // resolvePowerShell picks the Windows shell once: PowerShell 7+ (`pwsh`) when

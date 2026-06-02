@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/Leihb/octo-agent/internal/taskgraph"
 )
 
 // ── dispatchSlash routing ──
@@ -57,33 +55,32 @@ func TestTUI_SkillTriggerStartsTurn(t *testing.T) {
 	}
 }
 
-// ── /goal routing + state machine ──
+// ── /conduct routing + state machine ──
 
-func TestTUI_GoalHelpDoesNotStartTurn(t *testing.T) {
+func TestTUI_ConductHelpDoesNotStartTurn(t *testing.T) {
 	for _, arg := range []string{"", "help"} {
 		m := newTestModel()
-		_, cmd := m.dispatchGoal(arg)
+		_, cmd := m.dispatchConduct(arg)
 		if m.turnRunning {
-			t.Errorf("/goal %q should print usage, not start work", arg)
+			t.Errorf("/conduct %q should print usage, not start work", arg)
 		}
 		if cmd != nil {
-			t.Errorf("/goal %q should not return a Cmd (content goes to scrollback)", arg)
+			t.Errorf("/conduct %q should not return a Cmd (content goes to scrollback)", arg)
 		}
-		// printlnBuf is staging; content goes to terminal via tea.Println in inline mode
 	}
 }
 
-func TestTUI_GoalPlanStartsWork(t *testing.T) {
+func TestTUI_ConductPlanStartsWork(t *testing.T) {
 	m := newTestModel()
-	if _, _ = m.dispatchGoal("migrate the auth layer"); !m.turnRunning {
-		t.Error("/goal <text> should occupy the session while planning")
+	if _, _ = m.dispatchConduct("migrate the auth layer"); !m.turnRunning {
+		t.Error("/conduct <text> should occupy the session while planning")
 	}
 }
 
-func TestTUI_GoalPlannedErrorReleasesSession(t *testing.T) {
+func TestTUI_ConductPlannedErrorReleasesSession(t *testing.T) {
 	m := newTestModel()
 	m.turnRunning = true
-	_, _ = m.onGoalPlanned(goalPlannedMsg{err: errors.New("boom")})
+	_, _ = m.onConductPlanned(conductPlannedMsg{err: errors.New("boom")})
 	if m.turnRunning {
 		t.Error("a planning error must release the session")
 	}
@@ -92,16 +89,13 @@ func TestTUI_GoalPlannedErrorReleasesSession(t *testing.T) {
 	}
 }
 
-func TestTUI_GoalPlannedSuccessOpensConfirmModal(t *testing.T) {
+func TestTUI_ConductPlannedSuccessOpensConfirmModal(t *testing.T) {
 	m := newTestModel()
 	m.turnRunning = true
-	task := &taskgraph.Task{
-		ID:       "20260529-120000-abcd1234",
-		Goal:     "do the thing",
-		Status:   taskgraph.TaskPending,
-		Subtasks: []taskgraph.Subtask{{ID: 1, Description: "step one", Status: taskgraph.SubtaskPending}},
-	}
-	_, _ = m.onGoalPlanned(goalPlannedMsg{task: task})
+	_, _ = m.onConductPlanned(conductPlannedMsg{
+		id:     "20260529-120000-abcd1234",
+		report: "Ledger abcd1234 [pending]\nGoal: do the thing",
+	})
 	if m.modal == nil {
 		t.Fatal("a successful plan should open a confirm modal")
 	}
@@ -112,53 +106,55 @@ func TestTUI_GoalPlannedSuccessOpensConfirmModal(t *testing.T) {
 	m.answerModal(UserResponse{Cancelled: true})
 }
 
-func TestTUI_GoalDoneReleasesSession(t *testing.T) {
+func TestTUI_ConductDoneReleasesSession(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
 	m := newTestModel()
 	m.turnRunning = true
-	task := &taskgraph.Task{ID: "t-12345678", Goal: "g", Status: taskgraph.TaskDone}
-	_, _ = m.onGoalDone(goalDoneMsg{task: task})
+	_, _ = m.onConductDone(conductDoneMsg{id: "t-12345678"})
 	if m.turnRunning {
-		t.Error("goal completion must release the session")
+		t.Error("conduct completion must release the session")
 	}
 }
 
-func TestTUI_GoalDoneInterruptedReleasesSession(t *testing.T) {
+func TestTUI_ConductDoneInterruptedReleasesSession(t *testing.T) {
 	// A Ctrl-C'd run surfaces context.Canceled; it must still release the
-	// session (and not render as a hard error — see onGoalDone).
+	// session (and not render as a hard error — see onConductDone).
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
 	m := newTestModel()
 	m.turnRunning = true
-	_, _ = m.onGoalDone(goalDoneMsg{err: context.Canceled})
+	_, _ = m.onConductDone(conductDoneMsg{err: context.Canceled})
 	if m.turnRunning {
-		t.Error("interrupted goal must release the session")
+		t.Error("interrupted conduct must release the session")
 	}
 }
 
-func TestTUI_GoalCancelledReleasesSession(t *testing.T) {
-	// Declining the confirm modal routes goalCancelledMsg through Update,
+func TestTUI_ConductCancelledReleasesSession(t *testing.T) {
+	// Declining the confirm modal routes conductCancelledMsg through Update,
 	// which must release the session and append a resume hint to scrollback.
 	m := newTestModel()
 	m.turnRunning = true
-	task := &taskgraph.Task{ID: "20260529-120000-abcd1234", Goal: "g", Status: taskgraph.TaskPending}
-	m.Update(goalCancelledMsg{task: task})
+	m.Update(conductCancelledMsg{id: "20260529-120000-abcd1234"})
 	if m.turnRunning {
-		t.Error("cancelling a planned goal must release the session")
+		t.Error("cancelling a planned conduct must release the session")
 	}
-	// printlnBuf is staging; content goes to terminal via tea.Println in inline mode
 }
 
-func TestTUI_GoalResumeMissingID(t *testing.T) {
+func TestTUI_ConductResumeMissingID(t *testing.T) {
 	m := newTestModel()
-	_, cmd := m.dispatchGoal("resume")
+	_, cmd := m.dispatchConduct("resume")
 	if m.turnRunning {
-		t.Error("/goal resume with no id should print usage, not start work")
+		t.Error("/conduct resume with no id should print usage, not start work")
 	}
-	if cmd != nil {
-		// In inline mode, tea.Println is returned as Cmd — this is expected
-	}
-	// printlnBuf is staging; content goes to terminal via tea.Println in inline mode
+	_ = cmd
 }
 
-func TestTUI_GoalResumeUnknownID(t *testing.T) {
+func TestTUI_ConductResumeUnknownID(t *testing.T) {
 	// HOME → temp so the store reads an empty ~/.octo and ResolveID fails
 	// cleanly rather than touching the real one.
 	tmp := t.TempDir()
@@ -166,14 +162,11 @@ func TestTUI_GoalResumeUnknownID(t *testing.T) {
 	t.Setenv("USERPROFILE", tmp)
 
 	m := newTestModel()
-	_, cmd := m.dispatchGoal("resume deadbeef")
+	_, cmd := m.dispatchConduct("resume deadbeef")
 	if m.turnRunning {
 		t.Error("an unresolvable id must not start a run")
 	}
-	if cmd != nil {
-		// In inline mode, tea.Println is returned as Cmd — this is expected
-	}
-	// printlnBuf is staging; content goes to terminal via tea.Println in inline mode
+	_ = cmd
 }
 
 func TestTeaScrollbackWriter_SplitsLines(t *testing.T) {

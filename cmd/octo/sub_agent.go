@@ -70,7 +70,7 @@ func (s *agentSpawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools
 	lc := &liveChild{agent: child, tools: childTools, executor: s.executor}
 	id := s.reg.put(lc)
 
-	reply, in, out, err := s.runChild(ctx, lc, req.Prompt)
+	reply, in, out, stop, err := s.runChild(ctx, lc, req.Prompt)
 	if err != nil {
 		return tools.SpawnResult{}, err
 	}
@@ -79,6 +79,7 @@ func (s *agentSpawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools
 		Reply:        reply,
 		InputTokens:  in,
 		OutputTokens: out,
+		StopReason:   stop,
 	}, nil
 }
 
@@ -91,7 +92,7 @@ func (s *agentSpawner) Continue(ctx context.Context, agentID, message string) (t
 		return tools.SpawnResult{}, fmt.Errorf(
 			"agent %s is no longer alive (idle-expired or evicted); launch a fresh sub-agent instead", agentID)
 	}
-	reply, in, out, err := s.runChild(ctx, lc, message)
+	reply, in, out, stop, err := s.runChild(ctx, lc, message)
 	if err != nil {
 		return tools.SpawnResult{}, err
 	}
@@ -100,6 +101,7 @@ func (s *agentSpawner) Continue(ctx context.Context, agentID, message string) (t
 		Reply:        reply,
 		InputTokens:  in,
 		OutputTokens: out,
+		StopReason:   stop,
 	}, nil
 }
 
@@ -109,7 +111,13 @@ func (s *agentSpawner) Continue(ctx context.Context, agentID, message string) (t
 // token delta for this round into the parent (SessionTokens is cumulative, so
 // re-accruing the total would double-count earlier rounds). The returned (in,
 // out) are this round's delta.
-func (s *agentSpawner) runChild(ctx context.Context, lc *liveChild, prompt string) (reply string, in, out int, err error) {
+//
+// A max-turns checkpoint is NOT an error: the partial reply and StopReason
+// ("max_turns") are returned so a caller (the conductor) can checkpoint and
+// Continue. Tokens spent on the partial round are still accrued. Callers that
+// drive a continuation (the conductor) inspect
+// StopReason themselves.
+func (s *agentSpawner) runChild(ctx context.Context, lc *liveChild, prompt string) (reply string, in, out int, stopReason string, err error) {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 
@@ -118,7 +126,7 @@ func (s *agentSpawner) runChild(ctx context.Context, lc *liveChild, prompt strin
 	// When the manager stamped an event sink into ctx (TUI live panel), stream
 	// the child's tool-level activity to it. Only tool_started/tool_error are
 	// forwarded — not per-token text — to keep event volume sane with several
-	// sub-agents running at once. No sink (taskgraph/headless) => nil handler =>
+	// sub-agents running at once. No sink (conductor/headless) => nil handler =>
 	// RunStream behaves exactly like Run.
 	var handler agent.EventHandler
 	if sink := tools.SubAgentEventSink(ctx); sink != nil {
@@ -133,18 +141,17 @@ func (s *agentSpawner) runChild(ctx context.Context, lc *liveChild, prompt strin
 	}
 	r, err := lc.agent.RunStream(childCtx, prompt, lc.tools, lc.executor, handler)
 	if err != nil {
-		return "", 0, 0, err
-	}
-	if r.StopReason == agent.StopReasonMaxTurns {
-		return "", 0, 0, fmt.Errorf("sub-agent reached max-turns limit (%d) — task incomplete", lc.agent.MaxTurns)
+		return "", 0, 0, "", err
 	}
 
+	// Accrue the round's token delta even on a max-turns checkpoint — the
+	// partial work cost real tokens.
 	totIn, totOut := lc.agent.SessionTokens()
 	in, out = totIn-lc.accruedIn, totOut-lc.accruedOut
 	lc.accruedIn, lc.accruedOut = totIn, totOut
 	s.parent.AccrueChildUsage(in, out)
 
-	return r.Content, in, out, nil
+	return r.Content, in, out, r.StopReason, nil
 }
 
 // filterChildTools drops launch_agent and send_message (a sub-agent can
@@ -275,7 +282,7 @@ func (r *childRegistry) evictLocked() {
 }
 
 // freshIDLocked returns an 8-hex-char id not currently in use. Same shape as
-// agent.Session / taskgraph short ids. Caller holds r.mu.
+// agent.Session / conductor short ids. Caller holds r.mu.
 func (r *childRegistry) freshIDLocked() string {
 	for {
 		var b [4]byte

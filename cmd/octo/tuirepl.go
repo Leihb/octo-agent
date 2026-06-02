@@ -590,22 +590,26 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openModal(msg)
 		return m, m.flushPrints()
 
-	case goalPlannedMsg:
-		return m.onGoalPlanned(msg)
+	case conductPlannedMsg:
+		return m.onConductPlanned(msg)
 
-	case goalRunMsg:
-		return m, m.startGoalRun(msg.task.ID)
+	case conductRunMsg:
+		return m, m.startConductRun(msg.id)
 
-	case goalCancelledMsg:
+	case conductCancelledMsg:
 		m.turnRunning = false
 		m.cancelTurn = nil
+		short := msg.id
+		if len(short) > 8 {
+			short = short[len(short)-8:]
+		}
 		m.println(noticeStyle.Render(fmt.Sprintf(
-			"Cancelled. Planned as %s — run later with /goal resume %s (or octo goal run %s).",
-			msg.task.ShortID(), msg.task.ShortID(), msg.task.ShortID())))
+			"Cancelled. Seeded as %s — conduct later with /conduct resume %s (or octo conduct resume %s).",
+			short, short, short)))
 		return m, m.flushPrints()
 
-	case goalDoneMsg:
-		return m.onGoalDone(msg)
+	case conductDoneMsg:
+		return m.onConductDone(msg)
 	}
 	return m, m.flushPrints()
 }
