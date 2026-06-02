@@ -53,13 +53,14 @@ func TestRunTurn_PrependsIdleBgNote(t *testing.T) {
 	}
 }
 
-// TestTUI_BgExitMsgNoScrollbackNotice confirms an async background-exit message
-// does NOT append a scrollback notice (the full output rides into the conversation
-// via Inbox instead).
-func TestTUI_BgExitMsgNoScrollbackNotice(t *testing.T) {
+// TestTUI_BgExitMsgScrollbackNotice confirms an async background-exit message
+// returns a tea.Println command with a concise Claude-Code-style notice.
+func TestTUI_BgExitMsgScrollbackNotice(t *testing.T) {
 	m := newTestModel()
-	m.Update(bgExitMsg{e: tools.BgExit{ID: "bg_1", Command: "go test ./...", Status: "exited: 0"}})
-	if len(m.printlnBuf) > 0 {
-		t.Errorf("bgExitMsg should not queue println lines, got %d", len(m.printlnBuf))
+	_, cmd := m.Update(bgExitMsg{e: tools.BgExit{ID: "bg_1", Command: "go test ./...", Status: "exited: 0"}})
+	if cmd == nil {
+		t.Fatal("bgExitMsg should return a non-nil cmd")
 	}
+	// bubbletea commands are opaque functions; we can't easily inspect the string
+	// they will print. Verify at least that a cmd is returned (smoke test).
 }

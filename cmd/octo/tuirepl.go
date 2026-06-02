@@ -404,8 +404,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.flushPrints()
 
 	case bgExitMsg:
-		// Async background-process completion: the full output rode into the
-		// conversation via Inbox; no scrollback notice needed.
+		// Print a concise, Claude-Code-style scrollback notice so the user
+		// sees the completion even when the model-facing <system-reminder>
+		// is folded into a later turn.
+		notice := bgDoneStyle.Render(fmt.Sprintf("● Background process %s (`%s`) %s", msg.e.ID, msg.e.Command, msg.e.Status))
 		// Idle auto-turn: if no turn is running and nothing is queued, drain the
 		// inbox (which holds the full <system-reminder> notice) and start a
 		// turn so the model sees the completion immediately — matching the plain
@@ -413,10 +415,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.turnRunning && len(m.queue) == 0 {
 			if msgs := m.a.Inbox.Drain(); len(msgs) > 0 {
 				s := strings.Join(msgs, "\n\n")
-				return m, m.startTurnEcho(s, "")
+				return m, tea.Sequence(tea.Println(notice), m.startTurnEcho(s, ""))
 			}
 		}
-		return m, m.flushPrints()
+		return m, tea.Sequence(tea.Println(notice), m.flushPrints())
 
 	case subAgentNoteMsg:
 		// Async sub-agent completion: the full result rode into the conversation

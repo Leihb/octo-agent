@@ -37,6 +37,7 @@ var (
 	pendingSteerStyle = lipgloss.NewStyle().Foreground(tui.ColMuted)
 	complSelStyle     = lipgloss.NewStyle().Foreground(tui.ColBrand).Bold(true)
 	complNameStyle    = lipgloss.NewStyle().Foreground(tui.ColAccent)
+	bgDoneStyle       = lipgloss.NewStyle().Foreground(tui.ColAccent)
 )
 
 func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
