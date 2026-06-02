@@ -23,6 +23,7 @@ type replConfig struct {
 	a           *agent.Agent
 	session     *agent.Session
 	noSave      bool
+	suggest     bool               // true → after each turn, offer an LLM follow-up suggestion (TUI ghost text)
 	plain       bool               // true → fall back to terse ↳ status lines for all tool events
 	verbosity   verbosity          // quiet | normal | verbose; controls spinner + chrome
 	permEngine  *permission.Engine // nil → no tool-permission gating

@@ -706,6 +706,66 @@ func isTransientStreamErr(err error) bool {
 	return errors.As(err, &t) && t.TransientStream()
 }
 
+// suggestMaxTokens caps the follow-up suggestion response — it's one short line.
+const suggestMaxTokens = 256
+
+const suggestInstruction = "Suggest ONE concise, specific next message I (the user) might send to continue this work. " +
+	"Do not call any tools — reply with the message text only, phrased as I would type it, a single line, " +
+	"no preamble, no quotes, no numbering."
+
+// Suggest produces a single follow-up message the user might want to send next,
+// based on the conversation so far. It is a throwaway provider call: the
+// instruction is appended to a snapshot of history (never to the live History),
+// so it doesn't pollute the conversation, and its token usage is not accrued
+// into the session. Returns "" (no error) when there's nothing to suggest.
+//
+// tools should be the SAME toolbelt the agentic loop uses. Anthropic's cache
+// prefix is ordered tools → system → messages, so sending the identical tools
+// makes this call reuse the main conversation's prompt cache (the whole history
+// is billed at the cheap cache-read rate) instead of re-billing it in full.
+// Without tools the prefix diverges at block 0 and nothing is cached. The model
+// is told not to call tools; if it returns a tool_use anyway, Content is empty
+// and we simply produce no suggestion that turn.
+func (a *Agent) Suggest(ctx context.Context, tools []ToolDefinition) (string, error) {
+	if a.Sender == nil || a.Model == "" {
+		return "", fmt.Errorf("agent: suggest: not configured")
+	}
+	snap := a.History.Snapshot()
+	if len(snap) == 0 {
+		return "", nil
+	}
+	msgs := make([]Message, 0, len(snap)+1)
+	msgs = append(msgs, snap...)
+	msgs = append(msgs, NewUserMessage(suggestInstruction))
+
+	var reply Reply
+	var err error
+	if ts, ok := a.Sender.(ToolSender); ok && len(tools) > 0 {
+		reply, err = ts.SendMessagesWithTools(ctx, a.Model, a.System, msgs, suggestMaxTokens, tools)
+	} else {
+		reply, err = a.Sender.SendMessages(ctx, a.Model, a.System, msgs, suggestMaxTokens)
+	}
+	if err != nil {
+		return "", err
+	}
+	return cleanSuggestion(reply.Content), nil
+}
+
+// cleanSuggestion picks the first non-empty line and strips list/quote
+// decoration the model sometimes adds despite the instruction.
+func cleanSuggestion(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "- ")
+		line = strings.TrimPrefix(line, "* ")
+		line = strings.TrimSpace(strings.Trim(line, "\"'`"))
+		if line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
 // isMaxTokensTooLargeErr best-effort detects a provider rejecting an escalated
 // max_tokens because it exceeds the model's ceiling (e.g. Claude 3 caps at
 // 4096). Both Anthropic and OpenAI-protocol backends name max_tokens in the

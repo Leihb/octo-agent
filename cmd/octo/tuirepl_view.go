@@ -67,6 +67,16 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Ghost-text follow-up: Tab or → accepts the pending suggestion when the
+	// input is empty, filling it in to edit or send. With text present these
+	// keys keep their normal behaviour (cursor / tab insert).
+	if m.suggestion != "" && strings.TrimSpace(m.ta.Value()) == "" {
+		if msg.Type == tea.KeyTab || msg.Type == tea.KeyRight {
+			m.acceptSuggestion()
+			return m, m.updateTextAreaHeight()
+		}
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlD:
 		m.quit = true

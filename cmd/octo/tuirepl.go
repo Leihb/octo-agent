@@ -111,6 +111,10 @@ func runTUI(cfg replConfig) int {
 	return 0
 }
 
+// inputPlaceholder is the idle hint shown in the empty input box. It's swapped
+// for a pending follow-up suggestion (ghost text) when one is available.
+const inputPlaceholder = "Ask anything…"
+
 // ── messages marshalled from the agent goroutine onto the event loop ──
 
 type turnStartedMsg struct{}
@@ -124,6 +128,7 @@ type noticeMsg struct{ text string }
 type bgExitMsg struct{ e tools.BgExit }                      // a background process finished (async)
 type subAgentNoteMsg struct{ ev tools.SubAgentNotification } // a sub-agent completed (async)
 type subAgentEventMsg struct{ ev tools.SubAgentEvent }       // a sub-agent's runtime activity (async)
+type suggestionMsg struct{ text string }                     // an after-turn follow-up suggestion (async)
 type tickMsg struct{}                                        // animation tick while a turn runs
 type askMsg struct {
 	prompt UserPrompt
@@ -284,6 +289,11 @@ type tuiModel struct {
 	// height is the terminal height in cells, updated by WindowSizeMsg.
 	height int
 
+	// suggestion is a pending after-turn follow-up suggestion shown as ghost
+	// text in the empty input box (the textarea placeholder). Accepted with
+	// Tab/→, cleared when a turn starts. Empty means none pending.
+	suggestion string
+
 	// subAgents holds the live state of currently-running sub-agents, keyed by
 	// manager handle (agent_N), rendered as a bottom panel. An entry appears on
 	// the "started" event and is removed when its completion note arrives.
@@ -321,7 +331,7 @@ type modalState struct {
 
 func newTUIModel(cfg replConfig) *tuiModel {
 	ta := textarea.New()
-	ta.Placeholder = "Ask anything…"
+	ta.Placeholder = inputPlaceholder
 	ta.Focus()
 	ta.ShowLineNumbers = false
 	// Only the first line shows "> "; subsequent lines are padded with spaces
@@ -371,6 +381,7 @@ func (m *tuiModel) startTurnEcho(line, echo string) tea.Cmd {
 	m.spinnerFrame = 0
 	m.running = nil
 	m.partial.Reset()
+	m.clearSuggestion() // a new turn supersedes any pending follow-up
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelTurn = cancel
 	a := m.a
@@ -451,6 +462,14 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.flushPrints()
 
+	case suggestionMsg:
+		// Show the follow-up only while idle with an empty input — a new turn or
+		// in-progress typing makes a stale suggestion unwelcome.
+		if !m.turnRunning && strings.TrimSpace(m.ta.Value()) == "" {
+			m.setSuggestion(msg.text)
+		}
+		return m, m.flushPrints()
+
 	case subAgentNoteMsg:
 		// A sub-agent finished this round — drop it from the live panel (it's
 		// idle now; a later send_message re-adds it via a fresh "started").
@@ -502,6 +521,11 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.queue = m.queue[1:]
 				return m, tea.Sequence(m.flushPrints(), m.startTurnEcho(next.text, ""))
 			}
+		}
+		// On a clean completion, ask for one follow-up suggestion (off the event
+		// loop). Skipped on error/interrupt and when disabled (--no-suggest).
+		if m.cfg.suggest && msg.err == nil {
+			return m, tea.Batch(m.flushPrints(), m.suggestCmd())
 		}
 		return m, m.flushPrints()
 
@@ -584,6 +608,55 @@ func (m *tuiModel) removeSubAgent(id string) {
 			break
 		}
 	}
+}
+
+// suggestCmd asks the model for one follow-up suggestion off the event loop.
+// A nil/empty result yields a nil msg, which bubbletea ignores.
+func (m *tuiModel) suggestCmd() tea.Cmd {
+	a := m.a
+	// Same toolbelt as the agentic loop, so the suggest request's
+	// tools→system→history prefix matches and hits the prompt cache.
+	tools := m.cfg.tools
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		s, err := a.Suggest(ctx, tools)
+		if err != nil || strings.TrimSpace(s) == "" {
+			return nil
+		}
+		return suggestionMsg{text: s}
+	}
+}
+
+// setSuggestion shows s as ghost text in the empty input box (the placeholder),
+// truncated to one line so it never wraps the input.
+func (m *tuiModel) setSuggestion(s string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return
+	}
+	m.suggestion = s
+	m.ta.Placeholder = truncate1Line(s)
+}
+
+// clearSuggestion drops the pending suggestion and restores the idle hint.
+func (m *tuiModel) clearSuggestion() {
+	if m.suggestion == "" {
+		return
+	}
+	m.suggestion = ""
+	m.ta.Placeholder = inputPlaceholder
+}
+
+// acceptSuggestion fills the input with the pending suggestion for the user to
+// edit or send, then clears it.
+func (m *tuiModel) acceptSuggestion() {
+	if m.suggestion == "" {
+		return
+	}
+	m.ta.SetValue(m.suggestion)
+	m.ta.CursorEnd()
+	m.clearSuggestion()
 }
 
 func (m *tuiModel) handleEvent(ev agent.AgentEvent) {

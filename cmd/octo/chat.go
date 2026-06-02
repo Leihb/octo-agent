@@ -104,6 +104,19 @@ func openMCPLogFile() *os.File {
 	return f
 }
 
+// suggestEnabled resolves whether to offer after-turn follow-up suggestions:
+// on by default, off when --no-suggest is set or OCTO_SUGGEST is falsey.
+func suggestEnabled(noSuggestFlag bool) bool {
+	if noSuggestFlag {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("OCTO_SUGGEST"))) {
+	case "0", "false", "off", "no":
+		return false
+	}
+	return true
+}
+
 // tuiDisabledByEnv reports whether OCTO_TUI is set to a falsey value, the env
 // equivalent of --no-tui (handy for dumb terminals / CI without editing the
 // command line).
@@ -173,6 +186,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	plain := fs.Bool("plain", false, "Render tool events as one-line ↳ status lines instead of rich diff cards")
 	promptFile := fs.String("prompt-file", "", "Read the prompt from this file (newlines preserved) and run it as one headless agentic turn, then exit. For scripting/eval.")
 	noTUI := fs.Bool("no-tui", false, "Force the headless one-shot path on a terminal instead of the interactive TUI (also OCTO_TUI=0). The prompt comes from a positional message, --prompt-file, or piped stdin.")
+	noSuggest := fs.Bool("no-suggest", false, "Disable the after-turn follow-up suggestion (ghost text accepted with Tab/→). Also OCTO_SUGGEST=0.")
 	quietFlag := fs.Bool("quiet", false, "Strip all status chrome (no spinner, no banner, no cache line). Also OCTO_VERBOSITY=quiet.")
 	verboseFlag := fs.Bool("verbose", false, "Print extra context (provider/model/endpoint, always-on cache line). Also OCTO_VERBOSITY=verbose.")
 	permMode := fs.String("permission-mode", "", "Tool permission handling: interactive (prompt on ask) | strict (deny on ask) | auto (allow on ask). Empty = use `octo config` value, else interactive.")
@@ -608,6 +622,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		a:          a,
 		session:    agent.NewSession(resolvedModel, *system),
 		noSave:     true,
+		suggest:    suggestEnabled(*noSuggest),
 		plain:      *plain,
 		verbosity:  resolveVerbosity(*quietFlag, *verboseFlag),
 		stdin:      stdin,

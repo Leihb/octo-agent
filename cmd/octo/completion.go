@@ -255,7 +255,7 @@ var taskSubcommands = []string{
 // list focused avoids drowning the completion popup with rarely-used flags.
 var chatFlags = []string{
 	"-c", "--continue", "--tools", "--no-tools", "--provider", "--model",
-	"--no-save", "--no-memory", "--sandbox", "--sandbox-allow-net",
+	"--no-save", "--no-memory", "--no-suggest", "--sandbox", "--sandbox-allow-net",
 	"--permission-mode", "--list-sessions", "--list-skills",
 	"--quiet", "--verbose", "--plain", "--stream", "--system",
 	"--help",

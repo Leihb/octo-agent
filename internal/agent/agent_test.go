@@ -247,15 +247,22 @@ type fakeToolSender struct {
 	// gotMaxToks records the maxTokens passed on each call, in order, so tests
 	// can assert escalation re-issued at the higher cap.
 	gotMaxToks []int
+	// gotTools / gotMsgs capture the last tool-aware call's inputs.
+	gotTools []ToolDefinition
+	gotMsgs  []Message
 }
 
-func (f *fakeToolSender) SendMessages(_ context.Context, _, _ string, _ []Message, maxTokens int) (Reply, error) {
+func (f *fakeToolSender) SendMessages(_ context.Context, _, _ string, msgs []Message, maxTokens int) (Reply, error) {
 	f.gotMaxToks = append(f.gotMaxToks, maxTokens)
+	f.gotMsgs = append([]Message(nil), msgs...)
+	f.gotTools = nil
 	return f.nextReply()
 }
 
-func (f *fakeToolSender) SendMessagesWithTools(_ context.Context, _, _ string, _ []Message, maxTokens int, _ []ToolDefinition) (Reply, error) {
+func (f *fakeToolSender) SendMessagesWithTools(_ context.Context, _, _ string, msgs []Message, maxTokens int, tools []ToolDefinition) (Reply, error) {
 	f.gotMaxToks = append(f.gotMaxToks, maxTokens)
+	f.gotMsgs = append([]Message(nil), msgs...)
+	f.gotTools = tools
 	return f.nextReply()
 }
 
@@ -1291,5 +1298,92 @@ func TestRunLoop_TransientStall_BoundedGivesUp(t *testing.T) {
 	}
 	if send.calls != maxStreamStalls+1 {
 		t.Errorf("calls = %d, want %d (budget %d + final)", send.calls, maxStreamStalls+1, maxStreamStalls)
+	}
+}
+
+// ─── Suggest (after-turn follow-up) ────────────────────────────────────────
+
+func TestAgent_Suggest(t *testing.T) {
+	send := &fakeSender{reply: Reply{Content: "  - run the tests now\nignored second line"}}
+	a := New(send, "m")
+	a.System = "sys"
+	a.History.Append(NewUserMessage("do X"))
+	a.History.Append(NewAssistantMessage("did X"))
+
+	s, err := a.Suggest(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if s != "run the tests now" {
+		t.Errorf("suggestion = %q, want %q (first line, decoration stripped)", s, "run the tests now")
+	}
+	// Must NOT pollute the conversation.
+	if a.History.Len() != 2 {
+		t.Errorf("history len = %d, want 2 (Suggest must not append)", a.History.Len())
+	}
+	// The instruction rides as the final message, with the small cap.
+	if n := len(send.gotMessages); n == 0 || send.gotMessages[n-1].Content != suggestInstruction {
+		t.Errorf("last sent message = %+v, want the suggest instruction", send.gotMessages)
+	}
+	if send.gotMaxToks != suggestMaxTokens {
+		t.Errorf("maxTokens = %d, want %d", send.gotMaxToks, suggestMaxTokens)
+	}
+}
+
+// When a ToolSender + tools are available, Suggest must route through the
+// tool-aware path with the SAME tools, so its tools→system→history prefix
+// matches the agentic loop and reuses the prompt cache.
+func TestAgent_Suggest_UsesToolsForCacheAlignment(t *testing.T) {
+	send := &fakeToolSender{replies: []Reply{{Content: "open the PR"}}}
+	a := New(send, "m")
+	a.History.Append(NewUserMessage("do X"))
+	a.History.Append(NewAssistantMessage("did X"))
+	toolset := []ToolDefinition{{Name: "terminal"}, {Name: "edit_file"}}
+
+	s, err := a.Suggest(context.Background(), toolset)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if s != "open the PR" {
+		t.Errorf("suggestion = %q", s)
+	}
+	if len(send.gotTools) != len(toolset) {
+		t.Errorf("Suggest sent %d tools, want %d (must match the loop's toolbelt for cache reuse)", len(send.gotTools), len(toolset))
+	}
+	// History snapshot + the instruction, in order.
+	if n := len(send.gotMsgs); n < 3 || send.gotMsgs[n-1].Content != suggestInstruction {
+		t.Errorf("last message = %+v, want the suggest instruction after the history", send.gotMsgs)
+	}
+}
+
+func TestAgent_Suggest_EmptyHistory(t *testing.T) {
+	a := New(&fakeSender{reply: Reply{Content: "x"}}, "m")
+	s, err := a.Suggest(context.Background(), nil)
+	if err != nil || s != "" {
+		t.Errorf("Suggest on empty history = (%q, %v), want (\"\", nil)", s, err)
+	}
+}
+
+func TestAgent_Suggest_NotConfigured(t *testing.T) {
+	a := New(nil, "")
+	if _, err := a.Suggest(context.Background(), nil); err == nil {
+		t.Error("Suggest with no sender/model should error")
+	}
+}
+
+func TestCleanSuggestion(t *testing.T) {
+	cases := map[string]string{
+		"run the tests":        "run the tests",
+		"  \n- commit the fix": "commit the fix",
+		"* add a test":         "add a test",
+		"\"open the PR\"":      "open the PR",
+		"`gofmt the file`":     "gofmt the file",
+		"":                     "",
+		"\n\n":                 "",
+	}
+	for in, want := range cases {
+		if got := cleanSuggestion(in); got != want {
+			t.Errorf("cleanSuggestion(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
