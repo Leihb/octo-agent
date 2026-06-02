@@ -151,10 +151,10 @@ func conductFlagCandidates(prev string) []string {
 	switch prev {
 	case "--provider":
 		return []string{"anthropic", "openai"}
-	case "--model", "--verify":
+	case "--model", "--verify-cmd":
 		return nil
 	}
-	return []string{"--provider", "--model", "--plan-only", "--verify",
+	return []string{"--provider", "--model", "--plan-only", "--verify", "--verify-cmd",
 		"--max-attempts", "--max-iterations", "--stall-rounds", "--concurrency",
 		"--no-worktree", "--replan"}
 }

@@ -82,19 +82,19 @@ func unitIDFromLabel(label string) int {
 type fnVerifier struct {
 	mu sync.Mutex
 	n  int
-	fn func(call int, workdir string) Verdict
+	fn func(call int, target VerifyTarget) Verdict
 }
 
-func (v *fnVerifier) Verify(_ context.Context, workdir string) (Verdict, error) {
+func (v *fnVerifier) Verify(_ context.Context, target VerifyTarget) (Verdict, error) {
 	v.mu.Lock()
 	c := v.n
 	v.n++
 	v.mu.Unlock()
-	return v.fn(c, workdir), nil
+	return v.fn(c, target), nil
 }
 
 func alwaysGreen() *fnVerifier {
-	return &fnVerifier{fn: func(int, string) Verdict { return Verdict{Green: true} }}
+	return &fnVerifier{fn: func(int, VerifyTarget) Verdict { return Verdict{Green: true} }}
 }
 
 // helpers
@@ -202,7 +202,7 @@ func TestConductVerifyRedThenGreenRetries(t *testing.T) {
 	worker := newFnWorker(func(unitID, call int, resume bool, spec WorkSpec) WorkResult {
 		return WorkResult{Reply: "attempt"}
 	})
-	verifier := &fnVerifier{fn: func(call int, _ string) Verdict {
+	verifier := &fnVerifier{fn: func(call int, _ VerifyTarget) Verdict {
 		if call == 0 {
 			return Verdict{Green: false, Summary: "build broke: undefined Foo"}
 		}
@@ -230,7 +230,7 @@ func TestConductBlocksAfterMaxAttempts(t *testing.T) {
 	worker := newFnWorker(func(unitID, call int, resume bool, spec WorkSpec) WorkResult {
 		return WorkResult{Reply: "tried"}
 	})
-	redForever := &fnVerifier{fn: func(int, string) Verdict { return Verdict{Green: false, Summary: "nope"} }}
+	redForever := &fnVerifier{fn: func(int, VerifyTarget) Verdict { return Verdict{Green: false, Summary: "nope"} }}
 	c := New(s, worker, redForever, nil, Config{MaxAttempts: 2})
 	err := c.Run(context.Background(), id)
 	if err == nil {
@@ -354,7 +354,7 @@ func TestConductReplanUnblocks(t *testing.T) {
 	// then the re-planner's recovery unit + the global gate go green.
 	calls := 0
 	var mu sync.Mutex
-	v := &fnVerifier{fn: func(_ int, _ string) Verdict {
+	v := &fnVerifier{fn: func(_ int, _ VerifyTarget) Verdict {
 		mu.Lock()
 		defer mu.Unlock()
 		calls++

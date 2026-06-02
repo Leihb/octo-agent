@@ -24,8 +24,11 @@ conductor 取代了早期的一次性 DAG 编排器(曾叫 `/goal`,已移除)。
 1. **计划是磁盘上的活文件,不是内存里的不可变 DAG**(治 #2)。Conductor 每轮读它、改它。
 2. **子任务之间通过磁盘上的共享文档传递状态**(治 #1)。约定/决策/产物落盘,每个 worker
    开工先读、收工追加——module B 的 worker 由此知道 module A 的 worker 把包叫什么、类型怎么命名。
-3. **「完成」由客观验证闸门判定,不信 agent 自述**(治 #3/#4)。max-turns 是检查点不是失败:
-   保存 partial、记日志、下一轮 `Continue` 续跑。失败在 worktree 内被隔离,绿灯才合并(治 #5)。
+3. **「完成」可由可配置的验证闸门判定,而非盲信 agent 自述**(治 #3/#4)。闸门三选一:
+   默认**不验证**(信任 worker 自报完成,适合无客观 oracle 的通用/非代码目标)、**LLM judge**
+   (`--verify`,让模型判产出是否达标)、**shell 闸门**(`--verify-cmd`,如 `go build && go test`,
+   代码任务最强)。max-turns 是检查点不是失败:保存 partial、记日志、下一轮 `Continue` 续跑。
+   失败在 worktree 内被隔离,绿灯才合并(治 #5)。
 
 ## 架构
 
@@ -36,7 +39,7 @@ Conductor(长程循环 · 单线程编排 · 唯一写 LEDGER 的人)
   │  ③ 派发 Worker ──────────────► agentSpawner.Spawn / Continue(复用现有)
   │       (隔离 worktree + 喂全上下文)        │
   │  ④ Verifier 闸门 ◄───────────────────────┘
-  │       (go build / vet / test —— 客观 oracle)
+  │       (默认无 / LLM judge / shell 如 go build·test —— 可配置)
   │  ⑤ Integrator:绿灯才把 worktree 合回 trunk,处理冲突
   │  ⑥ 更新 LEDGER + JOURNAL,压缩上下文,回到 ①
   ▼
@@ -107,19 +110,28 @@ loop:
 worker 内部仍可用全套工具(terminal/编辑/读),但 `launch_agent`/`send_message` 照旧被
 `filterChildTools` 砍掉——递归分解由 Conductor 通过重规划完成,而不是 worker 自己 fork。
 
-## Verifier:可插拔验证 oracle
+## Verifier:可插拔验证闸门
 
 ```go
 type Verifier interface {
-    // Run 在给定工作区跑客观闸门,返回是否通过 + 给 worker 看的失败摘要。
-    Run(ctx context.Context, workdir string) (Verdict, error)
+    // target 带上 Goal/UnitDesc/Result/Workdir/Global —— shell 闸门只看 Workdir,
+    // LLM judge 据 Goal/UnitDesc/Result 判断,返回是否通过 + 给 worker 看的失败摘要。
+    Verify(ctx context.Context, target VerifyTarget) (Verdict, error)
 }
-type Verdict struct { Green bool; Summary string; Details string }
+type Verdict struct { Green bool; Summary string }
 ```
 
-对 TS→Go:`go build ./...` → `go vet ./...` → `go test ./...`,任一非零即红。
-红灯的 `Summary`(编译错误/失败测试)直接喂回 worker 下一轮。验证是**第一公民**:
-单元在闸门绿之前永远不是 done,worktree 也不会合并。这根除了 `/goal` 的「agent 自述完成但其实没编过」。
+三种实现,运行时三选一:
+
+- **`NopVerifier`(默认)**:永远绿,worker 自报完成即 done。适合无客观 oracle 的通用/非代码目标。
+- **LLM judge(`--verify`)**:side-call 让模型判 worker 产出是否满足 unit 目标,默认偏严(证据不足判 fail)。
+  通用——文档、设计、研究、代码都能判;但对代码,shell 闸门严格更强。
+- **`CmdVerifier`(`--verify-cmd "<cmd>"`)**:跑 shell 命令,全 0 退出才绿。如 `go build && go test`、
+  `make ci`、`pytest`。对「能不能编译/测试过」这种可判定问题,这是最强闸门。
+
+红灯的 `Summary`(编译错误 / judge 的理由)直接喂回 worker 下一轮。无论哪种闸门,单元在绿之前永远不是
+done、worktree 也不会合并——这把 `/goal` 的「agent 自述完成但其实没做到」从盲信变成可选的、可升级的校验。
+全局收尾闸门(`Global=true`)只对 shell 闸门有意义(在 trunk 根重跑);Nop / judge 直接放行。
 
 ## 并行策略
 

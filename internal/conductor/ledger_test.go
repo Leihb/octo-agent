@@ -166,19 +166,19 @@ func TestCmdVerifier(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty gate → green (self-verify mode).
-	if v, err := (&CmdVerifier{}).Verify(ctx, ""); err != nil || !v.Green {
+	if v, err := (&CmdVerifier{}).Verify(ctx, VerifyTarget{}); err != nil || !v.Green {
 		t.Fatalf("empty gate: verdict=%+v err=%v, want green", v, err)
 	}
 
 	// All pass.
 	green := &CmdVerifier{Commands: []string{"true", "true"}}
-	if v, err := green.Verify(ctx, ""); err != nil || !v.Green {
+	if v, err := green.Verify(ctx, VerifyTarget{}); err != nil || !v.Green {
 		t.Fatalf("true gate: verdict=%+v err=%v, want green", v, err)
 	}
 
 	// First failure short-circuits and names the command.
 	red := &CmdVerifier{Commands: []string{"echo boom && false", "true"}}
-	v, err := red.Verify(ctx, "")
+	v, err := red.Verify(ctx, VerifyTarget{})
 	if err != nil {
 		t.Fatalf("red gate err = %v", err)
 	}

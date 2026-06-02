@@ -168,7 +168,9 @@ func (m *tuiModel) startConductRun(id string) tea.Cmd {
 			return
 		}
 		w := &teaScrollbackWriter{prog: prog}
-		c := conductor.New(store, &spawnerWorker{}, conductor.NewGoVerifier(), w, conductor.Config{})
+		// Interactive runs use no gate by default — the user is watching and can
+		// steer. A judged/objective gate is opt-in via the `octo conduct` CLI.
+		c := conductor.New(store, &spawnerWorker{}, conductor.NopVerifier{}, w, conductor.Config{})
 		runErr := c.Run(ctx, id)
 		prog.Send(conductDoneMsg{id: id, err: runErr})
 	}()

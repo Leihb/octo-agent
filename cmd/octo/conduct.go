@@ -50,7 +50,9 @@ func printConductUsage(w io.Writer) {
 	fmt.Fprintln(w, "Flags (start):")
 	fmt.Fprintln(w, "  --provider, --model        Provider + model for the planner and workers")
 	fmt.Fprintln(w, "  --plan-only                Seed the ledger and exit (run later with resume)")
-	fmt.Fprintln(w, "  --verify \"<cmd>\"           Verification gate command (default: go build/vet/test)")
+	fmt.Fprintln(w, "  (default)                  No gate — a unit is done when its worker says so")
+	fmt.Fprintln(w, "  --verify                   Gate each unit with an LLM judge")
+	fmt.Fprintln(w, "  --verify-cmd \"<cmd>\"       Gate each unit with a shell command (e.g. go build/test)")
 	fmt.Fprintln(w, "  --max-attempts N           Verify-fail retries per unit before it blocks (default 3)")
 	fmt.Fprintln(w, "  --max-iterations N         Loop-turn budget backstop (default scales with units)")
 	fmt.Fprintln(w, "  --stall-rounds N           Stop after N rounds with no unit completed (0 = off)")
@@ -64,7 +66,8 @@ type conductFlags struct {
 	provider      string
 	model         string
 	planOnly      bool
-	verify        string
+	verify        bool   // LLM judge gate
+	verifyCmd     string // objective shell gate, e.g. "go build ./... && go test ./..."
 	maxAttempts   int
 	maxIterations int
 	stallRounds   int
@@ -79,7 +82,8 @@ func conductFlagSet(name string, f *conductFlags, stderr io.Writer) *flag.FlagSe
 	fs.StringVar(&f.provider, "provider", "", "Provider: anthropic | openai")
 	fs.StringVar(&f.model, "model", "", "Model name")
 	fs.BoolVar(&f.planOnly, "plan-only", false, "Seed the ledger and exit")
-	fs.StringVar(&f.verify, "verify", "", "Verification gate command (default: go build/vet/test)")
+	fs.BoolVar(&f.verify, "verify", false, "Gate each unit with an LLM judge (default: no gate — trust the worker)")
+	fs.StringVar(&f.verifyCmd, "verify-cmd", "", "Gate each unit with a shell command, e.g. \"go build ./... && go test ./...\" (overrides --verify)")
 	fs.IntVar(&f.maxAttempts, "max-attempts", 0, "Verify-fail retries per unit before blocking")
 	fs.IntVar(&f.maxIterations, "max-iterations", 0, "Loop-turn budget backstop")
 	fs.IntVar(&f.stallRounds, "stall-rounds", 0, "Stop after N rounds with no progress (0=off)")
@@ -98,11 +102,18 @@ func (f conductFlags) config() conductor.Config {
 	}
 }
 
-func (f conductFlags) verifier() conductor.Verifier {
-	if strings.TrimSpace(f.verify) != "" {
-		return &conductor.CmdVerifier{Commands: []string{f.verify}}
+// verifier picks the completion gate. Default is no gate (trust the worker's
+// own "done"); --verify-cmd installs an objective shell gate; --verify installs
+// an LLM judge. --verify-cmd wins if both are given.
+func (f conductFlags) verifier(a *agent.Agent) conductor.Verifier {
+	switch {
+	case strings.TrimSpace(f.verifyCmd) != "":
+		return &conductor.CmdVerifier{Commands: []string{f.verifyCmd}}
+	case f.verify:
+		return newJudgeVerifier(a)
+	default:
+		return conductor.NopVerifier{}
 	}
-	return conductor.NewGoVerifier()
 }
 
 // runConductStart plans the goal into a seed ledger, then conducts it.
@@ -218,7 +229,7 @@ func conductLedger(store *conductor.Store, id string, f conductFlags, stdout, st
 	defer cleanup()
 
 	worker := &spawnerWorker{}
-	c := conductor.New(store, worker, f.verifier(), stdout, f.config())
+	c := conductor.New(store, worker, f.verifier(a), stdout, f.config())
 
 	if !f.noWorktree && f.concurrency > 1 {
 		// Phase 2: isolate parallel workers in git worktrees so their edits +

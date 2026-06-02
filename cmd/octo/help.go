@@ -130,17 +130,22 @@ Run "octo chat --help" for the full flag list.`)
 }
 
 func conductHelp(w io.Writer) {
-	fmt.Fprintln(w, `octo conduct — unattended long-horizon orchestration. Unlike 'octo goal'
-(a one-shot DAG fanned out under stop-on-fail), conduct drives a living
-ledger to completion: every unit's worker gets the upstream results + a
-shared conventions doc, a turn-budget checkpoint resumes instead of failing,
-and a unit is only Done once an objective gate (go build/vet/test) is green.
+	fmt.Fprintln(w, `octo conduct — unattended long-horizon orchestration. Conduct drives a living
+ledger to completion: every unit's worker gets the upstream results + a shared
+conventions doc, and a turn-budget checkpoint resumes instead of failing.
+
+Verification (how a unit becomes Done) is yours to choose:
+  (default)        no gate — the worker's own "done" is trusted
+  --verify         an LLM judge decides whether the output meets the unit's goal
+  --verify-cmd …   a shell gate (e.g. "go build ./... && go test ./..."), the
+                   strongest option for code where compile/test is decidable
 
 Examples:
-  octo conduct "port the parser package to Go"     Plan + conduct to completion
+  octo conduct "tidy up the docs/ folder"          Plan + conduct, no gate
+  octo conduct "..." --verify                      Judge each unit with an LLM
+  octo conduct "..." --verify-cmd "make ci"        Objective shell gate
   octo conduct "..." --plan-only                   Seed the ledger; run later
   octo conduct "..." --concurrency 3               Parallel workers in worktrees
-  octo conduct "..." --verify "make ci"            Custom verification gate
   octo conduct "..." --replan                      Let it re-plan when stuck
   octo conduct list                                List conducted goals
   octo conduct status last                         Per-unit report

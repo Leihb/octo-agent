@@ -32,18 +32,17 @@ var DefaultGoCommands = []string{
 // NewGoVerifier returns a CmdVerifier running the standard Go gate.
 func NewGoVerifier() *CmdVerifier { return &CmdVerifier{Commands: DefaultGoCommands} }
 
-// Verify runs each command in workdir ("" = process cwd). It returns a green
-// verdict only if every command exits 0. A command that fails to start (e.g.
-// shell missing) returns a non-nil error; a command that runs but exits
-// non-zero is a red verdict, not an error.
-func (v *CmdVerifier) Verify(ctx context.Context, workdir string) (Verdict, error) {
+// Verify runs each command in target.Workdir ("" = process cwd). It returns a
+// green verdict only if every command exits 0. A command that fails to start
+// (e.g. shell missing) returns a non-nil error; a command that runs but exits
+// non-zero is a red verdict, not an error. Only target.Workdir is used — the
+// shell gate is objective and doesn't reason about the goal/result.
+func (v *CmdVerifier) Verify(ctx context.Context, target VerifyTarget) (Verdict, error) {
 	if len(v.Commands) == 0 {
-		// No gate configured: treat as green (the worker self-verifies). This
-		// keeps the conductor usable for non-Go / exploratory goals.
 		return Verdict{Green: true}, nil
 	}
 	for _, cmdStr := range v.Commands {
-		out, exitOK, runErr := runShell(ctx, workdir, cmdStr)
+		out, exitOK, runErr := runShell(ctx, target.Workdir, cmdStr)
 		if runErr != nil {
 			return Verdict{}, runErr
 		}

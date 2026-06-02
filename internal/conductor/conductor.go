@@ -36,18 +36,47 @@ type WorkResult struct {
 	Incomplete bool
 }
 
-// Verifier is the objective completion gate. A unit is never Done until
-// Verify returns Green. workdir is the directory to check ("" = process cwd;
-// Phase 2 passes the unit's worktree).
+// Verifier is the completion gate. A unit is never Done until Verify returns
+// Green. The conductor supports three modes, chosen by the caller:
+//
+//   - NopVerifier      — no gate; the worker's own "done" is trusted (default)
+//   - an LLM judge     — a model decides whether the unit's output meets its
+//     goal (general-purpose; works for docs/design/non-code)
+//   - CmdVerifier      — an objective shell gate (e.g. go build/test), strongest
+//     for code where "does it compile/pass" is decidable
+//
+// Verify is handed the full VerifyTarget so a judge can reason about the goal
+// and the worker's result, while a shell gate just uses Workdir.
 type Verifier interface {
-	Verify(ctx context.Context, workdir string) (Verdict, error)
+	Verify(ctx context.Context, target VerifyTarget) (Verdict, error)
+}
+
+// VerifyTarget is everything a verifier might need. A CmdVerifier reads only
+// Workdir; an LLM judge reads Goal/UnitDesc/Result. Global marks the final
+// whole-goal check after every unit is Done (per-unit fields are empty then).
+type VerifyTarget struct {
+	Goal     string // the overall ledger goal
+	UnitDesc string // this unit's description
+	Result   string // the worker's reported result/summary
+	Workdir  string // dir to check ("" = process cwd; Phase 2 = the worktree)
+	Global   bool   // the final whole-tree gate, not a single unit
 }
 
 // Verdict is a verification outcome. Summary is short failure text fed back
-// to the worker on a red verdict (e.g. the first compile errors).
+// to the worker on a red verdict (compile errors, or the judge's reasoning).
 type Verdict struct {
 	Green   bool
 	Summary string
+}
+
+// NopVerifier is the default gate: it accepts everything, so a unit is Done as
+// soon as its worker reports done. Use it for goals with no objective oracle
+// where the worker self-verifies, or when you simply don't want a gate.
+type NopVerifier struct{}
+
+// Verify always passes.
+func (NopVerifier) Verify(context.Context, VerifyTarget) (Verdict, error) {
+	return Verdict{Green: true}, nil
 }
 
 // Worktrees isolates a unit's work in its own git worktree (Phase 2). nil on
@@ -369,8 +398,13 @@ func (c *Conductor) dispatchUnit(ctx context.Context, id string, item dispatchIt
 		return oc // checkpoint — integrate handles it, no verify
 	}
 
-	// Worker says done — verify objectively in its working dir.
-	verdict, vErr := c.verifier.Verify(ctx, oc.workdir)
+	// Worker says done — run the gate (no-op / LLM judge / shell, per config).
+	verdict, vErr := c.verifier.Verify(ctx, VerifyTarget{
+		Goal:     l.Goal,
+		UnitDesc: u.Description,
+		Result:   oc.res.Reply,
+		Workdir:  oc.workdir,
+	})
 	if vErr != nil && ctx.Err() == nil {
 		verdict = Verdict{Green: false, Summary: "verifier error: " + vErr.Error()}
 	}
@@ -490,8 +524,11 @@ func (c *Conductor) finalize(ctx context.Context, id string) error {
 		return err
 	}
 	if l.AllDone() {
-		// Global verification over the whole tree before declaring success.
-		verdict, vErr := c.verifier.Verify(ctx, "")
+		// Final whole-tree gate before declaring success. A shell gate re-runs
+		// the build/tests at the repo root; NopVerifier and the LLM judge treat
+		// the global check as green (per-unit verification already vetted each
+		// piece — there's no objective whole-tree oracle for them to re-run).
+		verdict, vErr := c.verifier.Verify(ctx, VerifyTarget{Goal: l.Goal, Workdir: "", Global: true})
 		if vErr == nil && verdict.Green {
 			c.setStatus(id, LedgerDone)
 			c.logf("Goal %s complete — global verification green.\n", l.ShortID())
