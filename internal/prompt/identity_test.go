@@ -34,7 +34,7 @@ func useIdentityFiles(t *testing.T, soul, profile string) {
 
 func TestCompose_IdentityLayers(t *testing.T) {
 	useIdentityFiles(t, "SOUL_PERSONA", "USER_PROFILE_X")
-	out := Compose("", t.TempDir(), "ENV_Z", "SKILLS_M", "")
+	out := Compose("", t.TempDir(), "ENV_Z", "SKILLS_M", "", true)
 
 	baseIdx := strings.Index(out, "octo")
 	soulIdx := strings.Index(out, "SOUL_PERSONA")
@@ -58,7 +58,7 @@ func TestCompose_IdentityLayers(t *testing.T) {
 
 func TestCompose_IdentityAbsentSkipped(t *testing.T) {
 	useIdentityFiles(t, "", "") // neither file present
-	out := Compose("", t.TempDir(), "", "", "")
+	out := Compose("", t.TempDir(), "", "", "", false)
 	if strings.Contains(out, "soul.md") || strings.Contains(out, "user.md") {
 		t.Errorf("absent identity files should add no layer:\n%s", out)
 	}
@@ -73,7 +73,7 @@ func TestCompose_ProfileBeforeRules(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ProjectContextFile), []byte("PROJECT_RULE"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := Compose("", dir, "", "", "")
+	out := Compose("", dir, "", "", "", false)
 	profileIdx := strings.Index(out, "USER_PROFILE_X")
 	projIdx := strings.Index(out, "PROJECT_RULE")
 	if profileIdx == -1 || projIdx == -1 || profileIdx >= projIdx {

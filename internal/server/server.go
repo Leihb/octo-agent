@@ -187,7 +187,7 @@ func (s *Server) buildAgent(sess *agent.Session) *agent.Agent {
 	a := agent.New(sender, s.model)
 	a.CWD = s.cwd
 	a.MaxTokens = s.cfg.MaxTokens
-	a.System = prompt.Compose(s.system, s.cwd, s.envCtx, s.skillsManifest, "")
+	a.System = prompt.Compose(s.system, s.cwd, s.envCtx, s.skillsManifest, "", true)
 	if sess.Model != "" {
 		a.Model = sess.Model
 	}

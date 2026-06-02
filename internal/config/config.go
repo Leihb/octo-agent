@@ -25,6 +25,9 @@ type Config struct {
 	Model          string `json:"model,omitempty"`
 	BaseURL        string `json:"base_url,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
+	// Coauthor, when true, instructs the agent to append a Co-authored-by line
+	// to every git commit message it writes. Default is true (enabled).
+	Coauthor *bool `json:"coauthor,omitempty"`
 	// APIKey, when set, is a plaintext fallback used only if the provider's
 	// env var is empty. Opt-in via `octo config` and stored mode 0600. Prefer
 	// the env var.

@@ -66,6 +66,25 @@ func tuiDisabledByEnv() bool {
 	return false
 }
 
+// resolveCoauthor determines whether the agent should append a Co-authored-by
+// line to git commit messages. Precedence: --no-coauthor flag > OCTO_COAUTHOR
+// env > config file > default (true).
+func resolveCoauthor(noCoauthorFlag bool, cfg config.Config) bool {
+	if noCoauthorFlag {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("OCTO_COAUTHOR"))) {
+	case "0", "false", "off", "no":
+		return false
+	case "1", "true", "on", "yes":
+		return true
+	}
+	if cfg.Coauthor != nil {
+		return *cfg.Coauthor
+	}
+	return true
+}
+
 // defaultModels maps each provider to the model used when `--model` isn't
 // supplied. Both defaults are the cheapest reasoning-capable model in the
 // respective vendor's catalogue at the time of writing — the right pick for
@@ -107,6 +126,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	quietFlag := fs.Bool("quiet", false, "Strip all status chrome (no spinner, no banner, no cache line). Also OCTO_VERBOSITY=quiet.")
 	verboseFlag := fs.Bool("verbose", false, "Print extra context (provider/model/endpoint, always-on cache line). Also OCTO_VERBOSITY=verbose.")
 	permMode := fs.String("permission-mode", "", "Tool permission handling: interactive (prompt on ask) | strict (deny on ask) | auto (allow on ask). Empty = use `octo config` value, else interactive.")
+	noCoauthor := fs.Bool("no-coauthor", false, "Disable appending Co-authored-by to git commit messages. Also OCTO_COAUTHOR=0.")
 	maxTurns := fs.Int("max-turns", 0, "Max provider round-trips per message in the agentic loop (0 = auto: 100 interactive, unlimited unattended/--prompt-file)")
 	compactThreshold := fs.Int("compact-threshold", 0, "Compact older history once a turn's input crosses this many tokens; 0 = auto (~75% of the model's context window), <0 = disabled")
 	thinkingBudget := fs.Int("thinking-budget", 0, "Enable extended thinking with this token budget (Anthropic/Kimi); 0 = off")
@@ -259,6 +279,9 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "octo: provider=%s model=%s endpoint=%s\n",
 			provName, resolvedModel, effectiveEndpoint(provName, cfg))
 	}
+
+	// Resolve coauthor: flag > env > config > default (true).
+	coauthor := resolveCoauthor(*noCoauthor, cfg)
 
 	// Compose the system prompt once (base + project .octorules + user --system)
 	// and freeze it for the session — recomputing mid-session would bust the
@@ -438,7 +461,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if memDir != "" {
 		memInjection = memory.RenderInjection(memDir)
 	}
-	a.System = prompt.Compose(*system, cwd, env, skillsManifest, memInjection)
+	a.System = prompt.Compose(*system, cwd, env, skillsManifest, memInjection, coauthor)
 
 	// Permission engine — gates every tool call; shared by both paths. The
 	// memory directory (outside CWD) is whitelisted for writes so the agent can
@@ -469,7 +492,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			// Recompose from the session's raw user layer so base/project/env
 			// pick up any changes since the session was created.
-			a.System = prompt.Compose(sess.System, cwd, env, skillsManifest, memInjection)
+			a.System = prompt.Compose(sess.System, cwd, env, skillsManifest, memInjection, coauthor)
 		} else {
 			sess = agent.NewSession(resolvedModel, *system)
 		}

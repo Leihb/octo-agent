@@ -8,7 +8,7 @@ import (
 )
 
 func TestCompose_BaseAlwaysPresent(t *testing.T) {
-	out := Compose("", t.TempDir(), "", "", "") // empty user/env/skills, no .octorules
+	out := Compose("", t.TempDir(), "", "", "", false) // empty user/env/skills, no .octorules
 	if !strings.Contains(out, "octo") {
 		t.Errorf("composed prompt should contain the base identity:\n%s", out)
 	}
@@ -22,7 +22,7 @@ func TestCompose_LayersInOrder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ProjectContextFile), []byte("PROJECT_RULE_X"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := Compose("USER_RULE_Y", dir, "ENV_BLOCK_Z", "SKILLS_MANIFEST_W", "")
+	out := Compose("USER_RULE_Y", dir, "ENV_BLOCK_Z", "SKILLS_MANIFEST_W", "", true)
 
 	baseIdx := strings.Index(out, "octo")
 	envIdx := strings.Index(out, "ENV_BLOCK_Z")
@@ -47,7 +47,7 @@ func TestCompose_SkipsAbsentLayers(t *testing.T) {
 	// same on a developer machine and on a fresh CI runner.
 	useIdentityFiles(t, "", "")
 	// No env, no skills, no .octorules, no user prompt → just the base, no separators.
-	out := Compose("", t.TempDir(), "", "", "")
+	out := Compose("", t.TempDir(), "", "", "", false)
 	if strings.Contains(out, "---") {
 		t.Errorf("single-layer prompt should have no separator:\n%s", out)
 	}

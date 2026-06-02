@@ -202,8 +202,8 @@ func TestRunConfig_Wizard_SwitchesProviderAndPromptsForKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Answers: provider=openai, model=(default), base_url=(blank), store_key=y, key=new-openai-key.
-	in := strings.NewReader("openai\n\n\ny\nnew-openai-key\n")
+	// Answers: provider=openai, model=(default), base_url=(blank), coauthor=y, store_key=y, key=new-openai-key.
+	in := strings.NewReader("openai\n\n\ny\ny\nnew-openai-key\n")
 	var stdout, stderr bytes.Buffer
 	if code := runConfig(nil, in, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())

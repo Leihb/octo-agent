@@ -141,7 +141,7 @@ func runChannelStart(args []string, stdin io.Reader, stdout, stderr io.Writer) i
 		a.CWD = cwd
 		a.MaxTokens = *maxTokens
 		a.MaxTurns = *maxTurns
-		a.System = prompt.Compose(*system, cwd, env, skillsManifest, "")
+		a.System = prompt.Compose(*system, cwd, env, skillsManifest, "", true)
 		return a
 	}
 

@@ -33,7 +33,7 @@ func TestCompose_UserLayerBetweenEnvAndProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := Compose("SYSTEM_OVERRIDE", dir, "ENV_BLOCK", "", "")
+	out := Compose("SYSTEM_OVERRIDE", dir, "ENV_BLOCK", "", "", true)
 
 	envIdx := strings.Index(out, "ENV_BLOCK")
 	userIdx := strings.Index(out, "USER_GLOBAL_RULE")
@@ -58,7 +58,7 @@ func TestCompose_NoUserFile_NoUserLayer(t *testing.T) {
 	// path), so this isolates the test from real ~/.octo/{soul,user,octorules}.
 	useIdentityFiles(t, "", "")
 
-	out := Compose("", t.TempDir(), "", "", "")
+	out := Compose("", t.TempDir(), "", "", "", false)
 	if strings.Contains(out, "octorules.md") {
 		t.Errorf("absent user file should add no layer:\n%s", out)
 	}
