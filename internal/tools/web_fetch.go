@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/version"
 )
 
 // JinaReaderHost is the public Jina AI Reader endpoint. Sending a URL via
@@ -141,7 +142,7 @@ func fetchViaJina(ctx context.Context, rawURL string) (agent.ToolResult, error) 
 	}
 	req.Header.Set("Accept", "text/markdown,text/plain,*/*")
 	// Identify ourselves so Jina can reach us about issues.
-	req.Header.Set("User-Agent", "octo-agent/web_fetch")
+	req.Header.Set("User-Agent", version.UserAgent())
 
 	resp, err := webFetchHTTPClient().Do(req)
 	if err != nil {

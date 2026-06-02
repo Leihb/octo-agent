@@ -15,6 +15,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/provider"
 	"github.com/Leihb/octo-agent/internal/provider/retry"
+	"github.com/Leihb/octo-agent/internal/version"
 )
 
 // DefaultBaseURL is Anthropic's API base. The actual Messages endpoint is
@@ -146,6 +147,7 @@ func (c *Client) Send(ctx context.Context, req provider.Request) (provider.Respo
 			return provider.Response{}, retry.Decision{}, fmt.Errorf("anthropic: build request: %w", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("User-Agent", version.UserAgent())
 		httpReq.Header.Set("x-api-key", c.APIKey)
 		apiVer := c.APIVersion
 		if apiVer == "" {

@@ -14,6 +14,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/provider"
 	"github.com/Leihb/octo-agent/internal/provider/retry"
+	"github.com/Leihb/octo-agent/internal/version"
 )
 
 // toolCallState accumulates streaming fragments for one tool call.
@@ -80,6 +81,7 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 			return nil, retry.Decision{}, fmt.Errorf("openai: build stream request: %w", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("User-Agent", version.UserAgent())
 		httpReq.Header.Set("Accept", "text/event-stream")
 		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
 

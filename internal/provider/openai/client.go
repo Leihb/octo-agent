@@ -15,6 +15,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/provider"
 	"github.com/Leihb/octo-agent/internal/provider/retry"
+	"github.com/Leihb/octo-agent/internal/version"
 )
 
 // DefaultBaseURL is OpenAI's API host. The actual Chat Completions endpoint
@@ -140,6 +141,7 @@ func (c *Client) Send(ctx context.Context, req provider.Request) (provider.Respo
 			return nil, retry.Decision{}, fmt.Errorf("openai: build request: %w", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("User-Agent", version.UserAgent())
 		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
 
 		resp, err := httpClient.Do(httpReq)
