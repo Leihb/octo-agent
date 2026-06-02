@@ -60,15 +60,15 @@ var (
 			Foreground(ColBorder)
 )
 
-// octopusASCII is a rounded, compact octopus mascot (7 lines).
+// octopusASCII is a rounded octopus mascot (7 lines).
 var octopusASCII = []string{
-	"      ▄▄▄▄      ",
-	"    ▄▀   ▀▄    ",
-	"   ▐  ▀▄▄▀  ▌   ",
-	"   ▐  █  █  ▌   ",
-	"    ▀▄ ▀▀ ▄▀    ",
-	"      ▀▀▀▀      ",
-	"  ▀▄ ▀▄  ▄▀ ▄▀  ",
+	"     ▄▄▄▄▄      ",
+	"   ▄▀     ▀▄    ",
+	"  ▐  ▀▄ ▄▀  ▌   ",
+	"  ▐   █ █   ▌   ",
+	"   ▀▄  ▀  ▄▀    ",
+	"     ▀▀▀▀▀      ",
+	"  ▀▄ ▀▄ ▄▀ ▄▀   ",
 }
 
 // BannerHeight is the number of lines Banner renders (including the separator).
