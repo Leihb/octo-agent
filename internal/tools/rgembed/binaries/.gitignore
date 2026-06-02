@@ -1,0 +1,5 @@
+# Build-time populated — do not commit binaries.
+*
+!.gitignore
+!.gitkeep
+!README.md
