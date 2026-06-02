@@ -2,6 +2,7 @@ package retry
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -89,4 +90,19 @@ func TestIdleTimeoutReader_FiresOnStall(t *testing.T) {
 
 	// Release the abandoned goroutine so the test leaves nothing blocked.
 	close(blk.release)
+}
+
+// ErrStreamIdle must carry the TransientStream() marker (so the agent loop can
+// classify it without importing this package) and stay matchable by errors.Is
+// even when wrapped by a provider.
+func TestErrStreamIdle_TransientMarker(t *testing.T) {
+	wrapped := fmt.Errorf("anthropic: stream read: %w", ErrStreamIdle)
+
+	if !errors.Is(wrapped, ErrStreamIdle) {
+		t.Error("errors.Is should match ErrStreamIdle through wrapping")
+	}
+	var ts interface{ TransientStream() bool }
+	if !errors.As(wrapped, &ts) || !ts.TransientStream() {
+		t.Error("ErrStreamIdle should be classifiable as a transient stream error via errors.As")
+	}
 }

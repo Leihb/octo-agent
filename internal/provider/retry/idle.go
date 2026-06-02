@@ -1,7 +1,6 @@
 package retry
 
 import (
-	"errors"
 	"io"
 	"time"
 )
@@ -9,13 +8,29 @@ import (
 // ErrStreamIdle is returned by a reader from IdleTimeoutReader when no bytes
 // arrive for longer than the configured idle window — the server accepted the
 // streaming connection and then went silent without closing it. Providers
-// surface this to fail the turn cleanly instead of blocking forever in a read.
+// surface this to fail the read cleanly instead of blocking forever.
 //
-// Unlike request-establishment failures (see Do), a mid-stream stall is not
-// retried: the turn has already emitted tokens to the caller, so an auto-retry
-// would duplicate them. Failing cleanly lets the agent loop roll its history
-// back and the caller (or an unattended eval/cron run) decide whether to re-run.
-var ErrStreamIdle = errors.New("provider: streaming response idle timeout (server stopped sending without closing)")
+// It is NOT retried at the transport layer (unlike request-establishment
+// failures, see Do): a mid-stream stall has already emitted tokens to the
+// caller, so a transport-level auto-retry would duplicate them. Instead the
+// error carries TransientStream() == true, letting the agent loop recognise it
+// (without importing this package) and re-issue the round from unchanged
+// history — where the partial reply was never committed, so the retry is safe.
+var ErrStreamIdle error = streamIdleError{}
+
+// streamIdleError is a comparable empty-struct error so errors.Is(err,
+// ErrStreamIdle) still matches by value, while also exposing TransientStream
+// for higher layers to classify it structurally.
+type streamIdleError struct{}
+
+func (streamIdleError) Error() string {
+	return "provider: streaming response idle timeout (server stopped sending without closing)"
+}
+
+// TransientStream marks this as a recoverable mid-stream stall. The agent loop
+// matches it via a same-named interface, so it can retry the round without a
+// dependency on this package.
+func (streamIdleError) TransientStream() bool { return true }
 
 // IdleTimeoutReader wraps r so that any single read which makes no progress for
 // longer than timeout aborts the stream: onIdle is invoked — typically a

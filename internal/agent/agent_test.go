@@ -1239,3 +1239,57 @@ func equalInts(a, b []int) bool {
 	}
 	return true
 }
+
+// ─── Transient mid-stream stall recovery ───────────────────────────────────
+
+// fakeStallErr implements the transientStreamError marker so the loop treats it
+// as a recoverable mid-stream stall (mirrors retry.ErrStreamIdle without
+// importing provider).
+type fakeStallErr struct{}
+
+func (fakeStallErr) Error() string         { return "stream stalled (test)" }
+func (fakeStallErr) TransientStream() bool { return true }
+
+func TestRunLoop_TransientStall_RetriesThenSucceeds(t *testing.T) {
+	send := &fakeToolSender{
+		errs:    []error{fakeStallErr{}, nil},
+		replies: []Reply{{}, {Content: "done", StopReason: "end_turn"}},
+	}
+	a := New(send, "m")
+	defs, exec := truncSetup()
+
+	reply, err := a.Run(context.Background(), "do work", defs, exec)
+	if err != nil {
+		t.Fatalf("Run: unexpected error (stall should recover): %v", err)
+	}
+	if reply.Content != "done" || reply.StopReason != "end_turn" {
+		t.Errorf("reply = %+v, want done/end_turn", reply)
+	}
+	if send.calls != 2 {
+		t.Errorf("calls = %d, want 2 (one stall + one success)", send.calls)
+	}
+	// The failed round must not have left anything in history: [user, assistant].
+	if snap := a.History.Snapshot(); len(snap) != 2 {
+		t.Errorf("History len = %d, want 2 (%+v)", len(snap), snap)
+	}
+}
+
+func TestRunLoop_TransientStall_BoundedGivesUp(t *testing.T) {
+	// One more stall than the budget — the turn must end in error, not loop.
+	send := &fakeToolSender{
+		errs: []error{fakeStallErr{}, fakeStallErr{}, fakeStallErr{}, fakeStallErr{}},
+	}
+	a := New(send, "m")
+	defs, exec := truncSetup()
+
+	_, err := a.Run(context.Background(), "do work", defs, exec)
+	if err == nil {
+		t.Fatal("Run: expected error after exhausting stall retries")
+	}
+	if !isTransientStreamErr(err) {
+		t.Errorf("err = %v, want it to wrap a transient stream error", err)
+	}
+	if send.calls != maxStreamStalls+1 {
+		t.Errorf("calls = %d, want %d (budget %d + final)", send.calls, maxStreamStalls+1, maxStreamStalls)
+	}
+}

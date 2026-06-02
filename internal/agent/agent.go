@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -447,6 +448,7 @@ func (a *Agent) runLoop(
 	a.appendUserInput(userInput)
 
 	limit := a.turnLimit()
+	streamStalls := 0 // transient mid-stream stalls re-issued for the current round
 	for i := 0; limit == unlimitedTurns || i < limit; i++ {
 		// Interrupt (Ctrl-C) between iterations — e.g. right after a tool batch.
 		if ctx.Err() != nil {
@@ -486,14 +488,30 @@ func (a *Agent) runLoop(
 				continue
 			}
 
+			// ── Transient mid-stream stall recovery ──
+			// The streaming idle-timeout watchdog (or similar) fired: the server
+			// went silent mid-response. The partial reply was never appended, so
+			// re-issuing this round from the unchanged history is safe — only the
+			// already-streamed text is re-emitted. Bounded so a persistently dead
+			// stream still ends the turn.
+			if isTransientStreamErr(err) && streamStalls < maxStreamStalls {
+				streamStalls++
+				if handler != nil {
+					handler(AgentEvent{Kind: EventTextDelta, Text: fmt.Sprintf(
+						"\n[octo] stream stalled; retrying (%d/%d)…\n", streamStalls, maxStreamStalls)})
+				}
+				continue
+			}
+
 			if i == 0 {
 				a.History.popLast()
 			}
 			return Reply{}, fmt.Errorf("agent: loop[%d]: %w", i, err)
 		}
 
-		// Success — reset overflow attempt flag for next turn
+		// Success — reset the overflow and stream-stall budgets for the next round.
 		a.overflow.reset()
+		streamStalls = 0
 
 		a.accrueUsage(reply)
 
@@ -666,6 +684,26 @@ func (a *Agent) budgetStop(handler EventHandler, reason, msg string) (Reply, err
 // checks this one sentinel.
 func isTruncated(stopReason string) bool {
 	return stopReason == StopReasonMaxTokens
+}
+
+// maxStreamStalls bounds how many times a single round may be re-issued after a
+// transient mid-stream stall before the turn is failed. Reset after any healthy
+// round, so a long turn that stalls at different points each gets a fresh budget.
+const maxStreamStalls = 3
+
+// transientStreamError is implemented by provider errors that represent a
+// recoverable mid-stream stall (e.g. the streaming idle-timeout watchdog
+// firing). Declaring it as an interface here lets the loop classify such errors
+// without the agent package importing any provider package — Go interface
+// satisfaction is structural, so the provider error just needs the method.
+type transientStreamError interface{ TransientStream() bool }
+
+// isTransientStreamErr reports whether err (or anything it wraps) is a
+// recoverable mid-stream stall. The round can be safely re-issued because the
+// partial reply was never appended to history.
+func isTransientStreamErr(err error) bool {
+	var t transientStreamError
+	return errors.As(err, &t) && t.TransientStream()
 }
 
 // isMaxTokensTooLargeErr best-effort detects a provider rejecting an escalated

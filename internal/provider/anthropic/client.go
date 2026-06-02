@@ -40,10 +40,12 @@ const DefaultMaxTokens = 4096
 // DefaultStreamIdleTimeout bounds how long a streaming response may go silent
 // (no bytes received) before SendStream aborts it as a stall. The Messages API
 // emits periodic `ping` events to keep streams alive, so a healthy stream never
-// idles this long; 120s is generous enough to ride out a slow first token or a
-// briefly congested endpoint while still catching a server that stops sending
-// without closing the connection.
-const DefaultStreamIdleTimeout = 120 * time.Second
+// idles this long. 5 minutes is generous enough to ride out a slow first token
+// at a large context or a briefly congested third-party endpoint (some
+// Anthropic-compatible proxies don't relay pings) while still catching a server
+// that stops sending without closing. A stall that does trip it is recovered by
+// the agent loop (see isTransientStreamErr), not surfaced as a turn error.
+const DefaultStreamIdleTimeout = 5 * time.Minute
 
 // Client talks to an Anthropic-compatible Messages API. Construct via New();
 // zero values are not valid because APIKey is required.
