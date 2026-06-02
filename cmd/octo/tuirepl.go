@@ -560,8 +560,12 @@ func (m *tuiModel) handleEvent(ev agent.AgentEvent) {
 		// Inbox drained mid-turn: print the steer messages to the scrollback
 		// immediately so they appear in chronological order (before the next
 		// assistant reply), and remove them from the pending live display.
+		// Skip <system-reminder> blocks — they are model-facing context, not
+		// user-visible transcript.
 		for _, s := range ev.Messages {
-			m.println(userEchoStyle.Render("> ") + s)
+			if !strings.HasPrefix(s, "<system-reminder>") {
+				m.println(userEchoStyle.Render("> ") + s)
+			}
 		}
 		// pendingSteer is FIFO and mirrors the inbox, so the drained messages
 		// are always a prefix.
