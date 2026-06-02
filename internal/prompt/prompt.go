@@ -29,7 +29,7 @@ const coauthorRule = `## Git commits
 
 When you run ` + "`git commit`" + ` (via the terminal tool or any other path), append the following Co-authored-by trailer to the commit message:
 
-  Co-authored-by: octo-agent <octo-agent@leihb.github.io>
+  Co-authored-by: octo-agent <no-reply@octo-agent.dev>
 
 The trailer must be placed at the very end of the commit message, separated from the body by a blank line, following standard Git trailer format. Do not add this trailer if the user explicitly tells you not to.`
 
