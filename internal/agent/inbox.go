@@ -46,3 +46,21 @@ func (ib *Inbox) HasPending() bool {
 	defer ib.mu.Unlock()
 	return len(ib.msgs) > 0
 }
+
+// Remove deletes the last queued message equal to msg and reports whether one
+// was removed. It is used to retract a steer message that hasn't been drained
+// yet: matching by value (last occurrence) means a background notice enqueued
+// between submit and retract doesn't shift the target. Returns false when the
+// message is no longer queued (the loop already drained it) — the caller must
+// then treat it as committed, not retractable.
+func (ib *Inbox) Remove(msg string) bool {
+	ib.mu.Lock()
+	defer ib.mu.Unlock()
+	for i := len(ib.msgs) - 1; i >= 0; i-- {
+		if ib.msgs[i] == msg {
+			ib.msgs = append(ib.msgs[:i], ib.msgs[i+1:]...)
+			return true
+		}
+	}
+	return false
+}

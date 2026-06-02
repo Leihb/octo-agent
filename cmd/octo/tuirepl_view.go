@@ -166,6 +166,19 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.submit()
 
 	case tea.KeyUp:
+		// Retract the most recent pending steer (typed mid-turn, not yet drained)
+		// back into the empty input box for editing — and drop it from the queue
+		// so it won't also be sent. If it was already drained (Inbox.Remove
+		// fails) it's committed; fall through to ordinary history recall.
+		if strings.TrimSpace(m.ta.Value()) == "" && len(m.pendingSteer) > 0 {
+			last := m.pendingSteer[len(m.pendingSteer)-1]
+			if m.a.Inbox.Remove(last) {
+				m.pendingSteer = m.pendingSteer[:len(m.pendingSteer)-1]
+				m.ta.SetValue(last)
+				m.ta.CursorEnd()
+				return m, m.updateTextAreaHeight()
+			}
+		}
 		// If the cursor is not on the first display row, move up inside the
 		// textarea (line navigation). Otherwise browse input history.
 		if m.ta.Line() > 0 || m.ta.LineInfo().RowOffset > 0 {
