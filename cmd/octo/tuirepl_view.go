@@ -483,6 +483,16 @@ func (m *tuiModel) View() string {
 		b.WriteByte('\n')
 	}
 
+	// Live task list — attached under the activity area while a turn runs
+	// (Claude Code style). Hidden when idle, and self-suppressing when there's
+	// no outstanding work (see taskListView).
+	if m.turnRunning {
+		if tl := m.taskListView(); tl != "" {
+			b.WriteString(tl)
+			b.WriteByte('\n')
+		}
+	}
+
 	// Queue panel
 	if len(m.queue) > 0 {
 		var items strings.Builder
