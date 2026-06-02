@@ -1,0 +1,21 @@
+#!/bin/sh
+# 提交信息规范检查
+commit_msg_file=$1
+commit_msg=$(head -n1 "$commit_msg_file")
+
+# 检查是否为空或注释
+if [ -z "$commit_msg" ] || echo "$commit_msg" | grep -q '^#'; then
+    echo "Error: Commit message cannot be empty"
+    exit 1
+fi
+
+# 检查格式: type(scope): subject
+if ! echo "$commit_msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|revert|wip)(\(.+\))?: .+'; then
+    echo "Error: Commit message format is invalid"
+    echo "Expected format: <type>(<scope>): <subject>"
+    echo "Valid types: feat, fix, docs, style, refactor, perf, test, chore, revert, wip"
+    exit 1
+fi
+
+echo "Commit message format check passed"
+exit 0

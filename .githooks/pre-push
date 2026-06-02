@@ -1,0 +1,21 @@
+#!/bin/sh
+# 推送前检查
+remote="$1"
+url="$2"
+
+# 检查是否有未提交的更改
+if ! git diff-index --quiet HEAD --; then
+    echo "Warning: You have uncommitted changes"
+fi
+
+# 运行测试（如果有）
+if [ -f "Makefile" ] && grep -q "^test:" Makefile; then
+    echo "Running tests..."
+    if ! make test; then
+        echo "Error: Tests failed"
+        exit 1
+    fi
+fi
+
+echo "Pre-push checks passed"
+exit 0
