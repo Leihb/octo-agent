@@ -240,17 +240,31 @@ func TestAgent_TurnStream_Error_RestoresHistory(t *testing.T) {
 type fakeToolSender struct {
 	replies []Reply
 	calls   int
+	// errs, when non-nil and indexed by call, makes that call return the error
+	// instead of a reply (used to exercise escalation backoff). A nil entry
+	// falls through to replies.
+	errs []error
+	// gotMaxToks records the maxTokens passed on each call, in order, so tests
+	// can assert escalation re-issued at the higher cap.
+	gotMaxToks []int
 }
 
-func (f *fakeToolSender) SendMessages(_ context.Context, _, _ string, _ []Message, _ int) (Reply, error) {
+func (f *fakeToolSender) SendMessages(_ context.Context, _, _ string, _ []Message, maxTokens int) (Reply, error) {
+	f.gotMaxToks = append(f.gotMaxToks, maxTokens)
 	return f.nextReply()
 }
 
-func (f *fakeToolSender) SendMessagesWithTools(_ context.Context, _, _ string, _ []Message, _ int, _ []ToolDefinition) (Reply, error) {
+func (f *fakeToolSender) SendMessagesWithTools(_ context.Context, _, _ string, _ []Message, maxTokens int, _ []ToolDefinition) (Reply, error) {
+	f.gotMaxToks = append(f.gotMaxToks, maxTokens)
 	return f.nextReply()
 }
 
 func (f *fakeToolSender) nextReply() (Reply, error) {
+	if f.calls < len(f.errs) && f.errs[f.calls] != nil {
+		err := f.errs[f.calls]
+		f.calls++
+		return Reply{}, err
+	}
 	if f.calls >= len(f.replies) {
 		return Reply{}, fmt.Errorf("fakeToolSender: no more replies (call %d)", f.calls)
 	}
@@ -1080,4 +1094,148 @@ func TestContextUsage_IncludesCacheTokens(t *testing.T) {
 	if window <= 0 {
 		t.Errorf("ContextUsage window = %d, want > 0", window)
 	}
+}
+
+// ─── Output-truncation recovery (layer 1) ──────────────────────────────────
+
+// truncToolDefs/exec: a minimal tool set so Run takes the runLoop path. The
+// truncation replies carry no tool_use, so the executor never fires.
+func truncSetup() ([]ToolDefinition, *fakeExecutor) {
+	return []ToolDefinition{{Name: "bash", Description: "run shell"}}, &fakeExecutor{}
+}
+
+func TestRunLoop_Truncation_EscalatesAndContinues(t *testing.T) {
+	send := &fakeToolSender{replies: []Reply{
+		{StopReason: StopReasonMaxTokens, Content: "half-writt"}, // truncated
+		{StopReason: "end_turn", Content: "done"},                // escalated retry succeeds
+	}}
+	a := New(send, "m")
+	a.MaxTokens = 4096
+	a.MaxTokensEscalate = 16384
+	defs, exec := truncSetup()
+
+	reply, err := a.Run(context.Background(), "write a big file", defs, exec)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if reply.Content != "done" || reply.StopReason != "end_turn" {
+		t.Errorf("reply = %+v, want done/end_turn", reply)
+	}
+	// Re-issued the same round at the escalated cap.
+	if want := []int{4096, 16384}; !equalInts(send.gotMaxToks, want) {
+		t.Errorf("gotMaxToks = %v, want %v", send.gotMaxToks, want)
+	}
+	// The truncated reply must NOT be in history; only [user, assistant(done)].
+	snap := a.History.Snapshot()
+	if len(snap) != 2 || snap[1].Role != RoleAssistant {
+		t.Fatalf("History = %+v, want [user, assistant]", snap)
+	}
+	if got := textFromBlocks(snap[1].Blocks); got == "half-writt" {
+		t.Error("truncated reply leaked into history")
+	}
+}
+
+func TestRunLoop_Truncation_EscalationDisabled_GracefulStop(t *testing.T) {
+	send := &fakeToolSender{replies: []Reply{
+		{StopReason: StopReasonMaxTokens, Content: "partial"},
+	}}
+	a := New(send, "m")
+	a.MaxTokens = 4096
+	a.MaxTokensEscalate = 0 // disabled
+	defs, exec := truncSetup()
+
+	reply, err := a.Run(context.Background(), "write a big file", defs, exec)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if reply.StopReason != StopReasonMaxTokens {
+		t.Errorf("StopReason = %q, want %q", reply.StopReason, StopReasonMaxTokens)
+	}
+	if !strings.Contains(reply.Content, "truncated") {
+		t.Errorf("graceful-stop message = %q, want it to mention truncation", reply.Content)
+	}
+	if len(send.gotMaxToks) != 1 {
+		t.Errorf("calls = %d, want 1 (no escalation)", len(send.gotMaxToks))
+	}
+}
+
+func TestRunLoop_Truncation_EscalatedStillTruncated_GracefulStop(t *testing.T) {
+	send := &fakeToolSender{replies: []Reply{
+		{StopReason: StopReasonMaxTokens},
+		{StopReason: StopReasonMaxTokens}, // even 64k-ish cap not enough
+	}}
+	a := New(send, "m")
+	a.MaxTokens = 4096
+	a.MaxTokensEscalate = 16384
+	defs, exec := truncSetup()
+
+	reply, err := a.Run(context.Background(), "write a huge file", defs, exec)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if reply.StopReason != StopReasonMaxTokens {
+		t.Errorf("StopReason = %q, want graceful %q", reply.StopReason, StopReasonMaxTokens)
+	}
+	if want := []int{4096, 16384}; !equalInts(send.gotMaxToks, want) {
+		t.Errorf("gotMaxToks = %v, want %v", send.gotMaxToks, want)
+	}
+}
+
+func TestRunLoop_Truncation_ModelCeilingBackoff(t *testing.T) {
+	send := &fakeToolSender{
+		replies: []Reply{{StopReason: StopReasonMaxTokens}},
+		errs:    []error{nil, errors.New("400 max_tokens: 99999 is greater than the maximum allowed for this model")},
+	}
+	a := New(send, "m")
+	a.MaxTokens = 4096
+	a.MaxTokensEscalate = 99999 // above the model ceiling
+	defs, exec := truncSetup()
+
+	reply, err := a.Run(context.Background(), "write a file", defs, exec)
+	if err != nil {
+		t.Fatalf("Run: unexpected error (ceiling should back off, not fail): %v", err)
+	}
+	if reply.StopReason != StopReasonMaxTokens {
+		t.Errorf("StopReason = %q, want graceful %q after ceiling backoff", reply.StopReason, StopReasonMaxTokens)
+	}
+	if want := []int{4096, 99999}; !equalInts(send.gotMaxToks, want) {
+		t.Errorf("gotMaxToks = %v, want %v", send.gotMaxToks, want)
+	}
+}
+
+func TestIsMaxTokensTooLargeErr(t *testing.T) {
+	yes := []string{
+		"400 max_tokens: 99999 is greater than the maximum allowed",
+		"max_tokens too large for model",
+		"max tokens exceeds the model maximum",
+		"`max_tokens` must be less than or equal to 8192",
+	}
+	for _, s := range yes {
+		if !isMaxTokensTooLargeErr(errors.New(s)) {
+			t.Errorf("isMaxTokensTooLargeErr(%q) = false, want true", s)
+		}
+	}
+	no := []error{
+		nil,
+		errors.New("rate limit exceeded"),
+		errors.New("context deadline exceeded"),
+		errors.New("max_tokens parameter accepted"),
+	}
+	for _, e := range no {
+		if isMaxTokensTooLargeErr(e) {
+			t.Errorf("isMaxTokensTooLargeErr(%v) = true, want false", e)
+		}
+	}
+}
+
+func equalInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

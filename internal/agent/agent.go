@@ -122,6 +122,13 @@ type Agent struct {
 	// with a friendly budget reply (StopReason "max_turns"), not an error.
 	MaxTurns int
 
+	// MaxTokensEscalate is the per-response cap retried once, from unchanged
+	// history, when a round is truncated by the output cap (StopReasonMaxTokens).
+	// It only ever raises the cap: escalation fires only when this exceeds the
+	// round's current cap. <= 0 disables escalation. See
+	// dev-docs/truncation-recovery.md.
+	MaxTokensEscalate int
+
 	// CompactThreshold controls history compaction: when the most recent
 	// context sent (lastInputTokens) crosses the effective trigger, the next
 	// Run/RunStream summarizes the older turns before continuing. Semantics:
@@ -177,6 +184,12 @@ func (a *Agent) appendUserInput(userInput string) {
 const (
 	StopReasonMaxTurns    = "max_turns"
 	StopReasonInterrupted = "interrupted"
+	// StopReasonMaxTokens is the canonical output-truncation sentinel. Provider
+	// adapters normalise their wire value to it (Anthropic "max_tokens", OpenAI
+	// "length") so the loop checks one thing. The loop also reuses it as the
+	// synthetic StopReason when a turn is ended because the response stayed
+	// truncated even after escalation. See dev-docs/truncation-recovery.md.
+	StopReasonMaxTokens = "max_tokens"
 )
 
 // interruptNote caps an interrupted turn as an assistant message so history
@@ -318,8 +331,8 @@ func (a *Agent) Run(ctx context.Context, userInput string, tools []ToolDefinitio
 	// Buffered send + nil handler: runLoop runs the same dispatch/history
 	// machinery as the streaming path but emits no events.
 	return a.runLoop(ctx, userInput, tools, executor, nil,
-		func(ctx context.Context, msgs []Message) (Reply, error) {
-			return ts.SendMessagesWithTools(ctx, a.Model, a.System, msgs, a.MaxTokens, tools)
+		func(ctx context.Context, msgs []Message, maxTokens int) (Reply, error) {
+			return ts.SendMessagesWithTools(ctx, a.Model, a.System, msgs, maxTokens, tools)
 		})
 }
 
@@ -384,14 +397,14 @@ func (a *Agent) RunStream(
 	// Try ToolStreamingSender first, then fall back to ToolSender (buffered).
 	if tss, ok := a.Sender.(ToolStreamingSender); ok {
 		return a.runLoop(ctx, userInput, tools, executor, handler,
-			func(ctx context.Context, msgs []Message) (Reply, error) {
-				return tss.StreamMessagesWithTools(ctx, a.Model, a.System, msgs, a.MaxTokens, tools, onChunk, onToolDelta)
+			func(ctx context.Context, msgs []Message, maxTokens int) (Reply, error) {
+				return tss.StreamMessagesWithTools(ctx, a.Model, a.System, msgs, maxTokens, tools, onChunk, onToolDelta)
 			})
 	}
 	if ts, ok := a.Sender.(ToolSender); ok {
 		return a.runLoop(ctx, userInput, tools, executor, handler,
-			func(ctx context.Context, msgs []Message) (Reply, error) {
-				reply, err := ts.SendMessagesWithTools(ctx, a.Model, a.System, msgs, a.MaxTokens, tools)
+			func(ctx context.Context, msgs []Message, maxTokens int) (Reply, error) {
+				reply, err := ts.SendMessagesWithTools(ctx, a.Model, a.System, msgs, maxTokens, tools)
 				if err == nil && reply.Content != "" {
 					onChunk(reply.Content)
 				}
@@ -422,7 +435,7 @@ func (a *Agent) runLoop(
 	tools []ToolDefinition,
 	executor ToolExecutor,
 	handler EventHandler,
-	send func(ctx context.Context, msgs []Message) (Reply, error),
+	send func(ctx context.Context, msgs []Message, maxTokens int) (Reply, error),
 ) (Reply, error) {
 	// Compact older history before starting a new turn, if the last context
 	// crossed the threshold. Done here (a safe between-turns boundary, history
@@ -458,7 +471,7 @@ func (a *Agent) runLoop(
 		// error tool_results prevents Anthropic HTTP 400 errors.
 		a.ensureToolPairing()
 
-		reply, err := send(ctx, a.History.Snapshot())
+		reply, err := send(ctx, a.History.Snapshot(), a.MaxTokens)
 		if err != nil {
 			// Interrupt during the provider call: finalize cleanly rather than
 			// surfacing context.Canceled as a turn error.
@@ -483,6 +496,43 @@ func (a *Agent) runLoop(
 		a.overflow.reset()
 
 		a.accrueUsage(reply)
+
+		// ── Output-truncation recovery (layer 1) ──
+		// The response was cut off by the output-token cap. Retry this same
+		// round once at the escalated cap, from the UNCHANGED history (the
+		// truncated reply is never appended), so a half-written tool call is
+		// regenerated with more room — no provider-specific partial-tool_use
+		// handling needed. Fires only when escalation raises the cap.
+		// See dev-docs/truncation-recovery.md.
+		if isTruncated(reply.StopReason) && a.MaxTokensEscalate > a.MaxTokens {
+			escalated, eerr := send(ctx, a.History.Snapshot(), a.MaxTokensEscalate)
+			switch {
+			case eerr == nil:
+				reply = escalated
+				a.accrueUsage(reply)
+			case ctx.Err() != nil:
+				return a.finishInterrupted(handler)
+			case isMaxTokensTooLargeErr(eerr):
+				// The model's ceiling is below the escalation target (e.g.
+				// Claude 3 caps at 4096). Keep the truncated reply and fall
+				// through to the graceful stop below.
+			default:
+				if i == 0 {
+					a.History.popLast()
+				}
+				return Reply{}, fmt.Errorf("agent: loop[%d] escalate: %w", i, eerr)
+			}
+		}
+
+		// Still truncated (escalation disabled, model ceiling hit, or even the
+		// escalated cap fell short): end the turn cleanly rather than dispatching
+		// a half-formed tool call or returning an empty reply. History keeps the
+		// progress; the caller gets a non-error explanation.
+		if isTruncated(reply.StopReason) {
+			return a.budgetStop(handler, StopReasonMaxTokens,
+				"[octo] Stopped: the response was truncated at the output-token cap. "+
+					"Raise --max-tokens / --max-tokens-escalate, or ask me to continue in smaller steps.")
+		}
 
 		if reply.StopReason == "tool_use" {
 			a.History.Append(NewToolUseMessage(reply.Blocks))
@@ -609,6 +659,34 @@ func (a *Agent) budgetStop(handler EventHandler, reason, msg string) (Reply, err
 		handler(AgentEvent{Kind: EventTurnDone, Reply: &r})
 	}
 	return reply, nil
+}
+
+// isTruncated reports whether a reply was cut off by the output-token cap.
+// Adapters normalise their wire value to StopReasonMaxTokens, so the loop only
+// checks this one sentinel.
+func isTruncated(stopReason string) bool {
+	return stopReason == StopReasonMaxTokens
+}
+
+// isMaxTokensTooLargeErr best-effort detects a provider rejecting an escalated
+// max_tokens because it exceeds the model's ceiling (e.g. Claude 3 caps at
+// 4096). Both Anthropic and OpenAI-protocol backends name max_tokens in the
+// message; the surrounding wording varies, so this matches loosely. On a false
+// negative the escalation error simply surfaces as a normal turn error.
+func isMaxTokensTooLargeErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	if !strings.Contains(s, "max_tokens") && !strings.Contains(s, "max tokens") {
+		return false
+	}
+	for _, marker := range []string{"exceed", "greater than", "too large", "maximum", "at most", "less than or equal"} {
+		if strings.Contains(s, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // emitToolStartedEvents fires one EventToolStarted per tool_use block.

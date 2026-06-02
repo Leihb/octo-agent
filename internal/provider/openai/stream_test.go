@@ -87,6 +87,41 @@ func TestSendStream_OpenAI_AggregatesAndCallsBack(t *testing.T) {
 	}
 }
 
+// A finish_reason of "length" (output-cap truncation) must be normalised to the
+// canonical "max_tokens" sentinel so the agent loop's truncation recovery is
+// provider-agnostic.
+func TestSendStream_OpenAI_LengthNormalisedToMaxTokens(t *testing.T) {
+	stream := `data: {"id":"c1","object":"chat.completion.chunk","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"partial"},"finish_reason":null}]}` + "\n\n" +
+		`data: {"id":"c1","object":"chat.completion.chunk","model":"gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}` + "\n\n" +
+		"data: [DONE]\n\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, stream)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New("test-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.BaseURL = srv.URL
+
+	resp, err := c.SendStream(context.Background(), provider.Request{
+		Model:    "gpt-4o-mini",
+		Messages: []agent.Message{agent.NewUserMessage("write a big file")},
+	}, provider.StreamCallbacks{})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+	if resp.StopReason != "max_tokens" {
+		t.Errorf("StopReason = %q, want %q (length must normalise)", resp.StopReason, "max_tokens")
+	}
+}
+
 func TestSendStream_SendsIncludeUsage(t *testing.T) {
 	// DashScope / real OpenAI send no usage at all on a stream unless we ask via
 	// stream_options.include_usage. Assert the outgoing body carries it.
