@@ -30,7 +30,7 @@ func (GrepTool) Definition() agent.ToolDefinition {
 			"per-file counts, or the default mode='content' to see matching lines. " +
 			"Set context_lines (or before/after) to include surrounding lines. " +
 			"Respects .gitignore. Matching lines over 500 chars are truncated " +
-			"with an [Omitted long matching line] marker. Requires `rg` on PATH.",
+			"with a preview of the first 500 bytes. Requires `rg` on PATH.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -89,10 +89,12 @@ func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (ag
 	}
 
 	// --max-columns 500 truncates any single matching line longer than 500
-	// chars and emits a "[Omitted long matching line]" marker. Without this,
-	// a hit on a minified bundle / base64 blob can flood the LLM's context
-	// with one line. Matches the cap Claude Code's GrepTool uses.
-	args := []string{"--color=never", "--max-columns", "500"}
+	// chars. Without this, a hit on a minified bundle / base64 blob can flood
+	// the LLM's context with one line. --max-columns-preview shows the first
+	// 500 bytes instead of replacing the entire line with an unhelpful
+	// "[Omitted long matching line]" marker, which previously caused the LLM
+	// to think the result was incomplete and retry in a loop.
+	args := []string{"--color=never", "--max-columns", "500", "--max-columns-preview"}
 	switch mode {
 	case "content":
 		// default rg output

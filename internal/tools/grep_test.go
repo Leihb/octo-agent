@@ -137,8 +137,10 @@ func TestGrep_RequiresPattern(t *testing.T) {
 func TestGrep_TruncatesLongMatchingLines(t *testing.T) {
 	requireRg(t)
 	// Simulate a minified-bundle hit: one line of 1000 a's containing
-	// the pattern. With --max-columns 500, rg should suppress the body
-	// and emit the "[Omitted long matching line]" marker instead.
+	// the pattern. With --max-columns 500 --max-columns-preview, rg shows
+	// the first 500 bytes and appends "[... omitted end of long line]".
+	// This prevents the LLM from seeing only an unhelpful omission marker
+	// and retrying the same search in a loop.
 	dir := t.TempDir()
 	longLine := strings.Repeat("a", 1000) + "NEEDLE" + strings.Repeat("b", 1000)
 	writeTestFile(t, filepath.Join(dir, "minified.js"), longLine+"\n")
@@ -150,15 +152,20 @@ func TestGrep_TruncatesLongMatchingLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	// The literal long run of 'a' must NOT appear in output.
-	if strings.Contains(out.Text, strings.Repeat("a", 200)) {
+	// The full long run of 'a' must NOT appear in output — only the preview.
+	if strings.Contains(out.Text, strings.Repeat("a", 600)) {
 		sample := out.Text
 		if len(sample) > 200 {
 			sample = sample[:200]
 		}
 		t.Errorf("long line leaked through; head of output:\n%s", sample)
 	}
-	if !strings.Contains(out.Text, "Omitted long matching line") {
-		t.Errorf("expected omission marker; output:\n%s", out.Text)
+	// Should contain the preview truncation marker, not the old full omission.
+	if !strings.Contains(out.Text, "omitted end of long line") {
+		t.Errorf("expected preview truncation marker; output:\n%s", out.Text)
+	}
+	// The old unhelpful marker should no longer appear.
+	if strings.Contains(out.Text, "Omitted long matching line") {
+		t.Errorf("old full-omission marker should not appear; output:\n%s", out.Text)
 	}
 }
