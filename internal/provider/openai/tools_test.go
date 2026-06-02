@@ -276,6 +276,66 @@ func TestSend_ToolResultMessages_WireFormat(t *testing.T) {
 	}
 }
 
+// TestSend_UserImage_WireFormat verifies that a standalone image block on a
+// user message (e.g. an image pasted into the TUI input) is serialized into
+// the OpenAI content-parts array as an image_url data URL — not dropped to a
+// "[image]" placeholder.
+func TestSend_UserImage_WireFormat(t *testing.T) {
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"id":"x","object":"chat.completion","model":"x","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+
+	msgs := []agent.Message{{
+		Role: agent.RoleUser,
+		Blocks: []agent.ContentBlock{
+			agent.NewTextBlock("what is this?"),
+			agent.NewImageBlock("image/png", []byte{0x89, 'P', 'N', 'G'}),
+		},
+	}}
+
+	if _, err := c.Send(context.Background(), provider.Request{Model: "x", Messages: msgs}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	var wireReq struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type     string `json:"type"`
+				Text     string `json:"text"`
+				ImageURL *struct {
+					URL string `json:"url"`
+				} `json:"image_url"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(capturedBody, &wireReq); err != nil {
+		t.Fatalf("decode: %v\n%s", err, capturedBody)
+	}
+	if len(wireReq.Messages) != 1 {
+		t.Fatalf("messages len = %d, want 1: %s", len(wireReq.Messages), capturedBody)
+	}
+	parts := wireReq.Messages[0].Content
+	if len(parts) != 2 {
+		t.Fatalf("content parts = %d, want text+image: %s", len(parts), capturedBody)
+	}
+	if parts[0].Type != "text" || parts[0].Text != "what is this?" {
+		t.Errorf("part[0] = %+v, want text", parts[0])
+	}
+	if parts[1].Type != "image_url" || parts[1].ImageURL == nil {
+		t.Fatalf("part[1] = %+v, want image_url", parts[1])
+	}
+	if !strings.HasPrefix(parts[1].ImageURL.URL, "data:image/png;base64,") {
+		t.Errorf("image_url = %q, want data:image/png;base64,…", parts[1].ImageURL.URL)
+	}
+}
+
 // TestSend_ToolResultWithSteerText_WireFormat verifies that a user/tool_result
 // message carrying a trailing text block (a mid-turn steer the agent folded in
 // — see dev-docs/tui-input-modes-design.md §5) emits the tool output as a

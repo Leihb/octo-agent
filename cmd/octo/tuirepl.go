@@ -210,6 +210,14 @@ type pendingItem struct {
 
 // ── model ──
 
+// pendingAttachment is an image captured from the clipboard, waiting to be
+// folded into the next user message. block carries the bytes for the model;
+// label is the human-readable chip text (e.g. "image (PNG, 84 KB)").
+type pendingAttachment struct {
+	block agent.ContentBlock
+	label string
+}
+
 type tuiModel struct {
 	cfg  replConfig
 	a    *agent.Agent
@@ -260,6 +268,11 @@ type tuiModel struct {
 	// scrollback) so the user sees immediate feedback without breaking
 	// the chronological message order (Claude Code style).
 	pendingSteer []string
+
+	// pendingAttachments holds images pasted with Ctrl+V, waiting to ride the
+	// next user turn. Shown as chips above the input; cleared on submit (sent)
+	// or Esc (discarded).
+	pendingAttachments []pendingAttachment
 
 	// modal, when non-nil, is an active Ask prompt (design §6).
 	modal *modalState

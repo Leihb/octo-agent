@@ -309,6 +309,7 @@ func toAPIMessages(systemPrompt string, in []agent.Message) ([]apiMessage, error
 		// two tool_results would break the tool_call_id pairing.
 		if m.Role == agent.RoleUser && len(m.Blocks) > 0 {
 			var steerText strings.Builder
+			var userImageParts []apiContentPart
 			i := 0
 			for i < len(m.Blocks) {
 				b := m.Blocks[i]
@@ -352,17 +353,35 @@ func toAPIMessages(systemPrompt string, in []agent.Message) ([]apiMessage, error
 					steerText.WriteString(b.Text)
 					i++
 				case "image":
-					// Standalone image (not following a tool_result) — add to steer.
-					if steerText.Len() > 0 {
-						steerText.WriteString("\n\n")
+					// Standalone image (not nested into a preceding tool_result) —
+					// e.g. an image pasted into the TUI input. Carry it as an
+					// image_url part so vision models actually receive it instead
+					// of a "[image]" placeholder.
+					if b.Image != nil {
+						dataURL := fmt.Sprintf("data:%s;base64,%s", b.Image.MIMEType, base64.StdEncoding.EncodeToString(b.Image.Data))
+						userImageParts = append(userImageParts, apiContentPart{
+							Type: "image_url",
+							ImageURL: &struct {
+								URL string `json:"url"`
+							}{URL: dataURL},
+						})
 					}
-					steerText.WriteString("[image]")
 					i++
 				default:
 					i++
 				}
 			}
-			if steerText.Len() > 0 {
+			// Emit the user turn. With images, use the content-parts array
+			// (text first, then images); otherwise a plain text message.
+			switch {
+			case len(userImageParts) > 0:
+				parts := make([]apiContentPart, 0, 1+len(userImageParts))
+				if steerText.Len() > 0 {
+					parts = append(parts, apiContentPart{Type: "text", Text: steerText.String()})
+				}
+				parts = append(parts, userImageParts...)
+				out = append(out, apiMessage{Role: "user", ContentParts: parts})
+			case steerText.Len() > 0:
 				out = append(out, apiMessage{Role: "user", Content: steerText.String()})
 			}
 			continue

@@ -114,6 +114,63 @@ func TestSend_Success(t *testing.T) {
 	}
 }
 
+// TestSend_UserImage_WireFormat verifies a standalone image block on a user
+// message (e.g. a pasted clipboard image) serializes to Anthropic's base64
+// image source nested in the user message content array.
+func TestSend_UserImage_WireFormat(t *testing.T) {
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"id":"msg","type":"message","role":"assistant","model":"x","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+
+	_, err := c.Send(context.Background(), provider.Request{
+		Model: "x",
+		Messages: []agent.Message{{
+			Role: agent.RoleUser,
+			Blocks: []agent.ContentBlock{
+				agent.NewTextBlock("what is this?"),
+				agent.NewImageBlock("image/png", []byte{0x89, 'P', 'N', 'G'}),
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	var req struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type   string `json:"type"`
+				Text   string `json:"text"`
+				Source *struct {
+					Type      string `json:"type"`
+					MediaType string `json:"media_type"`
+					Data      string `json:"data"`
+				} `json:"source"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(capturedBody, &req); err != nil {
+		t.Fatalf("decode: %v\n%s", err, capturedBody)
+	}
+	if len(req.Messages) != 1 || len(req.Messages[0].Content) != 2 {
+		t.Fatalf("want 1 message with text+image content: %s", capturedBody)
+	}
+	img := req.Messages[0].Content[1]
+	if img.Type != "image" || img.Source == nil {
+		t.Fatalf("content[1] = %+v, want image with source", img)
+	}
+	if img.Source.Type != "base64" || img.Source.MediaType != "image/png" || img.Source.Data == "" {
+		t.Errorf("image source = %+v, want base64 image/png with data", img.Source)
+	}
+}
+
 func TestSend_SystemMessageStripped(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bodyBytes, _ := io.ReadAll(r.Body)

@@ -164,6 +164,20 @@ type Agent struct {
 	// rides the message stream instead. The hook must not mutate state the
 	// caller relies on elsewhere — it's invoked once per appended user turn.
 	UserInputHook func(userInput string) string
+
+	// pendingUserBlocks holds content blocks (e.g. images pasted in the TUI)
+	// to merge into the next user message. Set via AttachUserBlocks and
+	// consumed exactly once by the next appendUserInput, alongside the text.
+	pendingUserBlocks []ContentBlock
+}
+
+// AttachUserBlocks queues content blocks — typically image blocks — to be
+// folded into the next user message appended by a Turn/Run/RunStream call.
+// The blocks are consumed exactly once (by the next appendUserInput) and then
+// cleared. Call it immediately before the run so the text and the attachments
+// land on the same user turn. Passing nil clears any queued blocks.
+func (a *Agent) AttachUserBlocks(blocks []ContentBlock) {
+	a.pendingUserBlocks = blocks
 }
 
 // appendUserInput appends userInput to history, first prepending any
@@ -175,6 +189,19 @@ func (a *Agent) appendUserInput(userInput string) {
 		if reminder := a.UserInputHook(userInput); reminder != "" {
 			text = reminder + "\n\n" + userInput
 		}
+	}
+	// Attachments (e.g. a pasted image) ride on the same user turn as the
+	// text. Consume them exactly once: build a multi-part message with an
+	// optional leading text block followed by the attachment blocks.
+	if len(a.pendingUserBlocks) > 0 {
+		blocks := make([]ContentBlock, 0, 1+len(a.pendingUserBlocks))
+		if text != "" {
+			blocks = append(blocks, NewTextBlock(text))
+		}
+		blocks = append(blocks, a.pendingUserBlocks...)
+		a.pendingUserBlocks = nil
+		a.History.Append(Message{Role: RoleUser, Blocks: blocks})
+		return
 	}
 	a.History.Append(NewUserMessage(text))
 }
@@ -219,7 +246,7 @@ func (a *Agent) Turn(ctx context.Context, userInput string) (Reply, error) {
 	if a.Model == "" {
 		return Reply{}, fmt.Errorf("agent: Model is required")
 	}
-	if userInput == "" {
+	if userInput == "" && len(a.pendingUserBlocks) == 0 {
 		return Reply{}, fmt.Errorf("agent: userInput must be non-empty")
 	}
 
@@ -262,7 +289,7 @@ func (a *Agent) TurnStream(
 	if a.Model == "" {
 		return Reply{}, fmt.Errorf("agent: Model is required")
 	}
-	if userInput == "" {
+	if userInput == "" && len(a.pendingUserBlocks) == 0 {
 		return Reply{}, fmt.Errorf("agent: userInput must be non-empty")
 	}
 
@@ -316,7 +343,7 @@ func (a *Agent) Run(ctx context.Context, userInput string, tools []ToolDefinitio
 	if a.Model == "" {
 		return Reply{}, fmt.Errorf("agent: Model is required")
 	}
-	if userInput == "" {
+	if userInput == "" && len(a.pendingUserBlocks) == 0 {
 		return Reply{}, fmt.Errorf("agent: userInput must be non-empty")
 	}
 
@@ -357,7 +384,7 @@ func (a *Agent) RunStream(
 	if a.Model == "" {
 		return Reply{}, fmt.Errorf("agent: Model is required")
 	}
-	if userInput == "" {
+	if userInput == "" && len(a.pendingUserBlocks) == 0 {
 		return Reply{}, fmt.Errorf("agent: userInput must be non-empty")
 	}
 

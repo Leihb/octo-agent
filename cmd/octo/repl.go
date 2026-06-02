@@ -160,6 +160,9 @@ func printTuiHelp(w io.Writer) {
 	fmt.Fprintln(w, "  /goal       Plan + run a goal as a task DAG (also: /goal list, /goal resume <id>)")
 	fmt.Fprintln(w, "  /exit       Save and exit  (also: /quit, Ctrl-C, Ctrl-D)")
 	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Keys:")
+	fmt.Fprintln(w, "  Ctrl+V      Paste an image from the clipboard (rides your next message; Esc discards)")
+	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Type / to open the completion menu (Tab/↑↓ select, Enter complete) — it lists")
 	fmt.Fprintln(w, "every command and skill, so you don't have to remember names.")
 }
