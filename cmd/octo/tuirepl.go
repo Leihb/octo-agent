@@ -455,7 +455,9 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msgs := m.a.Inbox.Drain(); len(msgs) > 0 {
 				s := strings.Join(msgs, "\n\n")
 				for _, line := range strings.Split(s, "\n\n") {
-					m.println(userEchoStyle.Render("> ") + line)
+					if !strings.HasPrefix(line, "<system-reminder>") {
+						m.println(userEchoStyle.Render("> ") + line)
+					}
 				}
 				m.queue = append([]pendingItem{{text: s}}, m.queue...)
 			}
@@ -691,7 +693,9 @@ func (m *tuiModel) handleTurnFinished() (tea.Model, tea.Cmd) {
 	if msgs := m.a.Inbox.Drain(); len(msgs) > 0 {
 		s := strings.Join(msgs, "\n\n")
 		for _, line := range strings.Split(s, "\n\n") {
-			m.println(userEchoStyle.Render("> ") + line)
+			if !strings.HasPrefix(line, "<system-reminder>") {
+				m.println(userEchoStyle.Render("> ") + line)
+			}
 		}
 		m.queue = append([]pendingItem{{text: s}}, m.queue...)
 	}
