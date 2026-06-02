@@ -79,7 +79,7 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	a := agent.New(providerSender{p: prov, cacheKey: newCacheKey()}, resolvedModel)
-	a.System = prompt.Compose("", cwd, env, "", "") // init is a one-shot task; no skills/memory
+	a.System = prompt.Compose("", cwd, env, "", "", true) // init is a one-shot task; no skills/memory
 
 	engine, err := permission.New(permissionConfigPath(), cwd, resolvePermissionMode(*permMode))
 	if err != nil {

@@ -21,6 +21,18 @@ import (
 //go:embed base.md
 var base string
 
+// coauthorRule is injected right after base when coauthor mode is enabled.
+// It instructs the agent to append a Co-authored-by trailer to every git
+// commit message it writes, following Git trailer format (RFC 822-style
+// headers at the end of the message, separated by a blank line).
+const coauthorRule = `## Git commits
+
+When you run ` + "`git commit`" + ` (via the terminal tool or any other path), append the following Co-authored-by trailer to the commit message:
+
+  Co-authored-by: octo-agent <octo-agent@leihb.github.io>
+
+The trailer must be placed at the very end of the commit message, separated from the body by a blank line, following standard Git trailer format. Do not add this trailer if the user explicitly tells you not to.`
+
 // ProjectContextFile is the per-repo conventions file Compose looks for in
 // the working directory. It carries project-specific rules the agent should
 // follow (the human-facing counterpart to CLAUDE.md).
@@ -71,8 +83,15 @@ var userRulesPath = func() string {
 // (see expandIncludes). env is passed in rather than computed here so this
 // package stays pure (no os/exec, no git); the caller snapshots it once at
 // session start, which keeps the cached prompt prefix stable across turns.
-func Compose(userSystem, cwd, env, skills, memory string) string {
+//
+// coauthor, when true, injects a rule into the system prompt instructing the
+// agent to append a Co-authored-by trailer to every git commit message it writes.
+func Compose(userSystem, cwd, env, skills, memory string, coauthor bool) string {
 	layers := []string{strings.TrimSpace(base)}
+
+	if coauthor {
+		layers = append(layers, coauthorRule)
+	}
 
 	if s := readSoul(); s != "" {
 		layers = append(layers, "# Agent identity (~/.octo/soul.md)\n\n"+s)

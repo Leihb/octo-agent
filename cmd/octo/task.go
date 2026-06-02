@@ -114,7 +114,7 @@ func runTaskStart(args []string, stdout, stderr io.Writer) int {
 	a.MaxTokens = defaultMaxTokensForPlanner
 	cwd, _ := os.Getwd()
 	a.CWD = cwd
-	a.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "")
+	a.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "", true)
 
 	fmt.Fprintf(stdout, "Planning…  goal: %s\n", oneLine(goal))
 	res, err := a.PlanTask(context.Background(), goal)
@@ -263,7 +263,7 @@ func runTaskRun(args []string, stdout, stderr io.Writer) int {
 	parent.MaxTokens = defaultMaxTokensForPlanner
 	cwd, _ := os.Getwd()
 	parent.CWD = cwd
-	parent.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "")
+	parent.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "", true)
 
 	executor := tools.NewDefaultRegistry()
 	tools.SetSpawner(newAgentSpawner(parent, executor, tools.DefaultTools))
@@ -518,7 +518,7 @@ func resumeAndRun(t *taskgraph.Task, flagProvider, flagModel string, cfg config.
 	parent.MaxTokens = defaultMaxTokensForPlanner
 	cwd, _ := os.Getwd()
 	parent.CWD = cwd
-	parent.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "")
+	parent.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "", true)
 
 	executor := tools.NewDefaultRegistry()
 	tools.SetSpawner(newAgentSpawner(parent, executor, tools.DefaultTools))

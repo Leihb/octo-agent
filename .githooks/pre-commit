@@ -1,0 +1,25 @@
+#!/bin/sh
+# 检查是否有未跟踪的大文件(>10MB)
+MAX_SIZE=10485760
+
+# 获取暂存区文件列表
+files=$(git diff --cached --name-only --diff-filter=ACMR)
+
+for file in $files; do
+    # 获取文件大小
+    size=$(git cat-file -s :"$file" 2>/dev/null)
+    if [ -n "$size" ] && [ "$size" -gt "$MAX_SIZE" ]; then
+        echo "Error: $file is larger than 10MB ($size bytes)"
+        echo "Please use Git LFS for large files or add to .gitignore"
+        exit 1
+    fi
+done
+
+# 检查是否有合并冲突标记
+if git diff --cached --name-only | xargs grep -l '^<<<<<<<' 2>/dev/null; then
+    echo "Error: Found merge conflict markers in staged files"
+    exit 1
+fi
+
+echo "Pre-commit checks passed"
+exit 0

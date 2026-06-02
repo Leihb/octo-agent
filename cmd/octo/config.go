@@ -166,6 +166,15 @@ func runConfigShow(stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "  base URL:  (provider default)")
 	}
 	fmt.Fprintf(stdout, "  API key:   %s\n", apiKeyStatus(provider, cfg))
+	coauthorStatus := "on (default)"
+	if cfg.Coauthor != nil {
+		if *cfg.Coauthor {
+			coauthorStatus = "on (config)"
+		} else {
+			coauthorStatus = "off (config)"
+		}
+	}
+	fmt.Fprintf(stdout, "  coauthor:  %s\n", coauthorStatus)
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "CLI flags (--provider, --model, --system) and env vars override this file per run.")
 	return 0
@@ -226,6 +235,16 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 	baseURL := strings.TrimSpace(promptDefault(reader, stdout, "Custom base URL (optional, for DeepSeek/Kimi/etc.)", existing.BaseURL))
 
 	out := config.Config{Provider: provider, Model: model, BaseURL: baseURL, APIKey: existing.APIKey}
+
+	// Co-authored-by: default on; ask once in wizard.
+	coauthorDefault := "y"
+	if existing.Coauthor != nil && !*existing.Coauthor {
+		coauthorDefault = "n"
+	}
+	coauthorAns := strings.ToLower(strings.TrimSpace(promptDefault(reader, stdout,
+		"Append Co-authored-by to git commits? (Y/n)", coauthorDefault)))
+	coauthorVal := coauthorAns != "n" && coauthorAns != "no"
+	out.Coauthor = &coauthorVal
 
 	// API key: env is the recommended home for it. Offer to store it only if
 	// the env var is empty, and make declining the obvious default.
