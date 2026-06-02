@@ -97,20 +97,24 @@ clean:
 
 RG_VERSION := 15.1.0
 
+# Default to the host platform when GOOS/GOARCH are not set explicitly.
+_RG_GOOS   := $(or $(GOOS),$(shell go env GOOS))
+_RG_GOARCH := $(or $(GOARCH),$(shell go env GOARCH))
+
 rg-embed: $(RG_EMBED_BIN)
 
 $(RG_EMBED_BIN):
-	@echo "Downloading ripgrep $(RG_VERSION) for $(GOOS)/$(GOARCH)..."
+	@echo "Downloading ripgrep $(RG_VERSION) for $(_RG_GOOS)/$(_RG_GOARCH)..."
 	@mkdir -p $(RG_EMBED_DIR)
 	@bash -c ' \
-		GOOS="$(GOOS)"; GOARCH="$(GOARCH)"; RG_VERSION="$(RG_VERSION)"; \
+		GOOS="$(_RG_GOOS)"; GOARCH="$(_RG_GOARCH)"; RG_VERSION="$(RG_VERSION)"; \
 		case "$${GOOS}_$${GOARCH}" in \
 			darwin_amd64)   asset="ripgrep-$${RG_VERSION}-x86_64-apple-darwin.tar.gz" ;; \
 			darwin_arm64)   asset="ripgrep-$${RG_VERSION}-aarch64-apple-darwin.tar.gz" ;; \
 			linux_amd64)    asset="ripgrep-$${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz" ;; \
 			linux_arm64)    asset="ripgrep-$${RG_VERSION}-aarch64-unknown-linux-gnu.tar.gz" ;; \
 			windows_amd64)  asset="ripgrep-$${RG_VERSION}-x86_64-pc-windows-msvc.zip" ;; \
-			*) echo "Unsupported platform: $${GOOS}/$${GOARCH} — rg embed skipped"; exit 0 ;; \
+			*) echo "Unsupported platform: $${GOOS}/$${GOARCH} — rg embed skipped"; touch '"$(RG_EMBED_BIN)"'; exit 0 ;; \
 		esac; \
 		url="https://github.com/BurntSushi/ripgrep/releases/download/$${RG_VERSION}/$${asset}"; \
 		if [ "$${GOOS}" = "windows" ]; then \
