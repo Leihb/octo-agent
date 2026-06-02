@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,33 @@ func resolveMaxTurns(flagVal int, seeded, interactive bool) int {
 		return unattendedMaxTurns
 	}
 	return 0
+}
+
+// Provider-aware defaults for the escalated output cap retried on truncation.
+// Conservative per protocol since octo has no per-model capability table; a
+// model whose ceiling is below the target backs off at the API (see the agent
+// loop's isMaxTokensTooLargeErr). See dev-docs/truncation-recovery.md.
+const (
+	escalateMaxTokensOpenAI    = 16384
+	escalateMaxTokensAnthropic = 32768
+)
+
+// resolveMaxTokensEscalate picks the escalated cap: an explicit flag (>= 0)
+// wins, then OCTO_MAX_TOKENS_ESCALATE, then the provider-aware default. 0
+// disables escalation.
+func resolveMaxTokensEscalate(flagVal int, provName string) int {
+	if flagVal >= 0 {
+		return flagVal
+	}
+	if env := strings.TrimSpace(os.Getenv("OCTO_MAX_TOKENS_ESCALATE")); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n >= 0 {
+			return n
+		}
+	}
+	if provName == providerOpenAI {
+		return escalateMaxTokensOpenAI
+	}
+	return escalateMaxTokensAnthropic
 }
 
 // tuiDisabledByEnv reports whether OCTO_TUI is set to a falsey value, the env
@@ -111,6 +139,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	model := fs.String("model", "", "Model name (else ANTHROPIC_MODEL/OPENAI_MODEL env, then `octo config`, then the provider's cheapest reasoning model)")
 	system := fs.String("system", "", "System prompt (optional)")
 	maxTokens := fs.Int("max-tokens", 0, "max_tokens for the response (0 = provider default)")
+	maxTokensEscalate := fs.Int("max-tokens-escalate", -1, "Per-response cap retried once when a reply is truncated by the output cap (-1 = provider-aware default, 0 = disable). Also OCTO_MAX_TOKENS_ESCALATE.")
 	stream := fs.Bool("stream", true, "Stream the reply (chunks printed as they arrive); --stream=false buffers")
 	continueID := fs.String("c", "", "Resume a session — accepts 'last', a short ID, or a substring of an ID")
 	continueIDLong := fs.String("continue", "", "Resume a session — accepts 'last', a short ID, or a substring of an ID")
@@ -328,6 +357,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}, resolvedModel)
 	a.CWD = cwd
 	a.MaxTokens = *maxTokens
+	a.MaxTokensEscalate = resolveMaxTokensEscalate(*maxTokensEscalate, provName)
 	a.MaxTurns = resolveMaxTurns(*maxTurns, seedPrompt != "", stdinIsTTY(stdin))
 	a.CompactThreshold = *compactThreshold
 

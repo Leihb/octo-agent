@@ -202,8 +202,14 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 		}
 		if choice.FinishReason != "" {
 			stopReason := choice.FinishReason
-			if stopReason == "tool_calls" {
+			switch stopReason {
+			case "tool_calls":
 				stopReason = "tool_use"
+			case "length":
+				// Normalise the output-cap truncation signal to the canonical
+				// sentinel the agent loop checks (matches Anthropic's
+				// "max_tokens"), so truncation recovery is provider-agnostic.
+				stopReason = "max_tokens"
 			}
 			result.StopReason = stopReason
 		}

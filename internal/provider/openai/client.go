@@ -185,6 +185,12 @@ func (c *Client) Send(ctx context.Context, req provider.Request) (provider.Respo
 	// Convert tool calls to agent.ContentBlock.
 	var blocks []agent.ContentBlock
 	var stopReason = first.FinishReason
+	// Normalise the output-cap truncation signal to the canonical sentinel the
+	// agent loop checks (matches Anthropic's "max_tokens"), so truncation
+	// recovery is provider-agnostic. Independent of whether a tool call is present.
+	if stopReason == "length" {
+		stopReason = "max_tokens"
+	}
 	if len(first.Message.ToolCalls) > 0 {
 		for _, tc := range first.Message.ToolCalls {
 			var input map[string]any

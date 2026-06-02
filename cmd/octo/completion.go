@@ -112,7 +112,7 @@ func chatCandidates(words []string, prev string) []string {
 		return []string{"anthropic", "openai"}
 	case "--permission-mode":
 		return []string{"interactive", "strict", "auto"}
-	case "--model", "--system", "--max-tokens", "--max-turns",
+	case "--model", "--system", "--max-tokens", "--max-tokens-escalate", "--max-turns",
 		"--compact-threshold", "--thinking-budget",
 		"--sandbox-write", "--sandbox-read":
 		// These take freeform values; nothing useful to suggest.
