@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -23,34 +24,41 @@ func TestFindImagePath(t *testing.T) {
 		}
 	}
 
-	// A terminal escapes spaces with backslashes when a file is dragged in.
-	escaped := strings.ReplaceAll(withSpaces, " ", `\ `)
-
-	cases := []struct {
+	type tc struct {
 		name string
 		in   string
 		want string
-	}{
+	}
+	// Shapes that hold on every platform: bare paths, and spaced paths
+	// wrapped in quotes (how a Windows drag delivers spaces).
+	cases := []tc{
 		{"bare", plain, plain},
 		{"bare trailing space", plain + " ", plain},
-		{"escaped spaces", escaped, withSpaces},
-		{"escaped trailing space", escaped + " ", withSpaces},
 		{"single quoted", "'" + withSpaces + "'", withSpaces},
 		{"double quoted", `"` + withSpaces + `"`, withSpaces},
-		{"embedded in text", "please look at " + escaped + " and explain", withSpaces},
 		{"embedded plain", "see " + plain + " here", plain},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, start, end, ok := findImagePath(tc.in)
+	if runtime.GOOS != "windows" {
+		// POSIX shells backslash-escape spaces on drag; Windows uses '\' as
+		// the path separator, so this form is POSIX-only.
+		escaped := strings.ReplaceAll(withSpaces, " ", `\ `)
+		cases = append(cases,
+			tc{"escaped spaces", escaped, withSpaces},
+			tc{"escaped trailing space", escaped + " ", withSpaces},
+			tc{"embedded in text", "please look at " + escaped + " and explain", withSpaces},
+		)
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, start, end, ok := findImagePath(c.in)
 			if !ok {
-				t.Fatalf("findImagePath(%q) returned ok=false, want path %q", tc.in, tc.want)
+				t.Fatalf("findImagePath(%q) returned ok=false, want path %q", c.in, c.want)
 			}
-			if got != tc.want {
-				t.Errorf("path = %q, want %q", got, tc.want)
+			if got != c.want {
+				t.Errorf("path = %q, want %q", got, c.want)
 			}
-			if start < 0 || end > len(tc.in) || start >= end {
-				t.Errorf("range [%d,%d) out of bounds for %q", start, end, tc.in)
+			if start < 0 || end > len(c.in) || start >= end {
+				t.Errorf("range [%d,%d) out of bounds for %q", start, end, c.in)
 			}
 		})
 	}
@@ -79,20 +87,27 @@ func TestFindImagePathMisses(t *testing.T) {
 }
 
 func TestIsUnescapedBoundary(t *testing.T) {
-	cases := []struct {
+	type tc struct {
 		s    string
 		i    int
 		want bool
-	}{
-		{"a b", 1, true},   // plain space
-		{`a\ b`, 2, false}, // escaped space (odd backslashes)
-		{`a\\ b`, 3, true}, // escaped backslash then space (even)
-		{"a\tb", 1, true},  // tab
-		{"abc", 1, false},  // not whitespace
 	}
-	for _, tc := range cases {
-		if got := isUnescapedBoundary(tc.s, tc.i); got != tc.want {
-			t.Errorf("isUnescapedBoundary(%q, %d) = %v, want %v", tc.s, tc.i, got, tc.want)
+	cases := []tc{
+		{"a b", 1, true},  // plain space
+		{"a\tb", 1, true}, // tab
+		{"abc", 1, false}, // not whitespace
+	}
+	if runtime.GOOS != "windows" {
+		// Backslash only escapes on POSIX; on Windows it is a path separator
+		// and a following space is still a boundary.
+		cases = append(cases,
+			tc{`a\ b`, 2, false}, // escaped space (odd backslashes)
+			tc{`a\\ b`, 3, true}, // escaped backslash then space (even)
+		)
+	}
+	for _, c := range cases {
+		if got := isUnescapedBoundary(c.s, c.i); got != c.want {
+			t.Errorf("isUnescapedBoundary(%q, %d) = %v, want %v", c.s, c.i, got, c.want)
 		}
 	}
 }

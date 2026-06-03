@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"time"
 	"unsafe"
@@ -358,12 +359,18 @@ func findImagePath(s string) (path string, start, end int, ok bool) {
 	return "", 0, 0, false
 }
 
-// isUnescapedBoundary reports whether s[i] is whitespace that is not escaped by
-// an odd number of preceding backslashes (so "\ " is treated as part of a path,
-// "\\ " as a real boundary).
+// isUnescapedBoundary reports whether s[i] is whitespace that delimits a path
+// token. On POSIX a backslash escapes the following space ("foo\ bar" is one
+// token), so a space preceded by an odd number of backslashes is not a
+// boundary; on Windows the backslash is the path separator, not an escape, so
+// every space is a boundary (spaced paths arrive quoted and are handled by the
+// whole-input fast path instead).
 func isUnescapedBoundary(s string, i int) bool {
 	if c := s[i]; c != ' ' && c != '\t' && c != '\n' {
 		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
 	}
 	bs := 0
 	for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
@@ -372,15 +379,19 @@ func isUnescapedBoundary(s string, i int) bool {
 	return bs%2 == 0
 }
 
-// cleanDroppedPath strips one layer of matching surrounding quotes and removes
-// backslash escapes, turning a terminal-dropped token into a real filesystem
-// path.
+// cleanDroppedPath strips one layer of matching surrounding quotes and, on
+// POSIX, removes backslash escapes, turning a terminal-dropped token into a real
+// filesystem path. On Windows backslashes are path separators (spaces are
+// quoted, not escaped), so they are left intact.
 func cleanDroppedPath(raw string) string {
 	p := strings.TrimSpace(raw)
 	if len(p) >= 2 {
 		if (p[0] == '\'' && p[len(p)-1] == '\'') || (p[0] == '"' && p[len(p)-1] == '"') {
 			p = p[1 : len(p)-1]
 		}
+	}
+	if runtime.GOOS == "windows" {
+		return p
 	}
 	var b strings.Builder
 	b.Grow(len(p))
