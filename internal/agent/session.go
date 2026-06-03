@@ -27,6 +27,7 @@ type Session struct {
 	CreatedAt time.Time `json:"created_at"`
 	Model     string    `json:"model"`
 	System    string    `json:"system,omitempty"`
+	Title     string    `json:"title,omitempty"`
 	Messages  []Message `json:"messages"`
 
 	// persisted is how many messages are already on disk. Save appends
@@ -103,19 +104,24 @@ func (s *Session) SavePath() (string, error) {
 	return filepath.Join(dir, s.ID+".jsonl"), nil
 }
 
-// sessionRecord is one JSONL line. Type discriminates the meta header from a
-// message record.
+// sessionRecord is one JSONL line. Type discriminates the meta header, a
+// message record, and a title record. The title is appended on its own line
+// (rather than rewriting the meta header) so the append-only path is preserved:
+// it's generated after the first turn, by which point the meta line is already
+// on disk. LoadSession takes the last title record as authoritative; rewriteAll
+// also folds the title back into the meta header so a compacted file keeps it.
 type sessionRecord struct {
-	Type      string    `json:"type"` // "meta" | "message"
+	Type      string    `json:"type"` // "meta" | "message" | "title"
 	ID        string    `json:"id,omitempty"`
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	Model     string    `json:"model,omitempty"`
 	System    string    `json:"system,omitempty"`
+	Title     string    `json:"title,omitempty"`
 	Message   *Message  `json:"message,omitempty"`
 }
 
 func (s *Session) metaRecord() sessionRecord {
-	return sessionRecord{Type: "meta", ID: s.ID, CreatedAt: s.CreatedAt, Model: s.Model, System: s.System}
+	return sessionRecord{Type: "meta", ID: s.ID, CreatedAt: s.CreatedAt, Model: s.Model, System: s.System, Title: s.Title}
 }
 
 func messageRecord(m Message) sessionRecord {
@@ -190,6 +196,102 @@ func (s *Session) appendDelta() error {
 	return nil
 }
 
+// SetTitle records a short human-readable title for the session. It updates the
+// in-memory field and, if the transcript already exists on disk, appends a title
+// record so the title survives without rewriting the file. A fresh session whose
+// file isn't written yet just carries the title until the first Save folds it
+// into the meta header. Calling with an empty or unchanged title is a no-op.
+func (s *Session) SetTitle(title string) error {
+	title = strings.TrimSpace(title)
+	if title == "" || title == s.Title {
+		return nil
+	}
+	s.Title = title
+	if s.persisted == 0 {
+		// Nothing on disk yet; the next Save writes the title via metaRecord.
+		return nil
+	}
+	path, err := s.SavePath()
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("session: open %s: %w", path, err)
+	}
+	defer f.Close()
+	if err := json.NewEncoder(f).Encode(sessionRecord{Type: "title", Title: title}); err != nil {
+		return fmt.Errorf("session: append title: %w", err)
+	}
+	return nil
+}
+
+// DisplayTitle returns the label shown for the session in list views: the
+// generated Title when present, otherwise a snippet of the first user message
+// (so pre-title sessions and not-yet-titled ones are still recognisable), and
+// finally "(untitled)" when there's nothing to show.
+func (s *Session) DisplayTitle() string {
+	if t := strings.TrimSpace(s.Title); t != "" {
+		return t
+	}
+	if snippet := firstUserSnippet(s.Messages); snippet != "" {
+		return snippet
+	}
+	return "(untitled)"
+}
+
+// firstUserSnippet extracts a one-line preview from the first user message,
+// skipping injected <system-reminder> blocks and tool-result turns, and
+// truncating to a list-friendly width.
+func firstUserSnippet(msgs []Message) string {
+	const maxLen = 60
+	for _, m := range msgs {
+		if m.Role != RoleUser {
+			continue
+		}
+		text := m.Content
+		if text == "" {
+			for _, b := range m.Blocks {
+				if b.Type == "text" {
+					text = b.Text
+					break
+				}
+			}
+		}
+		text = stripSystemReminders(text)
+		// Collapse to the first non-empty line.
+		for _, line := range strings.Split(text, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			if r := []rune(line); len(r) > maxLen {
+				return strings.TrimSpace(string(r[:maxLen-1])) + "…"
+			}
+			return line
+		}
+	}
+	return ""
+}
+
+// stripSystemReminders removes <system-reminder>…</system-reminder> spans the
+// harness injects into user turns so they don't leak into the preview.
+func stripSystemReminders(s string) string {
+	for {
+		start := strings.Index(s, "<system-reminder>")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(s, "</system-reminder>")
+		if end < 0 || end < start {
+			s = s[:start]
+			break
+		}
+		s = s[:start] + s[end+len("</system-reminder>"):]
+	}
+	return s
+}
+
 // LoadSession reads ~/.octo/sessions/<id>.jsonl. id may be a bare session id,
 // an id with a .jsonl/.json suffix, or an absolute path to a transcript file.
 func LoadSession(id string) (*Session, error) {
@@ -224,6 +326,9 @@ func LoadSession(id string) (*Session, error) {
 		switch rec.Type {
 		case "meta":
 			s.ID, s.CreatedAt, s.Model, s.System = rec.ID, rec.CreatedAt, rec.Model, rec.System
+			s.Title = rec.Title // a compacted file carries the title in its meta header
+		case "title":
+			s.Title = rec.Title // last one wins
 		case "message":
 			if rec.Message != nil {
 				s.Messages = append(s.Messages, *rec.Message)

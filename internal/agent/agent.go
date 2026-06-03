@@ -820,6 +820,79 @@ func (a *Agent) Suggest(ctx context.Context, tools []ToolDefinition) (string, er
 	return cleanSuggestion(reply.Content), nil
 }
 
+// titleMaxTokens caps the title response — it's a handful of words.
+const titleMaxTokens = 32
+
+const titleInstruction = "Summarize this conversation as a short title of at most 6 words. " +
+	"Reply with the title text only — no preamble, no quotes, no trailing punctuation, no markdown."
+
+// GenerateTitle produces a short title summarizing the conversation so far, for
+// display in the session list. Like Suggest it is a throwaway provider call: the
+// instruction is appended to a snapshot of history (never the live History) and
+// its token usage is not accrued into the session. Returns "" (no error) when
+// there's nothing to title.
+//
+// tools should be the SAME toolbelt the agentic loop uses so the request reuses
+// the main conversation's prompt cache (see Suggest for the cache-prefix
+// rationale). The model is told not to call tools; a stray tool_use yields empty
+// Content and we simply produce no title.
+func (a *Agent) GenerateTitle(ctx context.Context, tools []ToolDefinition) (string, error) {
+	if a.Sender == nil || a.Model == "" {
+		return "", fmt.Errorf("agent: title: not configured")
+	}
+	snap := a.History.Snapshot()
+	if len(snap) == 0 {
+		return "", nil
+	}
+	msgs := make([]Message, 0, len(snap)+1)
+	msgs = append(msgs, snap...)
+	msgs = append(msgs, NewUserMessage(titleInstruction))
+
+	var reply Reply
+	var err error
+	if ts, ok := a.Sender.(ToolSender); ok && len(tools) > 0 {
+		reply, err = ts.SendMessagesWithTools(ctx, a.Model, a.System, msgs, titleMaxTokens, tools)
+	} else {
+		reply, err = a.Sender.SendMessages(ctx, a.Model, a.System, msgs, titleMaxTokens)
+	}
+	if err != nil {
+		return "", err
+	}
+	return cleanTitle(reply.Content), nil
+}
+
+// cleanTitle reduces the model's reply to a single tidy line: first non-empty
+// line, stripped of surrounding quotes/markdown and trailing punctuation, capped
+// to a list-friendly length.
+func cleanTitle(s string) string {
+	const maxLen = 60
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "# ")
+		// The model sometimes wraps the title in quotes AND adds trailing
+		// punctuation (e.g. `"Fix the bug".`), so trim both sets repeatedly
+		// until the string stops shrinking — one pass leaves the outer quote
+		// stranded behind the period.
+		for {
+			trimmed := strings.TrimSpace(line)
+			trimmed = strings.Trim(trimmed, "\"'`*")
+			trimmed = strings.TrimRight(trimmed, ".。!！?？")
+			if trimmed == line {
+				break
+			}
+			line = trimmed
+		}
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > maxLen {
+			return strings.TrimSpace(string(r[:maxLen-1])) + "…"
+		}
+		return line
+	}
+	return ""
+}
+
 // cleanSuggestion picks the first non-empty line and strips list/quote
 // decoration the model sometimes adds despite the instruction.
 func cleanSuggestion(s string) string {

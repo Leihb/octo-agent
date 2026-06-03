@@ -16,6 +16,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/skills"
 	"github.com/Leihb/octo-agent/internal/tools"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // replConfig holds everything runREPL needs.
@@ -309,10 +310,11 @@ func printSessions(w io.Writer) error {
 	return nil
 }
 
-// formatSessionList renders the rightmost columns the user cares about for a
-// "pick one to resume" overview: 8-char short ID (the thing they paste back
-// into `octo chat -c`), a human-readable created-at, the model, and the
-// turn count. Shared between `octo chat --list-sessions` and REPL /sessions
+// formatSessionList renders the columns the user cares about for a "pick one to
+// resume" overview: 8-char short ID (the thing they paste back into
+// `octo chat -c`), a human-readable created-at, the title (generated, or a
+// first-message fallback so older sessions stay recognisable), the model, and
+// the turn count. Shared between `octo chat --list-sessions` and REPL /sessions
 // so both views agree on shape.
 func formatSessionList(sessions []*agent.Session) string {
 	var b strings.Builder
@@ -323,14 +325,37 @@ func formatSessionList(sessions []*agent.Session) string {
 			plural = ""
 		}
 		when := s.CreatedAt.Local().Format("2006-01-02 15:04")
-		fmt.Fprintf(&b, "  %s  %s  %-30s  %d turn%s\n",
-			s.ShortID(), when, s.Model, turns, plural)
+		// padCol (not %-40s) because titles are often CJK: %-Ns pads by byte/rune
+		// count, which over- or under-pads double-width runes and leaves the model
+		// column ragged.
+		title := padCol(s.DisplayTitle(), 40)
+		fmt.Fprintf(&b, "  %s  %s  %s  %-22s  %d turn%s\n",
+			s.ShortID(), when, title, s.Model, turns, plural)
 	}
 	// strings.Builder result has no trailing newline trimmed — printSessions
 	// uses Fprintln below which would add one if we kept it. Drop the final
 	// "\n" we just emitted so the outer caller controls spacing.
 	out := b.String()
 	return strings.TrimRight(out, "\n")
+}
+
+// padCol collapses whitespace in s, truncates it to maxW display columns
+// (appending an ellipsis when cut), and right-pads with spaces to exactly maxW
+// columns. It measures with lipgloss.Width so wide (CJK) runes count as two
+// columns, keeping the following column aligned.
+func padCol(s string, maxW int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if lipgloss.Width(s) > maxW {
+		r := []rune(s)
+		for len(r) > 0 && lipgloss.Width(string(r))+1 > maxW {
+			r = r[:len(r)-1]
+		}
+		s = string(r) + "…"
+	}
+	if pad := maxW - lipgloss.Width(s); pad > 0 {
+		s += strings.Repeat(" ", pad)
+	}
+	return s
 }
 
 // replToolEventHandler returns an EventHandler that paints tool activity
