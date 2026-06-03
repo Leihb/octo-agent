@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -222,6 +223,68 @@ func TestTUI_ThinkingMarkerPerBlock(t *testing.T) {
 	joined := strings.Join(m.printlnBuf, "\n")
 	if n := strings.Count(joined, "💭"); n != 2 {
 		t.Errorf("each reasoning block should get a 💭; got %d in:\n%s", n, joined)
+	}
+}
+
+// Resuming a session replays prior turns into the scrollback: prompts and
+// replies verbatim, tool calls collapsed to a one-line ✓/✗ (no raw output),
+// closed by a dim "resumed" marker.
+func TestTUI_ReplayHistoryLines(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	h := m.a.History
+	h.Append(agent.NewUserMessage("hello there"))
+	h.Append(agent.NewToolUseMessage([]agent.ContentBlock{
+		agent.NewTextBlock("let me check"),
+		agent.NewToolUseBlock("c1", "terminal", map[string]any{"command": "ls"}),
+	}))
+	h.Append(agent.NewToolResultMessage([]agent.ContentBlock{
+		agent.NewToolResultBlock("c1", "file1\nfile2", false),
+	}))
+	h.Append(agent.NewAssistantMessage("here are the files"))
+
+	joined := stripANSI(strings.Join(m.replayHistoryLines(), "\n"))
+
+	for _, want := range []string{"hello there", "let me check", "here are the files", "terminal", "✓", "resumed"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("replay missing %q; got:\n%s", want, joined)
+		}
+	}
+	// The collapsed tool line must NOT include the raw tool output.
+	if strings.Contains(joined, "file1") {
+		t.Errorf("raw tool output should be collapsed away; got:\n%s", joined)
+	}
+}
+
+// stripANSI removes ANSI SGR escape sequences so assertions can match the
+// underlying text (glamour splits words across color spans).
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
+
+func TestTUI_ReplayHistoryLines_FreshSessionEmpty(t *testing.T) {
+	m := newTestModel()
+	if lines := m.replayHistoryLines(); lines != nil {
+		t.Errorf("a fresh session should replay nothing; got %v", lines)
+	}
+}
+
+// A failed tool call collapses to a ✗ line.
+func TestTUI_ReplayHistoryLines_ToolError(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	h := m.a.History
+	h.Append(agent.NewUserMessage("run it"))
+	h.Append(agent.NewToolUseMessage([]agent.ContentBlock{
+		agent.NewToolUseBlock("c1", "terminal", map[string]any{"command": "boom"}),
+	}))
+	h.Append(agent.NewToolResultMessage([]agent.ContentBlock{
+		agent.NewToolResultBlock("c1", "exit 1", true),
+	}))
+
+	joined := strings.Join(m.replayHistoryLines(), "\n")
+	if !strings.Contains(joined, "✗") {
+		t.Errorf("failed tool should collapse to a ✗ line; got:\n%s", joined)
 	}
 }
 

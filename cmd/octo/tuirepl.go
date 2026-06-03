@@ -333,6 +333,11 @@ type tuiModel struct {
 	// scrollback above the live View() area — no alt-screen buffer needed.
 	printlnBuf []string
 
+	// historyReplayed guards the one-time replay of a resumed session's prior
+	// turns into the scrollback. Done on the first WindowSizeMsg so markdown
+	// wraps to the real terminal width rather than the Init-time fallback.
+	historyReplayed bool
+
 	// height is the terminal height in cells, updated by WindowSizeMsg.
 	height int
 
@@ -505,6 +510,14 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ta.SetWidth(msg.Width)
 		_ = m.updateTextAreaHeight()
+		// Replay a resumed session's prior turns into the scrollback once, now
+		// that the real wrap width is known. No-op for a fresh session.
+		if !m.historyReplayed {
+			m.historyReplayed = true
+			for _, line := range m.replayHistoryLines() {
+				m.println(line)
+			}
+		}
 		return m, m.flushPrints()
 
 	case tea.KeyMsg:
@@ -944,6 +957,99 @@ func (m *tuiModel) styleThinking(line string) string {
 		return thinkingStyle.Render("💭 " + line)
 	}
 	return thinkingStyle.Render("   " + line)
+}
+
+// replayHistoryLines renders a resumed session's prior turns into scrollback
+// lines: user prompts and assistant replies verbatim (markdown unless --plain),
+// each tool call collapsed to a one-line ✓/✗ summary, closed by a dim "resumed"
+// marker. Returns nil for a fresh session (empty history).
+func (m *tuiModel) replayHistoryLines() []string {
+	msgs := m.a.History.Snapshot()
+	if len(msgs) == 0 {
+		return nil
+	}
+	// Pair each tool_use with its tool_result (by ID) so the collapsed line can
+	// show the call's outcome.
+	results := map[string]agent.ContentBlock{}
+	for _, msg := range msgs {
+		for _, b := range msg.Blocks {
+			if b.Type == "tool_result" {
+				results[b.ToolUseID] = b
+			}
+		}
+	}
+
+	var out []string
+	for _, msg := range msgs {
+		switch msg.Role {
+		case agent.RoleUser:
+			// Skip pure tool_result carriers — only real typed prompts echo.
+			if t := userMessageText(msg); strings.TrimSpace(t) != "" {
+				out = append(out, userEchoStyle.Render("> ")+t)
+			}
+		case agent.RoleAssistant:
+			if len(msg.Blocks) == 0 {
+				if s := m.renderReplayText(msg.Content); s != "" {
+					out = append(out, s)
+				}
+				continue
+			}
+			for _, b := range msg.Blocks {
+				switch b.Type {
+				case "text":
+					if s := m.renderReplayText(b.Text); s != "" {
+						out = append(out, s)
+					}
+				case "tool_use":
+					out = append(out, replayToolLine(b, results[b.ID]))
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return append(out, hintStyle.Render(fmt.Sprintf("── resumed · %d messages ──", len(msgs))))
+}
+
+// renderReplayText styles one block of restored assistant/user prose: markdown
+// unless --plain. Empty input renders to "".
+func (m *tuiModel) renderReplayText(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	if m.cfg.plain {
+		return strings.TrimRight(s, "\n")
+	}
+	return m.md.render(s, m.width)
+}
+
+// userMessageText returns a user message's human-typed text, ignoring
+// tool_result carriers and non-text (e.g. image) blocks.
+func userMessageText(msg agent.Message) string {
+	if len(msg.Blocks) == 0 {
+		return msg.Content
+	}
+	var b strings.Builder
+	for _, blk := range msg.Blocks {
+		if blk.Type == "text" {
+			b.WriteString(blk.Text)
+		}
+	}
+	return b.String()
+}
+
+// replayToolLine collapses a tool_use (and its paired result) into a single
+// ↳ verb(target) ✓/✗ line — the resumed-history counterpart of the live card.
+func replayToolLine(use, result agent.ContentBlock) string {
+	label := "↳ " + use.Name
+	if target := cardTargetFor(use.Name, use.Input); target != "" {
+		label += "(" + target + ")"
+	}
+	if result.Type == "tool_result" && result.IsError {
+		return toolErrStyle.Render(label + " ✗")
+	}
+	return label + " ✓"
 }
 
 func (m *tuiModel) appendText(text string) {
