@@ -206,6 +206,11 @@ func (s *tuiSink) Ask(ctx context.Context, p UserPrompt) (UserResponse, error) {
 
 type pendingItem struct {
 	text string
+	// blocks carries image attachments that rode a steer which wasn't drained
+	// in-loop (e.g. enqueued in the narrow window as a turn was ending). They
+	// are attached to the next user message via AttachUserBlocks on dequeue so
+	// the image is never silently dropped.
+	blocks []agent.ContentBlock
 }
 
 // ── model ──
@@ -403,6 +408,27 @@ func (m *tuiModel) startTurn(line string) tea.Cmd {
 	return m.startTurnEcho(line, line)
 }
 
+// pendingFromInbox folds drained inbox items into one follow-up turn item,
+// joining their text and collecting any image blocks so attachments survive the
+// requeue (the in-loop drain normally consumes steers first; this covers a
+// steer that raced in as the turn was ending).
+func pendingFromInbox(items []agent.InboxItem) pendingItem {
+	var blocks []agent.ContentBlock
+	for _, it := range items {
+		blocks = append(blocks, it.Blocks...)
+	}
+	return pendingItem{text: strings.Join(agent.Texts(items), "\n\n"), blocks: blocks}
+}
+
+// startQueued launches a dequeued follow-up turn, attaching any image blocks the
+// item carried so they ride the new user message rather than being dropped.
+func (m *tuiModel) startQueued(it pendingItem) tea.Cmd {
+	if len(it.blocks) > 0 {
+		m.a.AttachUserBlocks(it.blocks)
+	}
+	return m.startTurnEcho(it.text, "") // echo already shown when queued
+}
+
 // startTurnEcho launches a turn in a background goroutine driven by runTurn. The
 // sink streams events back as tea.Msgs; turnFinishedMsg fires when runTurn
 // returns so Update can save, drain steer, and dequeue. echo is the transcript
@@ -571,18 +597,18 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// notice that raced in via Inbox) starts immediately rather than
 			// waiting for turnFinishedMsg.
 			if items := m.a.Inbox.Drain(); len(items) > 0 {
-				s := strings.Join(agent.Texts(items), "\n\n")
-				for _, line := range strings.Split(s, "\n\n") {
-					if !strings.HasPrefix(line, "<system-reminder>") {
+				it := pendingFromInbox(items)
+				for _, line := range strings.Split(it.text, "\n\n") {
+					if line != "" && !strings.HasPrefix(line, "<system-reminder>") {
 						m.println(userEchoStyle.Render("> ") + line)
 					}
 				}
-				m.queue = append([]pendingItem{{text: s}}, m.queue...)
+				m.queue = append([]pendingItem{it}, m.queue...)
 			}
 			if len(m.queue) > 0 {
 				next := m.queue[0]
 				m.queue = m.queue[1:]
-				return m, tea.Sequence(m.flushPrints(), m.startTurnEcho(next.text, ""))
+				return m, tea.Sequence(m.flushPrints(), m.startQueued(next))
 			}
 		}
 		// On a clean completion, ask for one follow-up suggestion (off the event
@@ -822,10 +848,16 @@ func (m *tuiModel) handleEvent(ev agent.AgentEvent) {
 		// Inbox drained mid-turn: print the steer messages to the scrollback
 		// immediately so they appear in chronological order (before the next
 		// assistant reply), and remove them from the pending live display.
-		// Skip <system-reminder> blocks — they are model-facing context, not
-		// user-visible transcript.
+		// First commit any buffered assistant text so the prior reply's trailing
+		// paragraph stays above the steer line (e.g. when a steer lands right
+		// after the model finished a text answer and the turn loops to answer it).
+		if s, ok := m.flushTextString(); ok {
+			m.println(s)
+		}
+		// Skip <system-reminder> blocks (model-facing context) and empty text
+		// (an image-only steer carries its payload in blocks, not Messages).
 		for _, s := range ev.Messages {
-			if !strings.HasPrefix(s, "<system-reminder>") {
+			if s != "" && !strings.HasPrefix(s, "<system-reminder>") {
 				m.println(userEchoStyle.Render("> ") + s)
 			}
 		}
@@ -957,20 +989,20 @@ func (m *tuiModel) handleTurnFinished() (tea.Model, tea.Cmd) {
 	// Drain any inbox messages that weren't consumed during the turn and
 	// run them as the next turn, ahead of explicitly-queued items.
 	if items := m.a.Inbox.Drain(); len(items) > 0 {
-		s := strings.Join(agent.Texts(items), "\n\n")
-		for _, line := range strings.Split(s, "\n\n") {
-			if !strings.HasPrefix(line, "<system-reminder>") {
+		it := pendingFromInbox(items)
+		for _, line := range strings.Split(it.text, "\n\n") {
+			if line != "" && !strings.HasPrefix(line, "<system-reminder>") {
 				m.println(userEchoStyle.Render("> ") + line)
 			}
 		}
-		m.queue = append([]pendingItem{{text: s}}, m.queue...)
+		m.queue = append([]pendingItem{it}, m.queue...)
 	}
 
 	// Dequeue the next pending turn, if any.
 	if len(m.queue) > 0 {
 		next := m.queue[0]
 		m.queue = m.queue[1:]
-		return m, m.startTurnEcho(next.text, "") // echo already shown above
+		return m, m.startQueued(next)
 	}
 	return m, nil
 }

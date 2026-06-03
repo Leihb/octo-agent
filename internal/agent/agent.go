@@ -630,6 +630,17 @@ func (a *Agent) runLoop(
 		}
 		a.History.Append(NewAssistantMessage(content))
 		reply.Content = content
+
+		// A mid-turn steer (text and/or pasted images) arrived while the model
+		// was producing this answer. Don't end the turn: loop so the next
+		// iteration drains it into history and the model responds in-turn,
+		// rather than stranding it for the front-end to re-queue as a fresh
+		// turn (which would drop any image blocks). EventTurnDone stays
+		// once-only — it fires only when we actually return below.
+		if a.Inbox.HasPending() {
+			continue
+		}
+
 		if handler != nil {
 			r := reply
 			handler(AgentEvent{Kind: EventTurnDone, Reply: &r})
