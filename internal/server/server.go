@@ -378,6 +378,58 @@ func (s providerSender) SendMessages(ctx context.Context, model, system string, 
 	return replyFromResponse(resp), nil
 }
 
+// SendMessagesWithTools implements agent.ToolSender. Without it the agent
+// loop's type assertion falls back to a plain tool-less Turn, so every tool
+// (web_search included) would silently vanish from the web UI even though
+// runTurn passes the full DefaultTools() set.
+func (s providerSender) SendMessagesWithTools(ctx context.Context, model, system string, msgs []agent.Message, maxTokens int, tools []agent.ToolDefinition) (agent.Reply, error) {
+	resp, err := s.p.Send(ctx, provider.Request{
+		Model:        model,
+		SystemPrompt: system,
+		Messages:     msgs,
+		MaxTokens:    maxTokens,
+		Tools:        tools,
+	})
+	if err != nil {
+		return agent.Reply{}, err
+	}
+	return replyFromResponse(resp), nil
+}
+
+// StreamMessagesWithTools implements agent.ToolStreamingSender, the capability
+// the SSE path (RunStream) requires to forward tools. Providers that can't
+// stream fall back to the buffered tool-aware send.
+func (s providerSender) StreamMessagesWithTools(
+	ctx context.Context,
+	model, system string,
+	msgs []agent.Message,
+	maxTokens int,
+	tools []agent.ToolDefinition,
+	onChunk func(string),
+	onToolDelta agent.ToolInputDeltaFunc,
+	onThinking agent.ThinkingDeltaFunc,
+) (agent.Reply, error) {
+	req := provider.Request{
+		Model:        model,
+		SystemPrompt: system,
+		Messages:     msgs,
+		MaxTokens:    maxTokens,
+		Tools:        tools,
+	}
+	if sp, ok := s.p.(provider.StreamingProvider); ok {
+		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{
+			OnText:      onChunk,
+			OnToolDelta: onToolDelta,
+			OnThinking:  onThinking,
+		})
+		if err != nil {
+			return agent.Reply{}, err
+		}
+		return replyFromResponse(resp), nil
+	}
+	return s.SendMessagesWithTools(ctx, model, system, msgs, maxTokens, tools)
+}
+
 func replyFromResponse(resp provider.Response) agent.Reply {
 	return agent.Reply{
 		Content:          resp.Content,
@@ -391,5 +443,10 @@ func replyFromResponse(resp provider.Response) agent.Reply {
 	}
 }
 
-// Compile-time assertion.
-var _ agent.Sender = providerSender{}
+// Compile-time assertions: the server's sender must satisfy the full tool-
+// aware surface, or the agent loop silently degrades to a tool-less Turn.
+var (
+	_ agent.Sender              = providerSender{}
+	_ agent.ToolSender          = providerSender{}
+	_ agent.ToolStreamingSender = providerSender{}
+)

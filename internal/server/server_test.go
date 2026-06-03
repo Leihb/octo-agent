@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/provider"
 	"github.com/Leihb/octo-agent/internal/skills"
 )
@@ -244,4 +245,55 @@ func (s *stubProvider) SendStream(_ context.Context, _ provider.Request, cb prov
 		cb.OnText("stub reply")
 	}
 	return provider.Response{Content: "stub reply"}, nil
+}
+
+// recordingProvider captures the last Request it received so a test can assert
+// what the agent layer actually forwarded to the wire.
+type recordingProvider struct{ last provider.Request }
+
+func (p *recordingProvider) Name() string { return "recording" }
+
+func (p *recordingProvider) Send(_ context.Context, req provider.Request) (provider.Response, error) {
+	p.last = req
+	return provider.Response{Content: "ok"}, nil
+}
+
+func (p *recordingProvider) SendStream(_ context.Context, req provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
+	p.last = req
+	if cb.OnText != nil {
+		cb.OnText("ok")
+	}
+	return provider.Response{Content: "ok"}, nil
+}
+
+// TestRunTurnForwardsTools is the regression guard for the web-UI bug where the
+// server's providerSender only implemented the base Sender, so the agent loop
+// fell back to a tool-less Turn and every tool (web_search included) vanished.
+func TestRunTurnForwardsTools(t *testing.T) {
+	rec := &recordingProvider{}
+	srv := &Server{
+		cfg:       Config{Tools: true},
+		model:     "stub-model",
+		turnLocks: map[string]*sync.Mutex{},
+		provider:  rec,
+	}
+
+	sess := agent.NewSession("stub-model", "")
+	if _, err := srv.runTurn(context.Background(), sess, "hi"); err != nil {
+		t.Fatalf("runTurn: %v", err)
+	}
+
+	if len(rec.last.Tools) == 0 {
+		t.Fatal("expected tools forwarded to provider, got none (sender degraded to tool-less Turn)")
+	}
+	found := false
+	for _, d := range rec.last.Tools {
+		if d.Name == "web_search" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("web_search not among forwarded tools: %v", rec.last.Tools)
+	}
 }

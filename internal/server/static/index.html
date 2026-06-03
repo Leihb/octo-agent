@@ -441,13 +441,16 @@ let isTyping = false;
 let sessions = [];
 
 // Auto-resize textarea
-input.addEventListener('input', () => {
+function resetInputHeight() {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-});
+}
+input.addEventListener('input', resetInputHeight);
 
 input.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
+  // Don't send while an IME composition is active — pressing Enter to commit
+  // Chinese/Japanese/Korean candidates would otherwise fire the message early.
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
     e.preventDefault();
     sendMessage();
   }
@@ -461,7 +464,23 @@ function setStatus(text, isError = false) {
   status.className = 'status' + (isError ? ' error' : text === 'Thinking...' ? ' thinking' : '');
 }
 
+// True when the chat is scrolled (near) the bottom. Used to avoid yanking the
+// view down while the user is reading scrolled-up history during a stream.
+function isNearBottom() {
+  return chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80;
+}
+function scrollToBottomIfNeeded(force) {
+  if (force || isNearBottom()) chat.scrollTop = chat.scrollHeight;
+}
+
+function escapeHTML(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// addMessage appends a plain user/bot bubble. content is treated as text
+// unless html is true. Returns the message element.
 function addMessage(role, content, html = false) {
+  const atBottom = isNearBottom();
   const div = document.createElement('div');
   div.className = `message ${role}`;
   const meta = document.createElement('div');
@@ -469,25 +488,83 @@ function addMessage(role, content, html = false) {
   meta.textContent = role === 'user' ? 'You' : 'Octo';
   const body = document.createElement('div');
   body.className = 'content';
-  if (html) {
-    body.innerHTML = content;
-  } else {
-    body.textContent = content;
-  }
+  if (html) body.innerHTML = content; else body.textContent = content;
   div.appendChild(meta);
   div.appendChild(body);
   chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-  return body;
+  scrollToBottomIfNeeded(atBottom);
+  return div;
+}
+
+// createBotStream builds a bot bubble that grows as SSE events arrive. Text
+// and tool cards are interleaved in arrival order: each tool card "closes"
+// the current text block so following text starts a fresh paragraph below it.
+function createBotStream() {
+  const div = document.createElement('div');
+  div.className = 'message bot';
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = 'Octo';
+  div.appendChild(meta);
+  chat.appendChild(div);
+
+  let textEl = null;     // current open text block
+  let textBuf = '';      // accumulated markdown source for textEl
+
+  function appendText(delta) {
+    const atBottom = isNearBottom();
+    if (!textEl) {
+      textEl = document.createElement('div');
+      textEl.className = 'content';
+      div.appendChild(textEl);
+      textBuf = '';
+    }
+    textBuf += delta;
+    textEl.innerHTML = renderMarkdown(textBuf);
+    scrollToBottomIfNeeded(atBottom);
+  }
+  function appendCard(node) {
+    const atBottom = isNearBottom();
+    div.appendChild(node);
+    textEl = null; // next text starts a new block under the card
+    scrollToBottomIfNeeded(atBottom);
+  }
+  // setFull replaces the whole bubble with the final reply (turn_done). It
+  // discards streamed fragments in favour of the authoritative full text.
+  function setFull(content) {
+    div.querySelectorAll('.content').forEach(el => el.remove());
+    textEl = null;
+    if (content) appendText(content);
+  }
+  return { el: div, appendText, appendCard, setFull };
+}
+
+function toolCard(emoji, title, body, errorStyle) {
+  const card = document.createElement('div');
+  card.className = 'tool-call';
+  if (errorStyle) card.style.borderColor = 'rgba(248,81,73,.3)';
+  const name = document.createElement('div');
+  name.className = 'tool-name';
+  if (errorStyle) name.style.color = '#f85149';
+  name.textContent = `${emoji} ${title}`;
+  card.appendChild(name);
+  if (body) {
+    const args = document.createElement('div');
+    args.className = 'tool-args';
+    args.textContent = body; // textContent: never inject tool output as HTML
+    card.appendChild(args);
+  }
+  return card;
 }
 
 function startNewSession() {
+  if (isTyping) return;
   sessionId = null;
   chat.innerHTML = `
     <div class="welcome">
       <h2>👋 Welcome</h2>
       <p>Start a conversation by typing below. The first message creates a new session.</p>
-      <p>After the first turn, responses stream in real-time.</p>
+      <p>Responses stream in real-time, including tool calls.</p>
     </div>
   `;
   sessionInfo.style.display = 'none';
@@ -516,10 +593,14 @@ function renderSessionList() {
     const div = document.createElement('div');
     div.className = 'session-item' + (s.id === sessionId ? ' active' : '');
     const title = s.title || s.id.slice(0, 8);
-    div.innerHTML = `
-      <div class="sess-id">${title}</div>
-      <div class="sess-date">${new Date(s.created_at).toLocaleString()}</div>
-    `;
+    const idEl = document.createElement('div');
+    idEl.className = 'sess-id';
+    idEl.textContent = title;
+    const dateEl = document.createElement('div');
+    dateEl.className = 'sess-date';
+    dateEl.textContent = new Date(s.created_at).toLocaleString();
+    div.appendChild(idEl);
+    div.appendChild(dateEl);
     div.addEventListener('click', () => switchSession(s.id));
     sessionList.appendChild(div);
   });
@@ -538,8 +619,8 @@ async function switchSession(id) {
     sess.messages.forEach(m => {
       if (m.role === 'user') {
         addMessage('user', m.content);
-      } else if (m.role === 'assistant') {
-        addMessage('bot', m.content, true).innerHTML = renderMarkdown(m.content);
+      } else if (m.role === 'assistant' && m.content) {
+        addMessage('bot', renderMarkdown(m.content), true);
       }
     });
     renderSessionList();
@@ -564,8 +645,7 @@ function hideTyping() {
 }
 
 function renderMarkdown(text) {
-  let html = text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  let html = escapeHTML(text)
     .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -580,7 +660,7 @@ async function sendMessage() {
   if (!text || isTyping) return;
 
   input.value = '';
-  input.style.height = 'auto';
+  resetInputHeight();
   addMessage('user', text);
   isTyping = true;
   sendBtn.disabled = true;
@@ -589,6 +669,8 @@ async function sendMessage() {
 
   try {
     if (!sessionId) {
+      // First message: POST /api/chat creates the session and runs the first
+      // turn. This path is non-streaming (the session id doesn't exist yet).
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -600,23 +682,19 @@ async function sendMessage() {
       sessionInfo.style.display = 'block';
       sessionInfo.textContent = `Session: ${sessionId}`;
       hideTyping();
-      addMessage('bot', data.reply, true).innerHTML = renderMarkdown(data.reply);
+      addMessage('bot', renderMarkdown(data.reply), true);
       setStatus('Ready');
       loadSessions();
     } else {
       const res = await fetch(`/api/chat/${sessionId}/turn`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream'
-        },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({ message: text })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       hideTyping();
-      const botDiv = addMessage('bot', '', true);
-      let fullText = '';
+      const stream = createBotStream();
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -629,22 +707,18 @@ async function sendMessage() {
         const lines = buffer.split('\n');
         buffer = lines.pop();
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (!data) continue;
-            try {
-              const ev = JSON.parse(data);
-              handleEvent(ev, botDiv, () => fullText);
-              if (ev.kind === 'turn_done') {
-                fullText = ev.reply?.content || fullText;
-              }
-            } catch (e) {
-              // ignore parse errors
-            }
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+          if (!data) continue;
+          try {
+            handleEvent(JSON.parse(data), stream);
+          } catch (e) {
+            // ignore malformed SSE lines
           }
         }
       }
       setStatus('Ready');
+      loadSessions();
     }
   } catch (err) {
     hideTyping();
@@ -660,48 +734,28 @@ async function sendMessage() {
   }
 }
 
-function handleEvent(ev, botDiv, getFullText) {
+// handleEvent maps a streamed AgentEvent to UI. Event kinds and field names
+// mirror internal/agent/event.go exactly — keep them in sync.
+function handleEvent(ev, stream) {
   switch (ev.kind) {
-    case 'assistant_text_delta':
-      botDiv.innerHTML = renderMarkdown(getFullText() + (ev.delta || ''));
-      chat.scrollTop = chat.scrollHeight;
+    case 'text_delta':
+      stream.appendText(ev.text || '');
       break;
-    case 'tool_call':
-      const toolDiv = document.createElement('div');
-      toolDiv.className = 'tool-call';
-      toolDiv.innerHTML = `<div class="tool-name">🔧 ${ev.tool_name || 'tool'}</div>`;
-      if (ev.tool_input) {
-        const argsDiv = document.createElement('div');
-        argsDiv.className = 'tool-args';
-        argsDiv.textContent = JSON.stringify(ev.tool_input, null, 2);
-        toolDiv.appendChild(argsDiv);
-      }
-      botDiv.appendChild(toolDiv);
-      chat.scrollTop = chat.scrollHeight;
+    case 'tool_started':
+      stream.appendCard(toolCard('🔧', ev.tool_name || 'tool',
+        ev.input ? JSON.stringify(ev.input, null, 2) : ''));
       break;
-    case 'tool_result':
-      if (ev.result) {
-        const resultDiv = document.createElement('div');
-        resultDiv.className = 'tool-call';
-        resultDiv.style.marginTop = '4px';
-        resultDiv.innerHTML = `<div class="tool-name">✅ Result</div><div class="tool-args">${JSON.stringify(ev.result, null, 2)}</div>`;
-        botDiv.appendChild(resultDiv);
-        chat.scrollTop = chat.scrollHeight;
-      }
+    case 'tool_done':
+      stream.appendCard(toolCard('✅', `${ev.tool_name || 'tool'} result`, ev.output || ''));
       break;
     case 'tool_error':
-      const errDiv = document.createElement('div');
-      errDiv.className = 'tool-call';
-      errDiv.style.borderColor = 'rgba(248,81,73,.3)';
-      errDiv.innerHTML = `<div class="tool-name" style="color:#f85149">❌ Error</div><div class="tool-args">${ev.error || 'Unknown error'}</div>`;
-      botDiv.appendChild(errDiv);
-      chat.scrollTop = chat.scrollHeight;
+      stream.appendCard(toolCard('❌', `${ev.tool_name || 'tool'} error`,
+        ev.err || ev.output || 'Unknown error', true));
       break;
     case 'turn_done':
-      if (ev.reply?.content) {
-        botDiv.innerHTML = renderMarkdown(ev.reply.content);
-      }
+      if (ev.reply?.content) stream.setFull(ev.reply.content);
       break;
+    // thinking_delta / tool_input_delta / compact_* are intentionally ignored.
   }
 }
 
@@ -711,7 +765,7 @@ chat.innerHTML = `
   <div class="welcome">
     <h2>👋 Welcome to Octo Agent</h2>
     <p>Start a conversation by typing below. The first message creates a new session.</p>
-    <p>After the first turn, responses stream in real-time via SSE.</p>
+    <p>Responses stream in real-time, including tool calls.</p>
   </div>
 `;
 </script>
