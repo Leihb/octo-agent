@@ -9,6 +9,13 @@ const (
 	// the full reply text.
 	EventTextDelta EventKind = "text_delta"
 
+	// EventThinkingDelta carries one fragment of a reasoning model's thinking
+	// trace, streamed before the visible reply. Text holds the fragment;
+	// fragments concatenate to form the full trace. Emitted only when the Sender
+	// surfaces reasoning (e.g. reasoning display is enabled); observers render it
+	// dimmed and distinct from the answer. It is NOT part of Reply.Content.
+	EventThinkingDelta EventKind = "thinking_delta"
+
 	// EventToolInputDelta fires zero or more times while the LLM is
 	// streaming a tool_use block's input arguments (e.g. write_file's
 	// content field). ToolID / ToolName identify the call; InputDelta is
@@ -93,6 +100,7 @@ const EventToolOutputCap = 512
 // stay at zero values. The contract for each kind:
 //
 //   - EventTextDelta:      Text
+//   - EventThinkingDelta:  Text
 //   - EventToolInputDelta: ToolID, ToolName, InputDelta
 //   - EventToolStarted:    ToolID, ToolName, Input
 //   - EventToolProgress:   ToolID, ToolName, Chunk

@@ -37,6 +37,7 @@ type StreamingSender interface {
 		messages []Message,
 		maxTokens int,
 		onChunk func(textDelta string),
+		onThinking func(thinkingDelta string),
 	) (Reply, error)
 }
 
@@ -60,6 +61,11 @@ type ToolSender interface {
 // surface tool-input deltas" and skip the callback.
 type ToolInputDeltaFunc func(toolID, toolName, partialJSON string)
 
+// ThinkingDeltaFunc receives fragments of a reasoning model's thinking trace
+// as they stream in, before the visible reply. May be nil; implementations
+// treat nil as "don't surface reasoning" and skip the callback.
+type ThinkingDeltaFunc func(thinkingDelta string)
+
 // ToolStreamingSender extends ToolSender and StreamingSender with a streaming
 // tool-aware variant. Implementations stream text deltas via onChunk,
 // stream tool-argument JSON fragments via onToolDelta (optional, may be
@@ -75,6 +81,7 @@ type ToolStreamingSender interface {
 		tools []ToolDefinition,
 		onChunk func(textDelta string),
 		onToolDelta ToolInputDeltaFunc,
+		onThinking ThinkingDeltaFunc,
 	) (Reply, error)
 }
 
@@ -282,6 +289,7 @@ func (a *Agent) TurnStream(
 	ctx context.Context,
 	userInput string,
 	onChunk func(textDelta string),
+	onThinking func(thinkingDelta string),
 ) (Reply, error) {
 	if a.Sender == nil {
 		return Reply{}, fmt.Errorf("agent: no Sender configured")
@@ -300,7 +308,7 @@ func (a *Agent) TurnStream(
 		err   error
 	)
 	if ss, ok := a.Sender.(StreamingSender); ok {
-		reply, err = ss.StreamMessages(ctx, a.Model, a.System, a.History.Snapshot(), a.MaxTokens, onChunk)
+		reply, err = ss.StreamMessages(ctx, a.Model, a.System, a.History.Snapshot(), a.MaxTokens, onChunk, onThinking)
 	} else {
 		// Fallback: buffer the call and surface a single "chunk" with the
 		// full content. Keeps callers from having to branch on capability
@@ -397,11 +405,21 @@ func (a *Agent) RunStream(
 		handler(AgentEvent{Kind: EventTextDelta, Text: delta})
 	}
 
+	// onThinking adapts reasoning-trace fragments into EventThinkingDelta
+	// events. Nil-safe; empty deltas are dropped. Fires only when the Sender
+	// surfaces reasoning at all.
+	onThinking := func(delta string) {
+		if handler == nil || delta == "" {
+			return
+		}
+		handler(AgentEvent{Kind: EventThinkingDelta, Text: delta})
+	}
+
 	// No tools → plain TurnStream with the event-adapting onChunk. The
 	// terminal EventTurnDone is fired here so the caller's contract is
 	// identical regardless of whether tools were used.
 	if len(tools) == 0 || executor == nil {
-		reply, err := a.TurnStream(ctx, userInput, onChunk)
+		reply, err := a.TurnStream(ctx, userInput, onChunk, onThinking)
 		if err == nil && handler != nil {
 			r := reply
 			handler(AgentEvent{Kind: EventTurnDone, Reply: &r})
@@ -426,7 +444,7 @@ func (a *Agent) RunStream(
 	if tss, ok := a.Sender.(ToolStreamingSender); ok {
 		return a.runLoop(ctx, userInput, tools, executor, handler,
 			func(ctx context.Context, msgs []Message, maxTokens int) (Reply, error) {
-				return tss.StreamMessagesWithTools(ctx, a.Model, a.System, msgs, maxTokens, tools, onChunk, onToolDelta)
+				return tss.StreamMessagesWithTools(ctx, a.Model, a.System, msgs, maxTokens, tools, onChunk, onToolDelta, onThinking)
 			})
 	}
 	if ts, ok := a.Sender.(ToolSender); ok {
@@ -442,7 +460,7 @@ func (a *Agent) RunStream(
 
 	// Neither tool-aware interface available → plain TurnStream with the
 	// event-adapting onChunk. EventTurnDone fires on success.
-	reply, err := a.TurnStream(ctx, userInput, onChunk)
+	reply, err := a.TurnStream(ctx, userInput, onChunk, onThinking)
 	if err == nil && handler != nil {
 		r := reply
 		handler(AgentEvent{Kind: EventTurnDone, Reply: &r})

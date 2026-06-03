@@ -25,7 +25,7 @@ func (s *stubExtractSender) SendMessages(_ context.Context, _, system string, ms
 	return Reply{Content: s.reply, InputTokens: 10, OutputTokens: 20}, nil
 }
 
-func (s *stubExtractSender) StreamMessages(_ context.Context, _, _ string, _ []Message, _ int, _ func(string)) (Reply, error) {
+func (s *stubExtractSender) StreamMessages(_ context.Context, _, _ string, _ []Message, _ int, _ func(string), _ func(string)) (Reply, error) {
 	return s.SendMessages(context.Background(), "", "", nil, 0)
 }
 

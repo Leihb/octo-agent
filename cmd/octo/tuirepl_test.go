@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"sync"
 	"testing"
 
@@ -177,6 +178,30 @@ func TestTUI_FirstOutputCommitsEcho(t *testing.T) {
 	}
 	if len(m.printlnBuf) != 1 {
 		t.Fatalf("the echo should be queued to the scrollback, got %v", m.printlnBuf)
+	}
+}
+
+// Reasoning deltas must commit to the scrollback (dimmed) before the answer,
+// with the 💭 marker on the first line only — so the trace stays in the
+// transcript above the reply instead of vanishing into a spinner.
+func TestTUI_ThinkingRendersBeforeAnswer(t *testing.T) {
+	m := newTestModel()
+	m.turnRunning = true
+
+	// One complete thinking line, then a partial; the answer flushes the rest.
+	m.handleEvent(agent.AgentEvent{Kind: agent.EventThinkingDelta, Text: "step one\n"})
+	m.handleEvent(agent.AgentEvent{Kind: agent.EventThinkingDelta, Text: "step two"})
+	m.handleEvent(agent.AgentEvent{Kind: agent.EventTextDelta, Text: "answer"})
+
+	joined := strings.Join(m.printlnBuf, "\n")
+	if !strings.Contains(joined, "step one") || !strings.Contains(joined, "step two") {
+		t.Fatalf("thinking trace should be committed to scrollback; got %q", joined)
+	}
+	if n := strings.Count(joined, "💭"); n != 1 {
+		t.Errorf("💭 should prefix only the first thinking line; got %d in %q", n, joined)
+	}
+	if m.thinkPartial.Len() != 0 {
+		t.Errorf("thinking buffer should be flushed once the answer starts; still holds %q", m.thinkPartial.String())
 	}
 }
 

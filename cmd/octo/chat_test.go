@@ -430,13 +430,23 @@ func (m *mockProvider) Send(_ context.Context, req provider.Request) (provider.R
 type streamingMockProvider struct {
 	mockProvider
 	deltas       []string
+	thinkDeltas  []string
 	streamReply  provider.Response
 	streamCalled bool
+	// onThinkingSet records whether the caller wired an OnThinking callback —
+	// providerSender drops it when reasoning display is off.
+	onThinkingSet bool
 }
 
 func (m *streamingMockProvider) SendStream(_ context.Context, req provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
 	m.streamCalled = true
 	m.gotReq = req
+	m.onThinkingSet = cb.OnThinking != nil
+	for _, d := range m.thinkDeltas {
+		if cb.OnThinking != nil {
+			cb.OnThinking(d)
+		}
+	}
 	for _, d := range m.deltas {
 		if cb.OnText != nil {
 			cb.OnText(d)
@@ -446,6 +456,42 @@ func (m *streamingMockProvider) SendStream(_ context.Context, req provider.Reque
 		return provider.Response{}, m.err
 	}
 	return m.streamReply, nil
+}
+
+func TestProviderSender_ReasoningSink_Gating(t *testing.T) {
+	cases := []struct {
+		name          string
+		showReasoning bool
+		onThinking    func(string)
+		wantForwarded bool // whether the provider received a non-nil OnThinking
+	}{
+		{"on + handler → forwarded", true, func(string) {}, true},
+		{"off → dropped", false, func(string) {}, false},
+		{"on but nil handler → nil", true, nil, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fake := &streamingMockProvider{
+				thinkDeltas: []string{"reasoning"},
+				streamReply: provider.Response{Content: "ok", StopReason: "end_turn"},
+			}
+			s := providerSender{p: fake, showReasoning: c.showReasoning}
+			var got []string
+			_, err := s.StreamMessages(
+				context.Background(), "m", "",
+				[]agent.Message{agent.NewUserMessage("hi")}, 0,
+				func(string) {},
+				c.onThinking,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fake.onThinkingSet != c.wantForwarded {
+				t.Errorf("provider OnThinking set = %v, want %v", fake.onThinkingSet, c.wantForwarded)
+			}
+			_ = got
+		})
+	}
 }
 
 func TestProviderSender_StreamingPathPreferred(t *testing.T) {
@@ -460,6 +506,7 @@ func TestProviderSender_StreamingPathPreferred(t *testing.T) {
 		context.Background(), "m", "",
 		[]agent.Message{agent.NewUserMessage("hi")}, 0,
 		func(d string) { got = append(got, d) },
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -487,6 +534,7 @@ func TestProviderSender_StreamingFallback_NonStreamingProvider(t *testing.T) {
 		context.Background(), "m", "",
 		[]agent.Message{agent.NewUserMessage("hi")}, 0,
 		func(d string) { got = append(got, d) },
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)

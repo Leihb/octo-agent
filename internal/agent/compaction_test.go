@@ -209,7 +209,7 @@ func (f *streamingSummarizeFake) SendMessages(_ context.Context, _, _ string, _ 
 	return Reply{Content: f.summary}, nil
 }
 
-func (f *streamingSummarizeFake) StreamMessages(_ context.Context, _, _ string, _ []Message, _ int, onChunk func(string)) (Reply, error) {
+func (f *streamingSummarizeFake) StreamMessages(_ context.Context, _, _ string, _ []Message, _ int, onChunk func(string), _ func(string)) (Reply, error) {
 	// Emit one rune at a time so SummaryTokens grows monotonically across events.
 	for _, r := range f.summary {
 		f.chunks++

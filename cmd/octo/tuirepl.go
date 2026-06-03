@@ -271,6 +271,14 @@ type tuiModel struct {
 	// flushed to the terminal scrollback via tea.Println.
 	partial strings.Builder
 
+	// thinkPartial holds the in-progress reasoning trace not yet committed to
+	// the scrollback. Complete lines are flushed dimmed; the trailing partial
+	// line is flushed when the answer (or a tool event) begins.
+	thinkPartial strings.Builder
+	// thinkingStarted marks that this turn's reasoning trace has begun, so the
+	// 💭 prefix is emitted once rather than per line. Reset each turn.
+	thinkingStarted bool
+
 	// toolInput caches each tool call's input from EventToolStarted so the
 	// matching EventToolDone can render a card (tool_result events don't carry
 	// the input back). Keyed by ToolID; entry removed on done/error.
@@ -449,6 +457,8 @@ func (m *tuiModel) startTurnEchoRestore(line, echo, restore string) tea.Cmd {
 	m.spinnerFrame = 0
 	m.running = nil
 	m.partial.Reset()
+	m.thinkPartial.Reset()
+	m.thinkingStarted = false
 	m.clearSuggestion() // a new turn supersedes any pending follow-up
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelTurn = cancel
@@ -759,7 +769,16 @@ func (m *tuiModel) handleEvent(ev agent.AgentEvent) {
 	// Promote the deferred user echo above this turn's first output so the
 	// transcript order (your message → reply) is preserved.
 	m.commitEcho()
+	// The reasoning trace precedes the answer; flush any buffered thinking
+	// before rendering the first non-thinking output of the turn.
+	if ev.Kind != agent.EventThinkingDelta {
+		m.flushThinking()
+	}
 	switch ev.Kind {
+	case agent.EventThinkingDelta:
+		m.appendThinking(ev.Text)
+		return
+
 	case agent.EventTextDelta:
 		m.appendText(ev.Text)
 		return
@@ -885,6 +904,45 @@ func (m *tuiModel) rendersCard(toolName string) bool {
 // When a complete block boundary is found (blank line outside a code fence),
 // that prefix is promoted to the scrollback via println/flushPrints so it
 // becomes part of the terminal's native scrollback history.
+// appendThinking buffers a streamed reasoning-trace delta and commits each
+// completed line to the scrollback, dimmed, so the trace stays in the
+// transcript above the answer. The trailing partial line is held until
+// flushThinking (called when the answer or a tool event begins).
+func (m *tuiModel) appendThinking(text string) {
+	m.thinkPartial.WriteString(text)
+	buf := m.thinkPartial.String()
+	for {
+		idx := strings.IndexByte(buf, '\n')
+		if idx < 0 {
+			break
+		}
+		m.println(m.styleThinking(buf[:idx]))
+		buf = buf[idx+1:]
+	}
+	m.thinkPartial.Reset()
+	m.thinkPartial.WriteString(buf)
+}
+
+// flushThinking commits any buffered trailing reasoning line. No-op when the
+// turn produced no reasoning.
+func (m *tuiModel) flushThinking() {
+	if m.thinkPartial.Len() == 0 {
+		return
+	}
+	m.println(m.styleThinking(m.thinkPartial.String()))
+	m.thinkPartial.Reset()
+}
+
+// styleThinking renders one reasoning line dimmed, prefixing 💭 on the first
+// line of the turn's trace so the block reads as one unit.
+func (m *tuiModel) styleThinking(line string) string {
+	if !m.thinkingStarted {
+		m.thinkingStarted = true
+		return thinkingStyle.Render("💭 " + line)
+	}
+	return thinkingStyle.Render("   " + line)
+}
+
 func (m *tuiModel) appendText(text string) {
 	m.partial.WriteString(text)
 

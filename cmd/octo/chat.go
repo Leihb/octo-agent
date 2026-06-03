@@ -452,7 +452,6 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		thinkingBudget:  anthropicThinkingBudget(resolvedEffort),
 		reasoningEffort: resolvedEffort,
 		showReasoning:   resolvedShowReasoning,
-		thinkingOut:     stdout,
 	}, resolvedModel)
 	a.CWD = cwd
 	a.MaxTokens = *maxTokens
@@ -803,37 +802,22 @@ type providerSender struct {
 	// to the OpenAI provider as reasoning_effort. Ignored by Anthropic, which
 	// uses thinkingBudget instead.
 	reasoningEffort string
-	// showReasoning gates whether the streamed reasoning/thinking trace is
-	// rendered. When false, thinkingRenderer is a no-op even though the provider
-	// may still produce (and history may still carry) the trace.
+	// showReasoning gates whether the reasoning/thinking trace is surfaced to
+	// the agent event stream (and thus rendered by the view). When false the
+	// provider is told not to stream reasoning, even though the model may still
+	// produce it server-side and history may still carry it.
 	showReasoning bool
-	// thinkingOut, when non-nil, is where the streamed thinking trace is printed
-	// (dimmed). Nil disables thinking display.
-	thinkingOut io.Writer
 }
 
-// thinkingRenderer returns an OnThinking callback that streams the reasoning
-// trace dimmed, and a close function that ends the dim styling before the
-// visible answer begins. Both are no-ops when thinking display is off.
-func (s providerSender) thinkingRenderer() (onThinking func(string), closeThinking func()) {
-	if s.thinkingOut == nil || !s.showReasoning {
-		return nil, func() {}
+// reasoningSink returns the OnThinking callback to hand the provider: the
+// agent's onThinking when reasoning display is enabled, else nil so the
+// provider skips surfacing reasoning entirely. The trace's dim styling lives
+// in the view layer (plainView / TUI), not here.
+func (s providerSender) reasoningSink(onThinking func(string)) func(string) {
+	if !s.showReasoning || onThinking == nil {
+		return nil
 	}
-	var started, closed bool
-	onThinking = func(d string) {
-		if !started {
-			fmt.Fprint(s.thinkingOut, "\x1b[2m\U0001F4AD ")
-			started = true
-		}
-		fmt.Fprint(s.thinkingOut, d)
-	}
-	closeThinking = func() {
-		if started && !closed {
-			fmt.Fprint(s.thinkingOut, "\x1b[0m\n")
-			closed = true
-		}
-	}
-	return onThinking, closeThinking
+	return onThinking
 }
 
 // newCacheKey returns a random hex token used as the prompt-cache key for one
@@ -878,6 +862,7 @@ func (s providerSender) StreamMessages(
 	msgs []agent.Message,
 	maxTokens int,
 	onChunk func(string),
+	onThinking func(string),
 ) (agent.Reply, error) {
 	if s.p == nil {
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
@@ -892,17 +877,10 @@ func (s providerSender) StreamMessages(
 		ReasoningEffort: s.reasoningEffort,
 	}
 	if sp, ok := s.p.(provider.StreamingProvider); ok {
-		onThinking, closeThinking := s.thinkingRenderer()
 		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{
-			OnText: func(d string) {
-				closeThinking()
-				if onChunk != nil {
-					onChunk(d)
-				}
-			},
-			OnThinking: onThinking,
+			OnText:     onChunk,
+			OnThinking: s.reasoningSink(onThinking),
 		})
-		closeThinking()
 		if err != nil {
 			return agent.Reply{}, err
 		}
@@ -972,6 +950,7 @@ func (s providerSender) StreamMessagesWithTools(
 	tools []agent.ToolDefinition,
 	onChunk func(string),
 	onToolDelta agent.ToolInputDeltaFunc,
+	onThinking agent.ThinkingDeltaFunc,
 ) (agent.Reply, error) {
 	if s.p == nil {
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
@@ -987,27 +966,15 @@ func (s providerSender) StreamMessagesWithTools(
 		ReasoningEffort: s.reasoningEffort,
 	}
 	if sp, ok := s.p.(provider.StreamingProvider); ok {
-		// Callbacks are forwarded. provider.StreamCallbacks is a per-event
-		// union — thinking streams first, then text deltas and tool-input
-		// deltas can interleave. closeThinking ends the dimmed trace before
-		// the first visible token of either kind.
-		onThinking, closeThinking := s.thinkingRenderer()
+		// Callbacks are forwarded straight through. provider.StreamCallbacks is
+		// a per-event union — reasoning streams first, then text and tool-input
+		// deltas interleave. Dim styling for the reasoning trace lives in the
+		// view; reasoningSink drops it entirely when display is off.
 		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{
-			OnText: func(d string) {
-				closeThinking()
-				if onChunk != nil {
-					onChunk(d)
-				}
-			},
-			OnToolDelta: func(id, name, j string) {
-				closeThinking()
-				if onToolDelta != nil {
-					onToolDelta(id, name, j)
-				}
-			},
-			OnThinking: onThinking,
+			OnText:      onChunk,
+			OnToolDelta: onToolDelta,
+			OnThinking:  s.reasoningSink(onThinking),
 		})
-		closeThinking()
 		if err != nil {
 			return agent.Reply{}, err
 		}

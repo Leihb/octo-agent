@@ -322,7 +322,7 @@ func (a *Agent) summarize(ctx context.Context, msgs []Message, handler EventHand
 				SummaryTokens: estimateText(acc.String()),
 				MaxTokens:     summarizeMaxTokens,
 			}})
-		})
+		}, nil) // nil onThinking: summarization reasoning is never surfaced
 	} else {
 		reply, err = a.Sender.SendMessages(ctx, a.Model, "", req, summarizeMaxTokens)
 	}

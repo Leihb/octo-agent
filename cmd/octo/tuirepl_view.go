@@ -35,6 +35,7 @@ var (
 	queueStyle        = lipgloss.NewStyle().Foreground(tui.ColAccent)
 	modalStyle        = lipgloss.NewStyle().Foreground(tui.ColBrand).Bold(true)
 	hintStyle         = lipgloss.NewStyle().Foreground(tui.ColDimmer).Italic(true)
+	thinkingStyle     = lipgloss.NewStyle().Foreground(tui.ColDim).Italic(true)
 	userEchoStyle     = lipgloss.NewStyle().Foreground(tui.ColUserMsg).Bold(true)
 	pendingSteerStyle = lipgloss.NewStyle().Foreground(tui.ColMuted)
 	complSelStyle     = lipgloss.NewStyle().Foreground(tui.ColBrand).Bold(true)

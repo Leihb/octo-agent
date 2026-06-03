@@ -28,6 +28,7 @@ func (s *stubSender) StreamMessages(
 	_ []agent.Message,
 	_ int,
 	onChunk func(string),
+	_ func(string),
 ) (agent.Reply, error) {
 	s.called++
 	if onChunk != nil {
@@ -386,9 +387,9 @@ func (c *capturingSender) SendMessages(ctx context.Context, sys, model string, m
 	return c.stubSender.SendMessages(ctx, sys, model, msgs, maxTokens)
 }
 
-func (c *capturingSender) StreamMessages(ctx context.Context, sys, model string, msgs []agent.Message, maxTokens int, onChunk func(string)) (agent.Reply, error) {
+func (c *capturingSender) StreamMessages(ctx context.Context, sys, model string, msgs []agent.Message, maxTokens int, onChunk func(string), onThinking func(string)) (agent.Reply, error) {
 	c.lastMessages = msgs
-	return c.stubSender.StreamMessages(ctx, sys, model, msgs, maxTokens, onChunk)
+	return c.stubSender.StreamMessages(ctx, sys, model, msgs, maxTokens, onChunk, onThinking)
 }
 
 // lastUserContent returns the textual Content of the last user message

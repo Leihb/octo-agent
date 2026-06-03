@@ -359,9 +359,30 @@ func replToolEventHandler(stdout io.Writer, plain bool) func(agent.AgentEvent) {
 	// Count of `·` typing-indicator dots emitted while the LLM streams the
 	// in-flight tool's input arguments. Reset on tool_started.
 	inputDots := 0
+	// thinkingOpen tracks the dimmed reasoning trace: opened on the first
+	// thinking delta (ESC[2m + 💭), closed (ESC[0m + newline) before the first
+	// non-thinking output so the answer starts clean and undimmed.
+	thinkingOpen := false
+	closeThinking := func() {
+		if thinkingOpen {
+			fmt.Fprint(stdout, "\x1b[0m\n")
+			thinkingOpen = false
+		}
+	}
 
 	return func(ev agent.AgentEvent) {
+		// Any non-thinking event ends the dimmed trace first.
+		if ev.Kind != agent.EventThinkingDelta {
+			closeThinking()
+		}
 		switch ev.Kind {
+		case agent.EventThinkingDelta:
+			if !thinkingOpen {
+				fmt.Fprint(stdout, "\x1b[2m\U0001F4AD ")
+				thinkingOpen = true
+			}
+			fmt.Fprint(stdout, ev.Text)
+
 		case agent.EventTextDelta:
 			fmt.Fprint(stdout, ev.Text)
 			prevWasText = true

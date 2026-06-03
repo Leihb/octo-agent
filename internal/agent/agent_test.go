@@ -131,6 +131,7 @@ func (f *fakeStreamSender) StreamMessages(
 	messages []Message,
 	maxTokens int,
 	onChunk func(string),
+	onThinking func(string),
 ) (Reply, error) {
 	// Record inputs through the embedded fakeSender so the existing
 	// assertions on gotModel/gotMessages still apply.
@@ -162,7 +163,7 @@ func TestAgent_TurnStream_HappyPath(t *testing.T) {
 	var got []string
 	reply, err := a.TurnStream(context.Background(), "hello", func(d string) {
 		got = append(got, d)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("TurnStream: %v", err)
 	}
@@ -190,7 +191,7 @@ func TestAgent_TurnStream_NilCallback(t *testing.T) {
 	}
 	a := New(send, "m")
 
-	reply, err := a.TurnStream(context.Background(), "hi", nil)
+	reply, err := a.TurnStream(context.Background(), "hi", nil, nil)
 	if err != nil {
 		t.Fatalf("TurnStream: %v", err)
 	}
@@ -208,7 +209,7 @@ func TestAgent_TurnStream_BufferedFallback(t *testing.T) {
 	var got []string
 	reply, err := a.TurnStream(context.Background(), "hi", func(d string) {
 		got = append(got, d)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("TurnStream: %v", err)
 	}
@@ -224,7 +225,7 @@ func TestAgent_TurnStream_Error_RestoresHistory(t *testing.T) {
 	send := &fakeStreamSender{fakeSender: fakeSender{err: errors.New("boom")}}
 	a := New(send, "m")
 
-	if _, err := a.TurnStream(context.Background(), "hi", nil); err == nil {
+	if _, err := a.TurnStream(context.Background(), "hi", nil, nil); err == nil {
 		t.Fatal("expected error")
 	}
 	if n := a.History.Len(); n != 0 {
@@ -820,8 +821,9 @@ func TestAgent_RunStream_StreamingExecutor_NilHandler_StillRuns(t *testing.T) {
 // EventToolInputDelta.
 type fakeToolStreamingSender struct {
 	fakeToolSender
-	textChunks []string
-	toolDeltas []struct{ id, name, partialJSON string }
+	textChunks  []string
+	thinkChunks []string
+	toolDeltas  []struct{ id, name, partialJSON string }
 }
 
 func (f *fakeToolStreamingSender) StreamMessagesWithTools(
@@ -829,10 +831,16 @@ func (f *fakeToolStreamingSender) StreamMessagesWithTools(
 	_ []ToolDefinition,
 	onChunk func(string),
 	onToolDelta ToolInputDeltaFunc,
+	onThinking ThinkingDeltaFunc,
 ) (Reply, error) {
 	// Replay scripted callbacks only on the FIRST call so multi-iteration
 	// loops don't double-fire deltas attached to the first tool call.
 	if f.calls == 0 {
+		for _, c := range f.thinkChunks {
+			if onThinking != nil {
+				onThinking(c)
+			}
+		}
 		for _, c := range f.textChunks {
 			if onChunk != nil {
 				onChunk(c)
@@ -851,14 +859,51 @@ func (f *fakeToolStreamingSender) StreamMessagesWithTools(
 // fakeToolSender, which is only Sender + ToolSender). Add the streaming
 // text method explicitly so RunStream type-asserts the right interface.
 func (f *fakeToolStreamingSender) StreamMessages(
-	_ context.Context, _, _ string, _ []Message, _ int, onChunk func(string),
+	_ context.Context, _, _ string, _ []Message, _ int, onChunk func(string), onThinking func(string),
 ) (Reply, error) {
+	for _, c := range f.thinkChunks {
+		if onThinking != nil {
+			onThinking(c)
+		}
+	}
 	for _, c := range f.textChunks {
 		if onChunk != nil {
 			onChunk(c)
 		}
 	}
 	return f.nextReply()
+}
+
+func TestAgent_RunStream_ThinkingDeltaEventsFire(t *testing.T) {
+	// A reasoning model that streams a thinking trace before a tool call: the
+	// agent must surface those fragments as EventThinkingDelta, in order,
+	// distinct from the visible text.
+	send := &fakeToolStreamingSender{
+		thinkChunks: []string{"let me ", "think"},
+		textChunks:  []string{"answer"},
+	}
+	send.replies = []Reply{{Content: "answer", StopReason: "end_turn"}}
+	a := New(send, "m")
+	defs := []ToolDefinition{{Name: "terminal"}}
+
+	var thinking, text []string
+	_, err := a.RunStream(context.Background(), "go", defs, &fakeExecutor{}, func(ev AgentEvent) {
+		switch ev.Kind {
+		case EventThinkingDelta:
+			thinking = append(thinking, ev.Text)
+		case EventTextDelta:
+			text = append(text, ev.Text)
+		}
+	})
+	if err != nil {
+		t.Fatalf("RunStream: %v", err)
+	}
+	if got := strings.Join(thinking, ""); got != "let me think" {
+		t.Errorf("thinking deltas = %q, want %q", got, "let me think")
+	}
+	if got := strings.Join(text, ""); got != "answer" {
+		t.Errorf("text deltas = %q, want %q", got, "answer")
+	}
 }
 
 func TestAgent_RunStream_ToolInputDeltaEventsFire(t *testing.T) {
