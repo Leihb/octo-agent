@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -250,6 +251,12 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// is handled by bubbles/textarea.
 	var cmd tea.Cmd
 	m.ta, cmd = m.ta.Update(msg)
+	// Detect a dropped image file path (some terminals paste the path as text
+	// when a file is dragged in). If the input box now holds a single image
+	// file path, swallow it and queue it as an attachment instead.
+	if m.tryAttachDroppedImage() {
+		return m, m.updateTextAreaHeight()
+	}
 	// A fresh edit re-filters the slash-completion menu from the top.
 	m.complIdx = 0
 	m.updateCompletion()
@@ -257,6 +264,54 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd = tea.Batch(cmd, hcmd)
 	}
 	return m, cmd
+}
+
+// tryAttachDroppedImage checks whether the textarea currently contains an
+// image file path (some terminals paste a dragged file's path as text).  The
+// path may be surrounded by ordinary text, e.g. "look at /path/to/img.png and
+// tell me".  If a valid image file path is found, it is removed from the
+// textarea, queued as a pending attachment, and true is returned.
+func (m *tuiModel) tryAttachDroppedImage() bool {
+	full := m.ta.Value()
+	// Find candidate tokens that look like file paths with image extensions.
+	for _, tok := range strings.Fields(full) {
+		path := strings.Trim(tok, `"'`) // some terminals quote the path
+		ext := strings.ToLower(filepath.Ext(path))
+		switch ext {
+		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif", ".heic", ".ico":
+		default:
+			continue
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		mime := "image/" + strings.TrimPrefix(ext, ".")
+		if ext == ".jpg" {
+			mime = "image/jpeg"
+		}
+		label := fmt.Sprintf("image (%s, %s)", shortMIME(mime), humanByteSize(len(data)))
+		m.pendingAttachments = append(m.pendingAttachments, pendingAttachment{
+			block: agent.NewImageBlock(mime, data),
+			label: label,
+		})
+		// Remove the path token (and surrounding spaces) from the textarea.
+		before, after, found := strings.Cut(full, tok)
+		if found {
+			m.ta.SetValue(strings.TrimSpace(before) + " " + strings.TrimSpace(after))
+			m.ta.CursorEnd()
+		} else {
+			// Fallback: shouldn't happen since we extracted tok from full.
+			m.ta.SetValue(strings.Replace(full, tok, "", 1))
+			m.ta.CursorEnd()
+		}
+		return true
+	}
+	return false
 }
 
 // pasteClipboardImage captures an image from the system clipboard and queues
