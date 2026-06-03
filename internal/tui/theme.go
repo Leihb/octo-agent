@@ -71,15 +71,16 @@ var bannerHints = []string{
 }
 
 // octopusASCII is the pixel-art octo mascot — a rounded blue octopus with a
-// domed head, two eyes, and three dangling tentacles. The ● glyphs are the
-// eyes; everything else is the body. renderOcto colours them.
+// domed head, two eyes, and eight tentacles fanning out to both sides with
+// curled tips. The ● glyphs are the eyes; everything else is the body.
+// renderOcto colours them.
 var octopusASCII = []string{
-	"     ▄██████▄",
-	"   ▟██████████▙",
-	"   ██ ●  ● ██",
-	"   ██████████████",
-	"   ▜██▛▜██▛▜██▛",
-	"    ▘    ▘    ▘",
+	"      ▄████▄",
+	"    ▟████████▙",
+	"    ██ ●  ● ██",
+	"    ▜████████▛",
+	"  ╲ ╲ ╲ ╲ ╱ ╱ ╱ ╱",
+	"  ◟ ◟ ◟ ◟ ◞ ◞ ◞ ◞",
 }
 
 // octoArtWidth is the column the banner text starts at — wide enough to clear
