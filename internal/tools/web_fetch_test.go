@@ -311,6 +311,42 @@ func TestWebFetch_FallsBackOnHTTP429(t *testing.T) {
 	}
 }
 
+func TestWebFetch_FallsBackOnConnectionResetByPeer(t *testing.T) {
+	// Simulate the exact error Jina returns when the upstream resets the TCP
+	// connection — this must trigger the direct-fetch fallback.
+	jina := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("server does not support hijacking")
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			t.Fatalf("hijack failed: %v", err)
+		}
+		conn.Close()
+	}))
+	defer jina.Close()
+
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("direct after reset"))
+	}))
+	defer direct.Close()
+
+	old := jinaReaderHostForTest
+	jinaReaderHostForTest = jina.URL + "/"
+	defer func() { jinaReaderHostForTest = old }()
+
+	out, err := WebFetchTool{}.Execute(context.Background(), "web_fetch", map[string]any{
+		"url": direct.URL + "/page",
+	})
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got: %v", err)
+	}
+	if !strings.Contains(out.Text, "direct after reset") {
+		t.Errorf("expected direct content, got: %q", out.Text)
+	}
+}
+
 func TestWebFetch_FallsBackOnContextDeadlineExceeded(t *testing.T) {
 	// Jina proxy that sleeps longer than the 5s jina timeout but less than
 	// the total budget, so the fallback has time to succeed.

@@ -113,6 +113,7 @@ func shouldFallback(err error) bool {
 		strings.Contains(s, "x509:") ||
 		strings.Contains(s, "no such host") ||
 		strings.Contains(s, "connection refused") ||
+		strings.Contains(s, "connection reset by peer") ||
 		strings.Contains(s, "timeout") ||
 		strings.Contains(s, "temporary failure") ||
 		strings.Contains(s, "i/o timeout") ||
