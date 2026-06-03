@@ -213,6 +213,9 @@ func DefaultTools() []agent.ToolDefinition {
 		if _, isLaunch := t.(LaunchAgentTool); isLaunch && !mgrOn {
 			continue
 		}
+		if _, isPreset := t.(PresetAgentTool); isPreset && !mgrOn {
+			continue
+		}
 		if _, isSend := t.(SendMessageTool); isSend && !mgrOn {
 			continue
 		}

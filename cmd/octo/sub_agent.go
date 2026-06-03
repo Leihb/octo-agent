@@ -54,7 +54,7 @@ const childMaxTurns = 100
 // a later send_message can continue it, runs the first prompt, and returns the
 // child's id alongside its reply.
 func (s *agentSpawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools.SpawnResult, error) {
-	childTools := filterChildTools(s.toolsFn(), req.Tools)
+	childTools := filterChildTools(s.toolsFn(), req.Tools, req.ReadOnly)
 
 	model := req.Model
 	if model == "" {
@@ -63,6 +63,11 @@ func (s *agentSpawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools
 
 	child := agent.New(s.parent.Sender, model)
 	child.System = s.parent.System // share harness identity (base + soul + env + skills + memory + …)
+	if req.SystemSuffix != "" {
+		// Preset agents append a persona after the shared identity, so the
+		// child keeps the harness context but takes on its specialized role.
+		child.System = s.parent.System + "\n\n" + req.SystemSuffix
+	}
 	child.MaxTokens = s.parent.MaxTokens
 	child.Gate = s.parent.Gate
 	child.MaxTurns = childMaxTurns
@@ -157,8 +162,11 @@ func (s *agentSpawner) runChild(ctx context.Context, lc *liveChild, prompt strin
 // filterChildTools drops launch_agent and send_message (a sub-agent can
 // neither spawn nor wake another sub-agent — those stay top-level-only) and,
 // when allowed is non-empty, intersects with that allowlist so the parent can
-// hand the child a restricted toolbelt (e.g. read-only research).
-func filterChildTools(parent []agent.ToolDefinition, allowed []string) []agent.ToolDefinition {
+// hand the child a restricted toolbelt (e.g. read-only research). When readOnly
+// is set, the mutating tools (write_file, edit_file) are dropped too — used by
+// read-only presets so the child keeps terminal/MCP/codegraph but can't change
+// files. The two filters compose: a readOnly preset still honours allowed.
+func filterChildTools(parent []agent.ToolDefinition, allowed []string, readOnly bool) []agent.ToolDefinition {
 	var allowSet map[string]bool
 	if len(allowed) > 0 {
 		allowSet = make(map[string]bool, len(allowed))
@@ -169,6 +177,9 @@ func filterChildTools(parent []agent.ToolDefinition, allowed []string) []agent.T
 	out := make([]agent.ToolDefinition, 0, len(parent))
 	for _, td := range parent {
 		if td.Name == "launch_agent" || td.Name == "send_message" {
+			continue
+		}
+		if readOnly && (td.Name == "write_file" || td.Name == "edit_file") {
 			continue
 		}
 		if allowSet != nil && !allowSet[td.Name] {

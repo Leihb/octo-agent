@@ -44,6 +44,19 @@ type SpawnRequest struct {
 	// Model, when non-empty, overrides the parent's model for this child.
 	// Empty means "use the parent's default" — typically the same model.
 	Model string
+
+	// SystemSuffix, when non-empty, is appended to the child's system prompt
+	// (after the shared parent System) to give a preset agent its persona.
+	// Empty for a plain launch_agent call — the child then runs with the
+	// parent's identity unchanged.
+	SystemSuffix string
+
+	// ReadOnly, when true, strips the mutating tools (write_file, edit_file)
+	// from the child's toolbelt on top of the always-dropped launch_agent /
+	// send_message. The child still inherits everything else — terminal,
+	// web tools, MCP/codegraph — so read-only presets (explore, plan,
+	// code-review) stay capable without being able to change files.
+	ReadOnly bool
 }
 
 // SpawnResult is the sub-agent's final output, plus its token usage so the

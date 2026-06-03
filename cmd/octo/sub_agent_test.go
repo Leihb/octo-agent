@@ -99,7 +99,7 @@ func TestAgentSpawner_AppliesToolAllowlist(t *testing.T) {
 	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return parentTools })
 
 	// Allowlist restricts to read_file + grep. launch_agent always excluded.
-	got := filterChildTools(parentTools, []string{"read_file", "grep"})
+	got := filterChildTools(parentTools, []string{"read_file", "grep"}, false)
 	if len(got) != 2 {
 		t.Fatalf("filtered tools len = %d, want 2: %+v", len(got), got)
 	}
@@ -109,7 +109,7 @@ func TestAgentSpawner_AppliesToolAllowlist(t *testing.T) {
 	}
 
 	// No allowlist → all parent tools minus launch_agent.
-	got = filterChildTools(parentTools, nil)
+	got = filterChildTools(parentTools, nil, false)
 	if len(got) != 3 {
 		t.Errorf("nil allowlist should keep all non-launch_agent tools: %+v", got)
 	}
@@ -313,7 +313,7 @@ func TestFilterChildTools_DropsSendMessage(t *testing.T) {
 		{Name: "launch_agent"},
 		{Name: "send_message"},
 	}
-	got := filterChildTools(parentTools, nil)
+	got := filterChildTools(parentTools, nil, false)
 	for _, td := range got {
 		if td.Name == "send_message" || td.Name == "launch_agent" {
 			t.Errorf("child toolbelt must not contain %q", td.Name)
@@ -322,6 +322,69 @@ func TestFilterChildTools_DropsSendMessage(t *testing.T) {
 	if len(got) != 1 || got[0].Name != "read_file" {
 		t.Errorf("expected only read_file to survive, got %+v", got)
 	}
+}
+
+func TestFilterChildTools_ReadOnlyDropsMutators(t *testing.T) {
+	parentTools := []agent.ToolDefinition{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "terminal"},
+		{Name: "write_file"},
+		{Name: "edit_file"},
+	}
+	got := filterChildTools(parentTools, nil, true)
+	for _, td := range got {
+		if td.Name == "write_file" || td.Name == "edit_file" {
+			t.Errorf("read-only child must not contain %q", td.Name)
+		}
+	}
+	// terminal and the read tools survive — read-only only strips file mutators.
+	names := map[string]bool{}
+	for _, td := range got {
+		names[td.Name] = true
+	}
+	for _, want := range []string{"read_file", "grep", "terminal"} {
+		if !names[want] {
+			t.Errorf("read-only child should keep %q, got %+v", want, got)
+		}
+	}
+}
+
+func TestAgentSpawner_AppliesSystemSuffix(t *testing.T) {
+	send := &subAgentSender{reply: "ok"}
+	parent := agent.New(send, "parent-model")
+	parent.System = "BASE IDENTITY"
+	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+
+	if _, err := sp.Spawn(context.Background(), tools.SpawnRequest{
+		Prompt:       "go",
+		SystemSuffix: "PERSONA: explore only",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	lc := sp.reg.m[onlyChildID(t, sp)]
+	if lc == nil {
+		t.Fatal("expected a registered child")
+	}
+	if got := lc.agent.System; got != "BASE IDENTITY\n\nPERSONA: explore only" {
+		t.Errorf("child System = %q, want base + persona suffix", got)
+	}
+}
+
+// onlyChildID returns the single registered child id, failing if there isn't
+// exactly one.
+func onlyChildID(t *testing.T, sp *agentSpawner) string {
+	t.Helper()
+	sp.reg.mu.Lock()
+	defer sp.reg.mu.Unlock()
+	if len(sp.reg.m) != 1 {
+		t.Fatalf("expected exactly 1 registered child, got %d", len(sp.reg.m))
+	}
+	for id := range sp.reg.m {
+		return id
+	}
+	return ""
 }
 
 func TestChildRegistry_LRUEviction(t *testing.T) {
