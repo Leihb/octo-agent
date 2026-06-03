@@ -477,11 +477,6 @@ func humanByteSize(n int) string {
 // submit acts on Enter. Idle → start a turn. Running → steer. Empty input
 // with no attachments is ignored.
 func (m *tuiModel) submit() (tea.Model, tea.Cmd) {
-	// Last-chance catch for image file paths that were pasted/dropped into the
-	// textarea without triggering the per-keystroke detection (e.g. bracketed
-	// paste from a terminal drag-and-drop).
-	m.tryAttachDroppedImage()
-
 	text := strings.TrimSpace(m.ta.Value())
 	if text == "" && len(m.pendingAttachments) == 0 {
 		return m, nil
