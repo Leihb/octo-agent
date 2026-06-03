@@ -470,7 +470,7 @@ func (a *Agent) runLoop(
 	// ends on a complete assistant message) rather than mid-loop, where a
 	// tool_use/tool_result pair could be split. A summarization failure is
 	// non-fatal — we log nothing and proceed with the full history.
-	_ = a.maybeCompact(ctx)
+	_ = a.maybeCompact(ctx, handler)
 
 	a.appendUserInput(userInput)
 
@@ -522,7 +522,7 @@ func (a *Agent) runLoop(
 			}
 
 			// ── Context overflow recovery (aligned with Ruby) ──
-			if a.overflow.tryRecover(ctx, a, err) {
+			if a.overflow.tryRecover(ctx, a, err, handler) {
 				// Compression succeeded — retry the same iteration
 				// without incrementing i or popping user message
 				continue
@@ -619,7 +619,7 @@ func (a *Agent) runLoop(
 			// grown significantly. If the estimated size is near the window,
 			// compact before the next LLM call to avoid a 400.
 			if a.shouldCompactBetweenBatches() {
-				_ = a.maybeCompact(ctx)
+				_ = a.maybeCompact(ctx, handler)
 			}
 			continue
 		}

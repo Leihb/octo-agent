@@ -201,14 +201,21 @@ Begin your response NOW. Remember: PURE TEXT only, starting with <topics> then <
 // "compaction disabled / not needed" or "compacted successfully"; an error
 // means the summarization side-call failed (the caller logs and proceeds with
 // uncompacted history rather than aborting the turn).
-func (a *Agent) maybeCompact(ctx context.Context) error {
+//
+// handler may be nil (the non-streaming Run path); when set, maybeCompact
+// emits EventCompactStarted/Progress/Done around the summarization so the UI
+// can show a live "compacting conversation history" indicator. Once Started
+// has fired, Done always fires too — even on failure — so observers never get
+// stuck showing the indicator.
+func (a *Agent) maybeCompact(ctx context.Context, handler EventHandler) error {
 	trigger := a.compactTriggerTokens()
 	if trigger <= 0 {
 		return nil
 	}
 
 	msgs := a.History.Snapshot()
-	if estimateMessages(msgs) < trigger {
+	before := estimateMessages(msgs)
+	if before < trigger {
 		return nil
 	}
 
@@ -217,12 +224,23 @@ func (a *Agent) maybeCompact(ctx context.Context) error {
 		return nil // not enough complete turns to safely compact yet
 	}
 
-	summary, err := a.summarize(ctx, msgs[:split])
+	if handler != nil {
+		handler(AgentEvent{Kind: EventCompactStarted, Compact: &CompactStats{
+			BeforeTokens: before,
+			FoldedMsgs:   split,
+			KeptTurns:    compactKeepTurns,
+			MaxTokens:    summarizeMaxTokens,
+		}})
+	}
+
+	summary, err := a.summarize(ctx, msgs[:split], handler)
 	if err != nil {
+		emitCompactDone(handler, before, before, split) // no-op: clear the indicator
 		return fmt.Errorf("agent: compact: %w", err)
 	}
 	if summary == "" {
-		return nil // nothing usable came back; leave history alone
+		emitCompactDone(handler, before, before, split) // nothing usable came back
+		return nil                                      // leave history alone
 	}
 
 	// Rebuild: one summary user-message, then the kept recent turns verbatim.
@@ -233,7 +251,22 @@ func (a *Agent) maybeCompact(ctx context.Context) error {
 	}
 	// Reset the trigger so we don't re-compact until the context grows again.
 	a.lastInputTokens = 0
+
+	emitCompactDone(handler, before, estimateMessages(a.History.Snapshot()), split)
 	return nil
+}
+
+// emitCompactDone fires EventCompactDone if a handler is attached. before ==
+// after signals a no-op compaction (the full history was kept).
+func emitCompactDone(handler EventHandler, before, after, folded int) {
+	if handler == nil {
+		return
+	}
+	handler(AgentEvent{Kind: EventCompactDone, Compact: &CompactStats{
+		BeforeTokens: before,
+		AfterTokens:  after,
+		FoldedMsgs:   folded,
+	}})
 }
 
 // summarize asks the Sender to condense the given messages into a summary.
@@ -245,7 +278,11 @@ func (a *Agent) maybeCompact(ctx context.Context) error {
 // Overflow protection: if the estimated token count of msgs exceeds the model's
 // context window, messages are popped from the head until it fits. This
 // prevents the compression call itself from 400-ing.
-func (a *Agent) summarize(ctx context.Context, msgs []Message) (string, error) {
+//
+// When the Sender implements StreamingSender and a handler is attached, the
+// summary is streamed so the caller can surface EventCompactProgress as it
+// arrives; otherwise it falls back to the buffered SendMessages.
+func (a *Agent) summarize(ctx context.Context, msgs []Message, handler EventHandler) (string, error) {
 	// ── Overflow protection ──────────────────────────────────────────────
 	// If msgs alone exceeds the window, pop from head until it fits.
 	// This handles the case where the history is already over the limit
@@ -268,7 +305,27 @@ func (a *Agent) summarize(ctx context.Context, msgs []Message) (string, error) {
 	req = append(req, msgs...)
 	req = append(req, NewUserMessage(compressionPrompt))
 
-	reply, err := a.Sender.SendMessages(ctx, a.Model, "", req, summarizeMaxTokens)
+	// Stream the summary when we can, so the UI can show a live "generated ~N
+	// tokens" indicator. The deltas surface as EventCompactProgress — NOT
+	// EventTextDelta — so consumers never mistake the summary for the
+	// assistant's reply. Falls back to a buffered call otherwise.
+	var reply Reply
+	var err error
+	if ss, ok := a.Sender.(StreamingSender); ok && handler != nil {
+		var acc strings.Builder
+		reply, err = ss.StreamMessages(ctx, a.Model, "", req, summarizeMaxTokens, func(delta string) {
+			if delta == "" {
+				return
+			}
+			acc.WriteString(delta)
+			handler(AgentEvent{Kind: EventCompactProgress, Chunk: delta, Compact: &CompactStats{
+				SummaryTokens: estimateText(acc.String()),
+				MaxTokens:     summarizeMaxTokens,
+			}})
+		})
+	} else {
+		reply, err = a.Sender.SendMessages(ctx, a.Model, "", req, summarizeMaxTokens)
+	}
 	if err != nil {
 		return "", err
 	}

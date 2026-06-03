@@ -366,6 +366,25 @@ func shortMIME(mime string) string {
 	return strings.ToUpper(mime)
 }
 
+// humanTokens renders a token count compactly (e.g. 142000 → "142k").
+func humanTokens(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+// lastRunes returns the final n runes of s (rune-safe so multi-byte CJK
+// summaries aren't sliced mid-character). Used to bound the live compaction
+// preview without growing it without limit.
+func lastRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[len(r)-n:])
+}
+
 // humanByteSize renders a byte count compactly (B / KB / MB).
 func humanByteSize(n int) string {
 	const kb, mb = 1024, 1024 * 1024
@@ -674,7 +693,22 @@ func (m *tuiModel) View() string {
 	}
 
 	// Activity indicator
-	if m.running != nil {
+	if m.compacting {
+		// Compaction runs between LLM calls; surface a dedicated spinner with a
+		// live "generated ~N / max tokens" readout plus a streaming preview so
+		// the user can tell the conversation is being summarized, not frozen.
+		label := "Compacting conversation history…"
+		if m.compactMaxTokens > 0 {
+			label += fmt.Sprintf("  ~%s / ~%s tokens",
+				humanTokens(m.compactTokens), humanTokens(m.compactMaxTokens))
+		}
+		b.WriteString(m.spinnerLine(label, m.compactStart))
+		b.WriteByte('\n')
+		if preview := strings.TrimSpace(strings.ReplaceAll(m.compactPreview, "\n", " ")); preview != "" {
+			b.WriteString(hintStyle.Render("  … " + lastRunes(preview, 100)))
+			b.WriteByte('\n')
+		}
+	} else if m.running != nil {
 		b.WriteString(m.spinnerLine(m.running.verb+"("+m.running.target+")", m.running.start))
 		b.WriteByte('\n')
 	} else if m.turnRunning && m.partial.Len() == 0 {

@@ -57,6 +57,27 @@ const (
 	// transcript at the correct chronological position — before the next
 	// assistant reply, not after the turn ends.
 	EventSteerInjected EventKind = "steer_injected"
+
+	// EventCompactStarted fires when history compaction begins, just before
+	// the summarization side-call. Compact carries the pre-compaction context
+	// estimate and how much is being folded so observers can show a "compacting
+	// conversation history" indicator. Compaction is silent to the model; these
+	// events exist only to keep the user informed.
+	EventCompactStarted EventKind = "compact_started"
+
+	// EventCompactProgress fires repeatedly while the summary streams back from
+	// the model. Chunk carries the newest text fragment of the summary;
+	// Compact.SummaryTokens is the running estimate of summary length so far.
+	// Observers can show a live "generated ~N tokens" indicator. Fires only
+	// when the underlying Sender streams; otherwise compaction jumps straight
+	// from started to done.
+	EventCompactProgress EventKind = "compact_progress"
+
+	// EventCompactDone fires once compaction finishes (or fails). Compact
+	// carries the before/after context estimates; when they are equal the
+	// compaction was a no-op (summarization failed or returned nothing) and the
+	// full history was kept. Observers should clear any compaction indicator.
+	EventCompactDone EventKind = "compact_done"
 )
 
 // EventToolOutputCap is the maximum length of the Output field emitted on
@@ -79,6 +100,9 @@ const EventToolOutputCap = 512
 //   - EventToolError:      ToolID, ToolName, Output (may be empty), Err
 //   - EventTurnDone:       Reply
 //   - EventSteerInjected:  Messages
+//   - EventCompactStarted:  Compact (BeforeTokens, FoldedMsgs, KeptTurns, MaxTokens)
+//   - EventCompactProgress: Chunk, Compact (SummaryTokens, MaxTokens)
+//   - EventCompactDone:     Compact (BeforeTokens, AfterTokens, FoldedMsgs)
 //
 // JSON tags are included so HTTP/SSE transports (M8 web server) can
 // marshal events directly without an intermediate type.
@@ -94,6 +118,26 @@ type AgentEvent struct {
 	Err        string         `json:"err,omitempty"`
 	Reply      *Reply         `json:"reply,omitempty"`
 	Messages   []string       `json:"messages,omitempty"`
+	Compact    *CompactStats  `json:"compact,omitempty"`
+}
+
+// CompactStats carries the numbers behind the compaction events. All counts
+// are heuristic token estimates (see estimateMessages), not exact provider
+// counts — they exist for a human-readable progress indicator, nothing more.
+type CompactStats struct {
+	// BeforeTokens is the estimated context size before compaction.
+	BeforeTokens int `json:"before_tokens,omitempty"`
+	// AfterTokens is the estimated context size after compaction (done only).
+	AfterTokens int `json:"after_tokens,omitempty"`
+	// FoldedMsgs is how many leading messages were folded into the summary.
+	FoldedMsgs int `json:"folded_msgs,omitempty"`
+	// KeptTurns is how many recent user turns were kept verbatim.
+	KeptTurns int `json:"kept_turns,omitempty"`
+	// SummaryTokens is the running estimate of the summary generated so far
+	// (progress only).
+	SummaryTokens int `json:"summary_tokens,omitempty"`
+	// MaxTokens is the summary's output-token cap, for a "N / max" readout.
+	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
 // EventHandler is the callback type passed into Agent.RunStream. The handler

@@ -119,7 +119,7 @@ func TestMaybeCompact_AutoDefaultTriggers(t *testing.T) {
 		a.History.Append(NewUserMessage(longMsg))
 		a.History.Append(NewAssistantMessage(longMsg))
 	}
-	if err := a.maybeCompact(context.Background()); err != nil {
+	if err := a.maybeCompact(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if f.calls != 1 {
@@ -138,7 +138,7 @@ func TestMaybeCompact_DisabledOrBelowThreshold(t *testing.T) {
 
 	// Disabled (negative threshold) — even a huge context must not compact.
 	a.CompactThreshold = -1
-	if err := a.maybeCompact(context.Background()); err != nil {
+	if err := a.maybeCompact(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if f.calls != 0 || a.History.Len() != 12 {
@@ -147,7 +147,7 @@ func TestMaybeCompact_DisabledOrBelowThreshold(t *testing.T) {
 
 	// Enabled but history still under threshold.
 	a.CompactThreshold = 100000 // way above the ~1500 tokens of the 12 messages
-	if err := a.maybeCompact(context.Background()); err != nil {
+	if err := a.maybeCompact(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if f.calls != 0 || a.History.Len() != 12 {
@@ -167,7 +167,7 @@ func TestMaybeCompact_RewritesHistory(t *testing.T) {
 	}
 	// History now well over the 100-token threshold.
 
-	if err := a.maybeCompact(context.Background()); err != nil {
+	if err := a.maybeCompact(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,6 +195,96 @@ func TestMaybeCompact_RewritesHistory(t *testing.T) {
 	// Trigger reset so we don't immediately re-compact.
 	if a.lastInputTokens != 0 {
 		t.Errorf("lastInputTokens should reset to 0, got %d", a.lastInputTokens)
+	}
+}
+
+// streamingSummarizeFake implements StreamingSender, emitting the canned
+// summary in chunks so the compaction-progress events can be observed.
+type streamingSummarizeFake struct {
+	summary string
+	chunks  int
+}
+
+func (f *streamingSummarizeFake) SendMessages(_ context.Context, _, _ string, _ []Message, _ int) (Reply, error) {
+	return Reply{Content: f.summary}, nil
+}
+
+func (f *streamingSummarizeFake) StreamMessages(_ context.Context, _, _ string, _ []Message, _ int, onChunk func(string)) (Reply, error) {
+	// Emit one rune at a time so SummaryTokens grows monotonically across events.
+	for _, r := range f.summary {
+		f.chunks++
+		onChunk(string(r))
+	}
+	return Reply{Content: f.summary, InputTokens: 5, OutputTokens: 3}, nil
+}
+
+// TestMaybeCompact_EmitsProgressEvents proves compaction surfaces a
+// started → progress(streaming) → done event sequence with sane stats, so the
+// TUI can show a live "compacting conversation history" indicator.
+func TestMaybeCompact_EmitsProgressEvents(t *testing.T) {
+	f := &streamingSummarizeFake{summary: "GOAL build X. Touched main.go."}
+	a := New(f, "m")
+	a.CompactThreshold = 100
+
+	longMsg := strings.Repeat("x ", 500) // ~250 tokens each
+	for i := 0; i < 6; i++ {
+		a.History.Append(NewUserMessage(longMsg))
+		a.History.Append(NewAssistantMessage(longMsg))
+	}
+
+	var events []AgentEvent
+	handler := func(ev AgentEvent) { events = append(events, ev) }
+
+	if err := a.maybeCompact(context.Background(), handler); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(events) < 3 {
+		t.Fatalf("expected started + progress + done events, got %d", len(events))
+	}
+
+	// First event: started, with the pre-compaction estimate and fold counts.
+	first := events[0]
+	if first.Kind != EventCompactStarted {
+		t.Errorf("first event = %q, want compact_started", first.Kind)
+	}
+	if first.Compact == nil || first.Compact.BeforeTokens <= 0 {
+		t.Errorf("started event missing BeforeTokens: %+v", first.Compact)
+	}
+	if first.Compact.KeptTurns != compactKeepTurns {
+		t.Errorf("started KeptTurns = %d, want %d", first.Compact.KeptTurns, compactKeepTurns)
+	}
+	if first.Compact.MaxTokens != summarizeMaxTokens {
+		t.Errorf("started MaxTokens = %d, want %d", first.Compact.MaxTokens, summarizeMaxTokens)
+	}
+
+	// Middle: at least one progress event whose summary estimate is monotonic.
+	var progress []AgentEvent
+	prevTokens := -1
+	for _, ev := range events {
+		if ev.Kind != EventCompactProgress {
+			continue
+		}
+		progress = append(progress, ev)
+		if ev.Chunk == "" {
+			t.Errorf("progress event missing Chunk")
+		}
+		if ev.Compact == nil || ev.Compact.SummaryTokens < prevTokens {
+			t.Errorf("progress SummaryTokens not monotonic: %+v (prev=%d)", ev.Compact, prevTokens)
+		}
+		prevTokens = ev.Compact.SummaryTokens
+	}
+	if len(progress) == 0 {
+		t.Errorf("expected at least one compact_progress event")
+	}
+
+	// Last event: done, with after < before (a real reduction happened).
+	last := events[len(events)-1]
+	if last.Kind != EventCompactDone {
+		t.Errorf("last event = %q, want compact_done", last.Kind)
+	}
+	if last.Compact == nil || last.Compact.AfterTokens <= 0 || last.Compact.AfterTokens >= last.Compact.BeforeTokens {
+		t.Errorf("done event should show reduction: %+v", last.Compact)
 	}
 }
 

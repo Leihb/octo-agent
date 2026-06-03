@@ -306,6 +306,15 @@ type tuiModel struct {
 	// until completion.)
 	running *runningTool
 
+	// compacting is set between EventCompactStarted and EventCompactDone while
+	// history compaction runs. It drives a dedicated live spinner line so the
+	// user sees the conversation isn't frozen while the summary streams in.
+	compacting       bool
+	compactStart     time.Time
+	compactTokens    int    // running estimate of the summary generated so far
+	compactMaxTokens int    // the summary's output-token cap (denominator)
+	compactPreview   string // tail of the streamed summary, shown under the spinner
+
 	// printlnBuf accumulates lines to emit via tea.Println at the end of each
 	// Update cycle. In inline mode, committed output goes to the terminal
 	// scrollback above the live View() area — no alt-screen buffer needed.
@@ -777,6 +786,36 @@ func (m *tuiModel) handleEvent(ev agent.AgentEvent) {
 			return
 		}
 		m.commitToolLine(toolErrStyle.Render(fmt.Sprintf("↳ %s ✗ — %s", ev.ToolName, truncate1Line(ev.Err))))
+		return
+
+	case agent.EventCompactStarted:
+		m.compacting = true
+		m.compactStart = time.Now()
+		m.compactTokens = 0
+		m.compactPreview = ""
+		if ev.Compact != nil {
+			m.compactMaxTokens = ev.Compact.MaxTokens
+		}
+		return
+
+	case agent.EventCompactProgress:
+		if ev.Compact != nil {
+			m.compactTokens = ev.Compact.SummaryTokens
+		}
+		// Keep a bounded tail of the streamed summary for the live preview.
+		m.compactPreview = lastRunes(m.compactPreview+ev.Chunk, 240)
+		return
+
+	case agent.EventCompactDone:
+		m.compacting = false
+		m.compactPreview = ""
+		// Only announce a real reduction; a no-op (summary failed / unchanged)
+		// clears the indicator silently rather than implying work was done.
+		if c := ev.Compact; c != nil && c.AfterTokens > 0 && c.AfterTokens < c.BeforeTokens {
+			m.println(noticeStyle.Render(fmt.Sprintf(
+				"✦ compacted context · folded %d message(s) · ~%s → ~%s tokens",
+				c.FoldedMsgs, humanTokens(c.BeforeTokens), humanTokens(c.AfterTokens))))
+		}
 		return
 
 	case agent.EventSteerInjected:

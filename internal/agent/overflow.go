@@ -72,7 +72,7 @@ func contextTooLongError(err error) bool {
 //
 // Layer 2 (aggressive): pull back ~half the history. Sacrifices cache but
 // guarantees the compression call fits.
-func (r *overflowRecovery) tryRecover(ctx context.Context, a *Agent, sendErr error) bool {
+func (r *overflowRecovery) tryRecover(ctx context.Context, a *Agent, sendErr error, handler EventHandler) bool {
 	if r.attempted || r.inProgress {
 		return false
 	}
@@ -85,12 +85,12 @@ func (r *overflowRecovery) tryRecover(ctx context.Context, a *Agent, sendErr err
 	defer func() { r.inProgress = false }()
 
 	// Layer 1: standard cache-preserving compression
-	if a.tryOverflowCompact(ctx, pullBackStandard) {
+	if a.tryOverflowCompact(ctx, pullBackStandard, handler) {
 		return true
 	}
 
 	// Layer 2: aggressive fallback
-	if a.tryOverflowCompact(ctx, pullBackAggressive) {
+	if a.tryOverflowCompact(ctx, pullBackAggressive, handler) {
 		return true
 	}
 
@@ -110,7 +110,7 @@ const (
 // tryOverflowCompact is the Layer 1/2 entry point for 400-recovery compression.
 // It pops K messages from tail, runs compression, then reattaches them.
 // Returns true if compression succeeded and history was rebuilt.
-func (a *Agent) tryOverflowCompact(ctx context.Context, pullBackMode int) bool {
+func (a *Agent) tryOverflowCompact(ctx context.Context, pullBackMode int, handler EventHandler) bool {
 	trigger := a.compactTriggerTokens()
 	if trigger <= 0 {
 		return false // compaction disabled
@@ -143,9 +143,20 @@ func (a *Agent) tryOverflowCompact(ctx context.Context, pullBackMode int) bool {
 		return false
 	}
 
+	before := estimateMessages(msgs)
+	if handler != nil {
+		handler(AgentEvent{Kind: EventCompactStarted, Compact: &CompactStats{
+			BeforeTokens: before,
+			FoldedMsgs:   split,
+			KeptTurns:    compactKeepTurns,
+			MaxTokens:    summarizeMaxTokens,
+		}})
+	}
+
 	// Run compression side-call on truncated history
-	summary, err := a.summarize(ctx, truncated.Snapshot()[:split])
+	summary, err := a.summarize(ctx, truncated.Snapshot()[:split], handler)
 	if err != nil || summary == "" {
+		emitCompactDone(handler, before, before, split) // no-op: clear the indicator
 		return false
 	}
 
@@ -162,6 +173,7 @@ func (a *Agent) tryOverflowCompact(ctx context.Context, pullBackMode int) bool {
 	}
 
 	a.lastInputTokens = 0 // reset trigger so we don't immediately re-compact
+	emitCompactDone(handler, before, estimateMessages(a.History.Snapshot()), split)
 	return true
 }
 
