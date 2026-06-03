@@ -189,6 +189,53 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ─── DELETE /api/sessions/:id ───────────────────────────────────────────────
+
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing session id")
+		return
+	}
+	if err := agent.DeleteSession(id); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.forgetTurnLock(id)
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": []string{id}})
+}
+
+// ─── POST /api/sessions/delete (batch) ──────────────────────────────────────
+
+type deleteSessionsRequest struct {
+	IDs []string `json:"ids"`
+}
+
+func (s *Server) handleDeleteSessions(w http.ResponseWriter, r *http.Request) {
+	var req deleteSessionsRequest
+	if err := readBodyJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if len(req.IDs) == 0 {
+		writeError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	deleted := make([]string, 0, len(req.IDs))
+	failed := map[string]string{}
+	for _, id := range req.IDs {
+		if err := agent.DeleteSession(id); err != nil {
+			failed[id] = err.Error()
+			continue
+		}
+		s.forgetTurnLock(id)
+		deleted = append(deleted, id)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted, "failed": failed})
+}
+
 // ─── GET /api/tools ─────────────────────────────────────────────────────────
 
 func (s *Server) handleListTools(w http.ResponseWriter, r *http.Request) {

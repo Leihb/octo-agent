@@ -558,3 +558,35 @@ func TestSession_UsedTools_EmptyMessagesIsFalse(t *testing.T) {
 		t.Error("empty session should not be UsedTools()")
 	}
 }
+
+func TestDeleteSession(t *testing.T) {
+	setTempHome(t)
+
+	s := NewSession("claude-haiku-4-5-20251001", "")
+	s.Messages = []Message{{Role: RoleUser, Content: "hi"}}
+	if err := s.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	if err := DeleteSession(s.ID); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	if _, err := LoadSession(s.ID); err == nil {
+		t.Fatal("session still loadable after delete")
+	}
+
+	// Deleting a missing session is not an error (idempotent).
+	if err := DeleteSession(s.ID); err != nil {
+		t.Errorf("deleting an already-gone session should be nil, got %v", err)
+	}
+}
+
+func TestDeleteSession_RejectsTraversal(t *testing.T) {
+	setTempHome(t)
+
+	for _, id := range []string{"", "../escape", "sub/dir", "/abs/path"} {
+		if err := DeleteSession(id); err == nil {
+			t.Errorf("DeleteSession(%q) = nil, want error", id)
+		}
+	}
+}

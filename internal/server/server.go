@@ -128,7 +128,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/chat", s.handleCreateChat)
 	s.mux.HandleFunc("POST /api/chat/{id}/turn", s.handleTurnOrSSE)
 	s.mux.HandleFunc("GET /api/sessions", s.handleListSessions)
+	s.mux.HandleFunc("POST /api/sessions/delete", s.handleDeleteSessions)
 	s.mux.HandleFunc("GET /api/sessions/{id}", s.handleGetSession)
+	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	s.mux.HandleFunc("GET /api/tools", s.handleListTools)
 	s.mux.HandleFunc("GET /api/skills", s.handleListSkills)
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
@@ -153,7 +155,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		}
 		if allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		}
 		if r.Method == http.MethodOptions {
@@ -178,6 +180,14 @@ func (s *Server) sessionTurnLock(id string) *sync.Mutex {
 	mu := &sync.Mutex{}
 	s.turnLocks[id] = mu
 	return mu
+}
+
+// forgetTurnLock drops a session's turn mutex after the session is deleted, so
+// the map doesn't accumulate locks for sessions that no longer exist.
+func (s *Server) forgetTurnLock(id string) {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	delete(s.turnLocks, id)
 }
 
 // buildAgent creates a fresh agent for a turn. The caller must have locked

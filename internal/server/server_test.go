@@ -115,6 +115,87 @@ func TestHandleGetSession_NotFound(t *testing.T) {
 	}
 }
 
+func TestHandleDeleteSession(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	sess := agent.NewSession("stub-model", "")
+	sess.Messages = []agent.Message{{Role: agent.RoleUser, Content: "hi"}}
+	if err := sess.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/sessions/"+sess.ID, nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if _, err := agent.LoadSession(sess.ID); err == nil {
+		t.Fatal("session still loadable after delete")
+	}
+}
+
+func TestHandleDeleteSessions_Batch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	var ids []string
+	for i := 0; i < 3; i++ {
+		sess := agent.NewSession("stub-model", "")
+		sess.Messages = []agent.Message{{Role: agent.RoleUser, Content: "hi"}}
+		if err := sess.Save(); err != nil {
+			t.Fatalf("save: %v", err)
+		}
+		ids = append(ids, sess.ID)
+	}
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+
+	payload, _ := json.Marshal(deleteSessionsRequest{IDs: ids})
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/delete", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Deleted []string          `json:"deleted"`
+		Failed  map[string]string `json:"failed"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Deleted) != 3 {
+		t.Fatalf("deleted = %v, want 3", body.Deleted)
+	}
+	for _, id := range ids {
+		if _, err := agent.LoadSession(id); err == nil {
+			t.Errorf("session %s still loadable after batch delete", id)
+		}
+	}
+}
+
+func TestHandleDeleteSessions_EmptyIDs(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/delete", bytes.NewReader([]byte(`{"ids":[]}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
 func TestHandleCreateChat_MissingMessage(t *testing.T) {
 	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
 

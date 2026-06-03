@@ -92,11 +92,75 @@ html, body {
   margin-bottom: 4px;
   font-size: 13px;
   transition: background 0.15s;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .session-item:hover {
   background: rgba(88, 166, 255, 0.1);
 }
+
+/* The text column grows; checkbox / delete button sit on the sides. */
+.session-item .sess-body { flex: 1; min-width: 0; }
+
+.session-item .sess-check {
+  margin-top: 2px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Per-item delete button: hidden until the row is hovered. */
+.session-item .sess-del {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.session-item:hover .sess-del { opacity: 1; }
+
+.session-item .sess-del:hover { color: var(--error); }
+
+/* Selection toolbar (shown only in select mode). */
+.select-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+
+.select-bar button {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.select-bar button.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.select-bar button.danger:disabled {
+  border-color: var(--border);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.select-bar .spacer { flex: 1; }
 
 .session-item.active {
   background: rgba(88, 166, 255, 0.15);
@@ -407,7 +471,16 @@ html, body {
   <div class="sidebar">
     <div class="sidebar-header">
       <h2>🐙 Octo</h2>
-      <button class="new-btn" id="newSessionBtn">+ New</button>
+      <div style="display:flex;gap:6px">
+        <button class="new-btn" id="selectBtn">Select</button>
+        <button class="new-btn" id="newSessionBtn">+ New</button>
+      </div>
+    </div>
+    <div class="select-bar" id="selectBar" style="display:none">
+      <button id="selectAllBtn">All</button>
+      <span class="spacer"></span>
+      <button class="danger" id="deleteSelectedBtn" disabled>Delete</button>
+      <button id="cancelSelectBtn">Cancel</button>
     </div>
     <div class="session-list" id="sessionList"></div>
   </div>
@@ -435,10 +508,19 @@ const status = document.getElementById('status');
 const sessionInfo = document.getElementById('sessionInfo');
 const sessionList = document.getElementById('sessionList');
 const newSessionBtn = document.getElementById('newSessionBtn');
+const selectBtn = document.getElementById('selectBtn');
+const selectBar = document.getElementById('selectBar');
+const selectAllBtn = document.getElementById('selectAllBtn');
+const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+const cancelSelectBtn = document.getElementById('cancelSelectBtn');
 
 let sessionId = null;
 let isTyping = false;
 let sessions = [];
+
+// Selection mode: when on, the list shows checkboxes and a delete toolbar.
+let selectMode = false;
+const selectedIds = new Set();
 
 // Auto-resize textarea
 function resetInputHeight() {
@@ -458,6 +540,61 @@ input.addEventListener('keydown', (e) => {
 
 sendBtn.addEventListener('click', sendMessage);
 newSessionBtn.addEventListener('click', startNewSession);
+selectBtn.addEventListener('click', () => setSelectMode(!selectMode));
+cancelSelectBtn.addEventListener('click', () => setSelectMode(false));
+selectAllBtn.addEventListener('click', toggleSelectAll);
+deleteSelectedBtn.addEventListener('click', deleteSelected);
+
+function setSelectMode(on) {
+  selectMode = on;
+  selectedIds.clear();
+  selectBar.style.display = on ? 'flex' : 'none';
+  selectBtn.textContent = on ? 'Done' : 'Select';
+  renderSessionList();
+  updateDeleteButton();
+}
+
+function updateDeleteButton() {
+  deleteSelectedBtn.disabled = selectedIds.size === 0;
+  deleteSelectedBtn.textContent = selectedIds.size ? `Delete (${selectedIds.size})` : 'Delete';
+}
+
+function toggleSelectAll() {
+  if (selectedIds.size === sessions.length) {
+    selectedIds.clear();
+  } else {
+    sessions.forEach(s => selectedIds.add(s.id));
+  }
+  renderSessionList();
+  updateDeleteButton();
+}
+
+// deleteSessions calls the batch endpoint, then refreshes the list. If the
+// currently open session was among those removed, the view resets to the
+// new-session welcome screen.
+async function deleteSessions(ids) {
+  if (!ids.length) return;
+  try {
+    const res = await fetch('/api/sessions/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (ids.includes(sessionId)) startNewSession();
+    await loadSessions();
+  } catch (err) {
+    setStatus('Error deleting session', true);
+  }
+}
+
+async function deleteSelected() {
+  const ids = [...selectedIds];
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} session${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+  await deleteSessions(ids);
+  setSelectMode(false);
+}
 
 function setStatus(text, isError = false) {
   status.textContent = text;
@@ -592,6 +729,22 @@ function renderSessionList() {
   sessions.forEach(s => {
     const div = document.createElement('div');
     div.className = 'session-item' + (s.id === sessionId ? ' active' : '');
+
+    if (selectMode) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'sess-check';
+      cb.checked = selectedIds.has(s.id);
+      cb.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (cb.checked) selectedIds.add(s.id); else selectedIds.delete(s.id);
+        updateDeleteButton();
+      });
+      div.appendChild(cb);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'sess-body';
     const title = s.title || s.id.slice(0, 8);
     const idEl = document.createElement('div');
     idEl.className = 'sess-id';
@@ -599,9 +752,33 @@ function renderSessionList() {
     const dateEl = document.createElement('div');
     dateEl.className = 'sess-date';
     dateEl.textContent = new Date(s.created_at).toLocaleString();
-    div.appendChild(idEl);
-    div.appendChild(dateEl);
-    div.addEventListener('click', () => switchSession(s.id));
+    body.appendChild(idEl);
+    body.appendChild(dateEl);
+    div.appendChild(body);
+
+    if (!selectMode) {
+      const del = document.createElement('button');
+      del.className = 'sess-del';
+      del.textContent = '✕';
+      del.title = 'Delete session';
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this session? This cannot be undone.')) return;
+        await deleteSessions([s.id]);
+      });
+      div.appendChild(del);
+    }
+
+    // In select mode the whole row toggles the checkbox; otherwise it opens.
+    div.addEventListener('click', () => {
+      if (selectMode) {
+        if (selectedIds.has(s.id)) selectedIds.delete(s.id); else selectedIds.add(s.id);
+        renderSessionList();
+        updateDeleteButton();
+      } else {
+        switchSession(s.id);
+      }
+    });
     sessionList.appendChild(div);
   });
 }

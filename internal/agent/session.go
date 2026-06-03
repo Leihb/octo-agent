@@ -517,6 +517,35 @@ func ResolveSessionID(input string) (string, error) {
 		input, len(matches), strings.Join(matches, "\n  "))
 }
 
+// DeleteSession removes the transcript file for the given session id. id may be
+// a bare id or one with a .jsonl/.json suffix; absolute paths are rejected, and
+// any id that would resolve outside the sessions directory (e.g. via "..") is
+// refused so a caller-supplied id can't reach arbitrary files. A missing file
+// is treated as success — deleting an already-gone session is not an error.
+func DeleteSession(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("session id is empty")
+	}
+	if filepath.IsAbs(id) {
+		return fmt.Errorf("session %q: absolute paths not allowed", id)
+	}
+	stem := strings.TrimSuffix(strings.TrimSuffix(id, ".jsonl"), ".json")
+	// Reject anything that isn't a plain filename stem (no separators, no "..").
+	if stem != filepath.Base(stem) || strings.Contains(stem, "..") {
+		return fmt.Errorf("invalid session id %q", id)
+	}
+	dir, err := sessionsDir()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, stem+".jsonl")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("session: remove %s: %w", path, err)
+	}
+	return nil
+}
+
 // ToHistory converts the session's message slice into an agent History.
 func (s *Session) ToHistory() *History {
 	h := NewHistory()

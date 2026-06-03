@@ -186,7 +186,7 @@ octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatabl
 | Memory | done | Persistent cross-session memory under `~/.octo/memory/`, auto extract/consolidate |
 | Sub-agents | done | `launch_agent` fan-out, async + resumable (`send_message`, `agent_status`, `kill_agent`) |
 | Orchestration | done | `octo conduct` — plan a goal into a subtask DAG, run it via sub-agents, resume after crash |
-| Web server | done | `octo serve` — REST + SSE, embedded dashboard UI (bind localhost) |
+| Web server | done | `octo serve` — REST + SSE, embedded dashboard UI with session browse/delete (bind localhost) |
 | IM bridge | done | `octo channel` — WeChat iLink adapter (QR login, per-user sessions, slash commands) |
 
 ## Architecture

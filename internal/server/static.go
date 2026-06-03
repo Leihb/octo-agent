@@ -82,6 +82,8 @@ h1{color:#333}code{background:#f4f4f4;padding:2px 6px;border-radius:3px}
 <li><code>POST /api/chat/:id/turn</code> — send a message to an existing session</li>
 <li><code>GET  /api/sessions</code> — list recent sessions</li>
 <li><code>GET  /api/sessions/:id</code> — get session details</li>
+<li><code>DELETE /api/sessions/:id</code> — delete one session</li>
+<li><code>POST /api/sessions/delete</code> — delete sessions in bulk (body: {ids:[…]})</li>
 <li><code>GET  /api/tools</code> — list available tools</li>
 <li><code>GET  /api/skills</code> — list available skills</li>
 <li><code>GET  /api/health</code> — health check</li>
