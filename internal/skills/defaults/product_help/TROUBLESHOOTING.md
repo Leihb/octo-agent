@@ -24,7 +24,7 @@ Common issues and their fixes.
 ### `octo chat` says "no API key"
 
 - Check that the env var is set: `echo $ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`)
-- Or run `octo config` to store the key in `~/.octo/config.json` (mode 0600)
+- Or run `octo config` to store the key in `~/.octo/config.yaml` (mode 0600)
 - Check `octo config show` to see where the provider/model resolve from
 
 ### Provider/model not what I expected

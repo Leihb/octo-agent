@@ -128,8 +128,8 @@ func TestRunConfig_Path(t *testing.T) {
 	if code := runConfig([]string{"path"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "config.json") {
-		t.Errorf("path output should mention config.json; got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "config.yaml") {
+		t.Errorf("path output should mention config.yaml; got %q", stdout.String())
 	}
 }
 

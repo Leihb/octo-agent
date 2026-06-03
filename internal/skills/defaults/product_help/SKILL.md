@@ -43,4 +43,4 @@ User: "what does permission_mode do?"
 
 User: "how do I switch to OpenAI?"
 → Read `CONFIG.md` and `CLI.md`
-→ Explain `octo config` wizard vs. editing `~/.octo/config.json` directly
+→ Explain `octo config` wizard vs. editing `~/.octo/config.yaml` directly

@@ -130,7 +130,7 @@ This unifies Anthropic `thinking` blocks and OpenAI `reasoning_content` behind o
 
 ### Defaults (`octo config`)
 
-`octo config` saves your default provider, model, (optionally) base URL, and reasoning settings to `~/.octo/config.json`, so a bare `octo chat` works without re-typing `--provider`/`--model` every time:
+`octo config` saves your default provider, model, (optionally) base URL, and reasoning settings to `~/.octo/config.yaml`, so a bare `octo chat` works without re-typing `--provider`/`--model` every time:
 
 ```bash
 octo config        # interactive wizard
@@ -138,7 +138,7 @@ octo config show   # print the effective settings + where each comes from
 octo config path   # print the file location
 ```
 
-Precedence is **CLI flag > env var > `~/.octo/config.json` > built-in default**. API keys are read from `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` first; the wizard can store one in the file (mode `0600`), but the env var is recommended.
+Precedence is **CLI flag > env var > `~/.octo/config.yaml` > built-in default**. API keys are read from `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` first; the wizard can store one in the file (mode `0600`), but the env var is recommended.
 
 ## Skills
 

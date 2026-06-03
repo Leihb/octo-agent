@@ -1,6 +1,6 @@
 ---
 name: update-config
-description: Update octo's persisted configuration files — ~/.octo/config.json (provider, model, etc.), ~/.octo/mcp.json (MCP servers), and ~/.octo/permissions.yml (permission rules). Use when the user wants to change any octo setting without running the setup wizard manually.
+description: Update octo's persisted configuration files — ~/.octo/config.yaml (provider, model, etc.), ~/.octo/mcp.json (MCP servers), and ~/.octo/permissions.yml (permission rules). Use when the user wants to change any octo setting without running the setup wizard manually.
 ---
 
 # Update octo configuration
@@ -9,7 +9,7 @@ octo has three persisted configuration files. Read with `read_file`, modify, and
 
 | File | Format | What it controls |
 |------|--------|------------------|
-| `~/.octo/config.json` | JSON | Provider, model, base URL, permission mode, coauthor, reasoning |
+| `~/.octo/config.yaml` | YAML | Provider, model, base URL, permission mode, coauthor, reasoning |
 | `~/.octo/mcp.json` | JSON | MCP servers (stdio and HTTP) |
 | `~/.octo/permissions.yml` | YAML | Custom permission rules per-tool |
 
@@ -23,20 +23,18 @@ octo has three persisted configuration files. Read with `read_file`, modify, and
 
 ---
 
-## 1. ~/.octo/config.json
+## 1. ~/.octo/config.yaml
 
 ### Schema
 
-```json
-{
-  "provider": "anthropic | openai",
-  "model": "string (model name, e.g. claude-sonnet-4-20250514)",
-  "base_url": "string (optional custom endpoint)",
-  "permission_mode": "string (optional: strict | confirm | auto)",
-  "coauthor": true | false,
-  "show_reasoning": true | false,
-  "reasoning_effort": "low | medium | high | \"\""
-}
+```yaml
+provider: anthropic | openai
+model: string (model name, e.g. claude-sonnet-4-20250514)
+base_url: string (optional custom endpoint)
+permission_mode: string (optional: strict | confirm | auto)
+coauthor: true | false
+show_reasoning: true | false
+reasoning_effort: low | medium | high | ""
 ```
 
 - `provider`: only `"anthropic"` or `"openai"` are valid.
@@ -47,13 +45,12 @@ octo has three persisted configuration files. Read with `read_file`, modify, and
 
 ### Steps
 
-1. Read `~/.octo/config.json`. If missing, treat as empty `{}`.
+1. Read `~/.octo/config.yaml`. If missing, treat as empty document.
 2. Ask the user if ambiguous (e.g. "switch provider" → ask which one).
 3. Validate: reject unknown providers, malformed URLs, unknown permission modes, invalid reasoning effort.
 4. Merge the new value into the existing object.
-5. Pretty-print JSON with 2-space indentation and trailing newline.
-6. Write back with `write_file`, then `chmod 600 ~/.octo/config.json`.
-7. Confirm what changed (excluding `api_key`).
+5. Write back with `write_file`, then `chmod 600 ~/.octo/config.yaml`.
+6. Confirm what changed (excluding `api_key`).
 
 ---
 
@@ -139,9 +136,9 @@ tool_name:
 ## Example interactions
 
 **User:** "use openai as my default"
-→ Read config.json, see `"provider": "anthropic"`
+→ Read config.yaml, see `provider: anthropic`
 → Suggest: "Switch provider to openai and model to gpt-4.1?"
-→ User confirms → Write updated config.json, chmod 600
+→ User confirms → Write updated config.yaml, chmod 600
 
 **User:** "add a filesystem MCP server"
 → Read mcp.json, see current servers

@@ -207,7 +207,7 @@ Environment:
 
 func configHelp(w io.Writer) {
 	fmt.Fprintln(w, `octo config — save your default provider, model, and (optionally) base URL to
-~/.octo/config.json so a bare `+"`octo chat`"+` works without re-typing flags.
+~/.octo/config.yaml so a bare `+"`octo chat`"+` works without re-typing flags.
 
 Precedence (highest first): CLI flag (--provider/--model) > env var > this file
 > built-in default. API keys are read from the environment first; storing one
@@ -219,12 +219,10 @@ Usage:
                           comes from (never prints the key itself)
   octo config path        Print the config file path
 
-File (~/.octo/config.json):
-  {
-    "provider": "openai",
-    "model":    "gpt-4o-mini",
-    "base_url": "https://api.deepseek.com"   // optional, for compatible 3rd parties
-  }
+File (~/.octo/config.yaml):
+  provider: openai
+  model: gpt-4o-mini
+  base_url: https://api.deepseek.com   # optional, for compatible 3rd parties
 
 Environment:
   ANTHROPIC_API_KEY / OPENAI_API_KEY    Override any stored key, per run.`)

@@ -314,7 +314,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(stderr, "octo chat: %v\n", err)
-		fmt.Fprintln(stderr, "Run `octo config` to rewrite ~/.octo/config.json.")
+		fmt.Fprintln(stderr, "Run `octo config` to rewrite ~/.octo/config.yaml.")
 		return 1
 	}
 

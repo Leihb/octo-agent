@@ -53,7 +53,7 @@ func TestSave_FileMode0600(t *testing.T) {
 	if err := (Config{APIKey: "sk-secret"}).Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	path := filepath.Join(home, ".octo", "config.json")
+	path := filepath.Join(home, ".octo", "config.yaml")
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("stat: %v", err)
@@ -72,7 +72,7 @@ func TestLoad_MalformedIsError(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{not json"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("not: valid: yaml: ["), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(); err == nil {

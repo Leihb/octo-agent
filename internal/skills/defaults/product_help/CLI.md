@@ -13,7 +13,7 @@ Flags:
 - `--no-reasoning` — Disable reasoning trace display
 
 ### `octo config [subcommand]`
-Manage persisted configuration (`~/.octo/config.json`).
+Manage persisted configuration (`~/.octo/config.yaml`).
 
 Subcommands:
 - `setup` / `init` (default) — Interactive wizard to set provider, model, and options

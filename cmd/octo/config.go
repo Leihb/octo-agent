@@ -103,7 +103,7 @@ func effectiveEndpoint(provider string, cfg config.Config) string {
 }
 
 // runConfig handles `octo config [show|path]` and, with no subcommand, an
-// interactive setup wizard that writes ~/.octo/config.json.
+// interactive setup wizard that writes ~/.octo/config.yaml.
 func runConfig(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	sub := ""
 	if len(args) > 0 {
@@ -227,7 +227,7 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	defer reader.Close()
 
-	fmt.Fprintln(stdout, "octo config — set your default provider and model (~/.octo/config.json).")
+	fmt.Fprintln(stdout, "octo config — set your default provider and model (~/.octo/config.yaml).")
 	fmt.Fprintln(stdout, "Press Enter to keep the shown default. CLI flags and env vars still override per run.")
 	fmt.Fprintln(stdout)
 

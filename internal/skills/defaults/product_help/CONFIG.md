@@ -2,7 +2,7 @@
 
 ## Config file
 
-Path: `~/.octo/config.json`
+Path: `~/.octo/config.yaml`
 
 Created interactively via `octo config` or edited directly.
 
@@ -31,12 +31,10 @@ CLI flags (`--provider`, `--model`, etc.) > env vars (`OCTO_PROVIDER`, `ANTHROPI
 
 ## Example
 
-```json
-{
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
-  "coauthor": true,
-  "show_reasoning": true,
-  "reasoning_effort": "medium"
-}
+```yaml
+provider: anthropic
+model: claude-sonnet-4-20250514
+coauthor: true
+show_reasoning: true
+reasoning_effort: medium
 ```

@@ -98,7 +98,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Commands:")
 	fmt.Fprintln(w, "  chat       Start an interactive session (or single-turn with a message)")
 	fmt.Fprintln(w, "  channel    Start IM platform bridges (e.g. `octo channel start`)")
-	fmt.Fprintln(w, "  config     Set your default provider/model (~/.octo/config.json)")
+	fmt.Fprintln(w, "  config     Set your default provider/model (~/.octo/config.yaml)")
 	fmt.Fprintln(w, "  serve      Start the HTTP server (REST + SSE + Web UI)")
 	fmt.Fprintln(w, "  init       Analyze the repo and generate/update .octorules")
 	fmt.Fprintln(w, "  memory     Manage cross-session memory (e.g. `octo memory list`)")
