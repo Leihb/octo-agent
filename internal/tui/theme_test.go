@@ -54,6 +54,16 @@ func TestBanner_ContainsTitleAndInfo(t *testing.T) {
 	}
 }
 
+// Key hints moved from the status bar into the startup banner.
+func TestBanner_ContainsKeyHints(t *testing.T) {
+	out := Banner("", "claude", "~/proj", 60)
+	for _, want := range []string{"Enter send", "newline", "Ctrl+Q queue", "Esc interrupt", "Ctrl+C quit"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Banner missing key hint %q in:\n%s", want, out)
+		}
+	}
+}
+
 func TestBanner_MinWidth(t *testing.T) {
 	out := Banner("", "", "", 5)
 	if !strings.Contains(out, "octo chat") {

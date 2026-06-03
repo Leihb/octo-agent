@@ -749,11 +749,7 @@ func (m *tuiModel) liveHeight() int {
 	}
 	h += m.completionHeight() // slash-completion menu (0 when closed)
 	h += m.ta.Height()        // input box (textarea grows with content)
-	if m.turnRunning {
-		h += 3 // status bar with hint: separator + segments + hint
-	} else {
-		h += 2 // status bar without hint: separator + segments
-	}
+	h += 2                    // status bar: separator + segments (no hint line)
 	return h
 }
 
@@ -953,22 +949,11 @@ func (m *tuiModel) renderStatusBar() string {
 	if m.cfg.permEngine != nil {
 		segs = append(segs, [2]string{"perm", string(m.cfg.permEngine.GetMode())})
 	}
-	if m.turnRunning && !m.turnStart.IsZero() {
-		segs = append(segs, [2]string{"elapsed", time.Since(m.turnStart).Round(time.Second).String()})
-	}
 
-	var hint string
-	if m.turnRunning {
-		esc := "Esc interrupt"
-		if m.echoPending != "" {
-			esc = "Esc take back" // no output yet — Esc returns the message to the input
-		}
-		hint = "Enter steer · Shift+Enter/Alt+Enter/Ctrl+J newline · Ctrl+Q queue · " + esc
-		if len(m.queue) > 0 {
-			hint += " · Ctrl+X unqueue"
-		}
-	}
-	return tui.StatusBar(segs, hint, m.width)
+	// Key hints live in the startup banner, not here, and the running-turn
+	// duration is intentionally omitted — the status bar stays a compact
+	// cwd / context% / perm-mode strip.
+	return tui.StatusBar(segs, "", m.width)
 }
 
 // workingDir returns the current directory, or "" if it can't be determined.

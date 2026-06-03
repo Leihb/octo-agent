@@ -4,22 +4,27 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestRenderStatusBar_ShowsModelAndHint(t *testing.T) {
-	m := newTestModel() // agent model name is "m"
-	out := m.renderStatusBar()
-	if !strings.Contains(out, "m") {
-		t.Errorf("status bar should include the model; got:\n%s", out)
+// The status bar is a compact cwd / context% / perm strip: no key hints (those
+// live in the startup banner) and no running-turn duration.
+func TestRenderStatusBar_NoHintNoDuration(t *testing.T) {
+	m := newTestModel()
+	if !strings.Contains(m.renderStatusBar(), m.cwd) {
+		t.Errorf("status bar should include the cwd; got:\n%s", m.renderStatusBar())
 	}
-	// Idle: no persistent hint (the startup hint is shown once in the Banner).
-	if strings.Contains(out, "Enter send") {
-		t.Errorf("idle status bar should NOT show a persistent send hint; got:\n%s", out)
-	}
-	// Running hint switches.
+
 	m.turnRunning = true
-	if got := m.renderStatusBar(); !strings.Contains(got, "interrupt") {
-		t.Errorf("running status bar should show the interrupt hint; got:\n%s", got)
+	m.turnStart = time.Now().Add(-90 * time.Second)
+	out := m.renderStatusBar()
+	for _, hint := range []string{"Enter", "interrupt", "newline", "queue"} {
+		if strings.Contains(out, hint) {
+			t.Errorf("status bar must not show key hint %q (banner owns hints); got:\n%s", hint, out)
+		}
+	}
+	if strings.Contains(out, "1m30s") || strings.Contains(out, "elapsed") {
+		t.Errorf("status bar must not show the turn duration; got:\n%s", out)
 	}
 }
 

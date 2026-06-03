@@ -58,7 +58,17 @@ var (
 			Foreground(ColMuted)
 	bannerSepStyle = lipgloss.NewStyle().
 			Foreground(ColBorder)
+	bannerHintStyle = lipgloss.NewStyle().
+			Foreground(ColDimmer).
+			Italic(true)
 )
+
+// bannerHints are the key bindings shown beside the mascot at startup, so the
+// bottom status bar can stay free of a persistent hint line.
+var bannerHints = []string{
+	"Enter send · Shift+Enter/Ctrl+J newline · Ctrl+Q queue",
+	"Shift+Tab perm-mode · Esc interrupt · Ctrl+C quit",
+}
 
 // octopusASCII is the pixel-art octo mascot (8x7 grid).
 var octopusASCII = []string{
@@ -106,6 +116,12 @@ func Banner(version, model, cwd string, width int) string {
 		case 2:
 			b.WriteString("  ")
 			b.WriteString(bannerSubStyle.Render(info))
+		case 3:
+			b.WriteString("  ")
+			b.WriteString(bannerHintStyle.Render(bannerHints[0]))
+		case 4:
+			b.WriteString("  ")
+			b.WriteString(bannerHintStyle.Render(bannerHints[1]))
 		}
 		b.WriteByte('\n')
 	}
