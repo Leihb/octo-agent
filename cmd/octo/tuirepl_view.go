@@ -115,10 +115,7 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Idle: clear the input line and discard any pending attachments.
-		if len(m.pendingAttachments) > 0 {
-			m.pendingAttachments = nil
-			m.println(noticeStyle.Render("📎 attachments discarded"))
-		}
+		m.pendingAttachments = nil
 		m.ta.Reset()
 		m.inputHistoryIdx = -1
 		return m, m.updateTextAreaHeight()
@@ -276,7 +273,6 @@ func (m *tuiModel) pasteClipboardImage() (tea.Model, tea.Cmd) {
 		block: agent.NewImageBlock(mime, data),
 		label: label,
 	})
-	m.println(noticeStyle.Render("📎 attached " + label + " — it rides your next message"))
 	return m, nil
 }
 
