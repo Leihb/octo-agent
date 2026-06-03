@@ -70,19 +70,45 @@ var bannerHints = []string{
 	"Shift+Tab perm-mode · Esc interrupt · Ctrl+C quit",
 }
 
-// octopusASCII is the pixel-art octo mascot (8x7 grid).
+// octopusASCII is the pixel-art octo mascot — a rounded blue octopus with a
+// domed head, two eyes, and three dangling tentacles. The ● glyphs are the
+// eyes; everything else is the body. renderOcto colours them.
 var octopusASCII = []string{
-	"    ████████",
-	"  ████░░░░████",
-	"  ████████████",
-	"████████████████",
-	"████  ████  ████",
-	"██    ████    ██",
-	"      ████",
+	"     ▄██████▄",
+	"   ▟██████████▙",
+	"   ██ ●  ● ██",
+	"   ██████████████",
+	"   ▜██▛▜██▛▜██▛",
+	"    ▘    ▘    ▘",
+}
+
+// octoArtWidth is the column the banner text starts at — wide enough to clear
+// the widest art line plus a two-space gutter, so the title/info/hints align.
+const octoArtWidth = 19
+
+var (
+	octoBodyStyle = lipgloss.NewStyle().Foreground(ColUserMsg).Bold(true)
+	octoEyeStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#FFFFFF"})
+)
+
+// renderOcto colours one mascot line: the body in blue, the ● eyes in white.
+func renderOcto(line string) string {
+	if !strings.Contains(line, "●") {
+		return octoBodyStyle.Render(line)
+	}
+	parts := strings.Split(line, "●")
+	var sb strings.Builder
+	for i, p := range parts {
+		sb.WriteString(octoBodyStyle.Render(p))
+		if i < len(parts)-1 {
+			sb.WriteString(octoEyeStyle.Render("●"))
+		}
+	}
+	return sb.String()
 }
 
 // BannerHeight is the number of lines Banner renders (including the separator).
-const BannerHeight = 8
+const BannerHeight = 7
 
 // Banner renders the octo chat welcome header with pixel-art mascot.
 // The icon sits left of the title, Claude Code style.
@@ -105,22 +131,28 @@ func Banner(version, model, cwd string, width int) string {
 		info += cwd
 	}
 
-	// Merge art + text side-by-side
+	// Merge art + text side-by-side. The art is colourised; each text line is
+	// pushed to a fixed column so the title/info/hints align past the mascot.
 	var b strings.Builder
 	for i, artLine := range octopusASCII {
-		b.WriteString(artLine)
+		b.WriteString(renderOcto(artLine))
+		gap := octoArtWidth - lipgloss.Width(artLine)
+		if gap < 2 {
+			gap = 2
+		}
+		pad := strings.Repeat(" ", gap)
 		switch i {
 		case 1:
-			b.WriteString("  ")
+			b.WriteString(pad)
 			b.WriteString(bannerStyle.Render(title))
 		case 2:
-			b.WriteString("  ")
+			b.WriteString(pad)
 			b.WriteString(bannerSubStyle.Render(info))
 		case 3:
-			b.WriteString("  ")
+			b.WriteString(pad)
 			b.WriteString(bannerHintStyle.Render(bannerHints[0]))
 		case 4:
-			b.WriteString("  ")
+			b.WriteString(pad)
 			b.WriteString(bannerHintStyle.Render(bannerHints[1]))
 		}
 		b.WriteByte('\n')
