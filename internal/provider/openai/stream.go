@@ -36,6 +36,7 @@ type toolCallState struct {
 func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
 	onChunk := cb.OnText
 	onToolDelta := cb.OnToolDelta
+	onThinking := cb.OnThinking
 	if req.Model == "" {
 		return provider.Response{}, errors.New("openai: req.Model is required")
 	}
@@ -49,13 +50,14 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 	}
 
 	body := apiRequest{
-		Model:          req.Model,
-		MaxTokens:      req.MaxTokens,
-		Messages:       msgs,
-		Stream:         true,
-		StreamOptions:  &apiStreamOptions{IncludeUsage: true},
-		Tools:          toAPITools(req.Tools),
-		PromptCacheKey: req.CacheKey,
+		Model:           req.Model,
+		MaxTokens:       req.MaxTokens,
+		Messages:        msgs,
+		Stream:          true,
+		StreamOptions:   &apiStreamOptions{IncludeUsage: true},
+		Tools:           toAPITools(req.Tools),
+		PromptCacheKey:  req.CacheKey,
+		ReasoningEffort: req.ReasoningEffort,
 	}
 	if body.MaxTokens <= 0 {
 		body.MaxTokens = DefaultMaxTokens
@@ -174,9 +176,16 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 				onChunk(choice.Delta.Content)
 			}
 		}
-		// Reasoning trace from thinking models streams in its own delta field;
-		// accumulate but don't surface as visible text.
-		reasoningB.WriteString(choice.Delta.ReasoningContent)
+		// Reasoning trace from thinking models streams in its own delta field.
+		// Always accumulate it (attachReasoning pins it to the tool_use block so
+		// it round-trips in history); surface it to onThinking too when the
+		// caller wants the trace displayed.
+		if choice.Delta.ReasoningContent != "" {
+			reasoningB.WriteString(choice.Delta.ReasoningContent)
+			if onThinking != nil {
+				onThinking(choice.Delta.ReasoningContent)
+			}
+		}
 		// Accumulate tool call fragments.
 		for _, tc := range choice.Delta.ToolCalls {
 			st, exists := toolStates[tc.Index]

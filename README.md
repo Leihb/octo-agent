@@ -79,6 +79,10 @@ octo chat --provider openai --model gpt-4o-mini "..."
 ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
   octo chat --model deepseek-chat "..."
 
+# Extended reasoning: set the intensity (Anthropic thinking / OpenAI reasoning_effort)
+# and stream the dimmed thinking trace. --show-reasoning=false hides the trace.
+octo chat --reasoning-effort high "..."
+
 # Plain chat with no tools / MCP / skills
 octo chat --no-tools "..."
 
@@ -98,9 +102,9 @@ octo serve --addr 127.0.0.1:8080
 octo channel login
 octo channel start
 
-# Autonomous multi-step goal: plan into a subtask DAG and run it
-octo goal start "Add a --json flag to octo config show"
-octo goal status <id>
+# Autonomous long-horizon goal: plan into a subtask DAG and run it to completion
+octo conduct "Add a --json flag to octo config show"
+octo conduct status <id>
 ```
 
 ## Configuration
@@ -115,9 +119,18 @@ Octo composes its system prompt from several optional layers (later overrides ea
 
 The identity and rule files support `@include path/to/fragment.md` to pull in shared content.
 
+### Reasoning
+
+Reasoning models can deliberate before answering. Two knobs control it, both available as CLI flags and as `octo config` defaults:
+
+- `--reasoning-effort low|medium|high` — the intensity. OpenAI-protocol backends receive it as `reasoning_effort`; Anthropic-protocol backends map it to an extended-thinking token budget. Empty (the default) means off.
+- `--show-reasoning` (default on) — stream the thinking trace to the terminal, dimmed. `--show-reasoning=false` keeps reasoning enabled but hides the trace.
+
+This unifies Anthropic `thinking` blocks and OpenAI `reasoning_content` behind one pair of controls.
+
 ### Defaults (`octo config`)
 
-`octo config` saves your default provider, model, and (optionally) base URL to `~/.octo/config.json`, so a bare `octo chat` works without re-typing `--provider`/`--model` every time:
+`octo config` saves your default provider, model, (optionally) base URL, and reasoning settings to `~/.octo/config.json`, so a bare `octo chat` works without re-typing `--provider`/`--model` every time:
 
 ```bash
 octo config        # interactive wizard
@@ -163,6 +176,7 @@ octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatabl
 |------|--------|-------------|
 | Core CLI | done | Headless agentic one-shot (`claude -p` style) + interactive TUI, streaming, session persistence (`~/.octo/sessions/`), `/cost` `/save` `/sessions` |
 | Providers | done | Anthropic Messages + OpenAI Chat Completions, plus any compatible third party |
+| Reasoning | done | Unified extended thinking (Anthropic) / `reasoning_content` (OpenAI), `--reasoning-effort`, `--show-reasoning` |
 | Tools | done | `terminal` (+ background), file read/write/edit, glob, grep, web fetch/search |
 | Agentic loop | done | Multi-step tool calling, permission gating, history compaction, graceful Ctrl-C |
 | Memory & config | done | `~/.octo/octorules.md`, `.octorules`, `octo init`, `@include` |
@@ -171,7 +185,7 @@ octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatabl
 | MCP client | done | `mcp.json` stdio + Streamable HTTP servers, tools/resources/prompts, device-flow OAuth |
 | Memory | done | Persistent cross-session memory under `~/.octo/memory/`, auto extract/consolidate |
 | Sub-agents | done | `launch_agent` fan-out, async + resumable (`send_message`, `agent_status`, `kill_agent`) |
-| Task graph | done | `octo goal` — plan a goal into a subtask DAG, run it via sub-agents, resume after crash |
+| Orchestration | done | `octo conduct` — plan a goal into a subtask DAG, run it via sub-agents, resume after crash |
 | Web server | done | `octo serve` — REST + SSE, embedded dashboard UI (bind localhost) |
 | IM bridge | done | `octo channel` — WeChat iLink adapter (QR login, per-user sessions, slash commands) |
 
@@ -180,7 +194,7 @@ octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatabl
 Layered, one-directional dependency graph:
 
 ```
-cmd/octo/          CLI entry (chat one-shot + TUI, serve, channel, goal, mcp, slash commands)
+cmd/octo/          CLI entry (chat one-shot + TUI, serve, channel, conduct, mcp, slash commands)
    ↓
 internal/agent/    History, sessions, content blocks, Sender interface,
                    Agent.Turn / TurnStream / Run (tool-calling loop)
@@ -196,7 +210,7 @@ internal/permission/  allow/deny/ask rule engine gating every tool call
 internal/mcp/      MCP client (stdio + HTTP, OAuth)
 internal/server/   octo serve — HTTP REST + SSE + embedded dashboard
 internal/channel/  IM bridge — adapter interface + WeChat iLink adapter
-internal/taskgraph/  octo goal — subtask DAG planner + scheduler
+internal/conductor/  octo conduct — subtask DAG planner + scheduler
 ```
 
 Each provider implements both **buffered** (`Send`) and **streaming** (`SendStream`) variants. The agent layer mirrors with `Sender` / `StreamingSender` / `ToolSender` / `ToolStreamingSender` — interfaces are added incrementally so non-streaming providers still work.
@@ -210,7 +224,7 @@ make vet           # go vet ./...
 make fmt-check     # gofmt -l . must be empty
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for the project guide intended for AI coding agents working in this repo, and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the human PR workflow.
+Project conventions live in [`.octorules`](.octorules) (the human-facing rules); [`CLAUDE.md`](CLAUDE.md) expands them with the operational detail AI coding agents need in this repo. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the human PR workflow.
 
 ## License
 

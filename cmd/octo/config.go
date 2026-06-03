@@ -175,6 +175,20 @@ func runConfigShow(stdout, stderr io.Writer) int {
 		}
 	}
 	fmt.Fprintf(stdout, "  coauthor:  %s\n", coauthorStatus)
+	effortStatus := "off (default)"
+	if cfg.ReasoningEffort != "" {
+		effortStatus = cfg.ReasoningEffort + " (config)"
+	}
+	fmt.Fprintf(stdout, "  reasoning: %s\n", effortStatus)
+	showStatus := "on (default)"
+	if cfg.ShowReasoning != nil {
+		if *cfg.ShowReasoning {
+			showStatus = "on (config)"
+		} else {
+			showStatus = "off (config)"
+		}
+	}
+	fmt.Fprintf(stdout, "  show trace: %s\n", showStatus)
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "CLI flags (--provider, --model, --system) and env vars override this file per run.")
 	return 0
@@ -245,6 +259,25 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 		"Append Co-authored-by to git commits? (Y/n)", coauthorDefault)))
 	coauthorVal := coauthorAns != "n" && coauthorAns != "no"
 	out.Coauthor = &coauthorVal
+
+	// Reasoning effort: empty (off) by default; offer the existing value.
+	effortAns := strings.ToLower(strings.TrimSpace(promptDefault(reader, stdout,
+		"Reasoning effort (low | medium | high, empty = off)", existing.ReasoningEffort)))
+	if !validReasoningEffort(effortAns) {
+		fmt.Fprintf(stderr, "octo config: invalid reasoning effort %q (use 'low', 'medium', 'high', or empty)\n", effortAns)
+		return 2
+	}
+	out.ReasoningEffort = effortAns
+
+	// Show the reasoning/thinking trace: default on.
+	showDefault := "y"
+	if existing.ShowReasoning != nil && !*existing.ShowReasoning {
+		showDefault = "n"
+	}
+	showAns := strings.ToLower(strings.TrimSpace(promptDefault(reader, stdout,
+		"Show the reasoning/thinking trace while streaming? (Y/n)", showDefault)))
+	showVal := showAns != "n" && showAns != "no"
+	out.ShowReasoning = &showVal
 
 	// API key: env is the recommended home for it. Offer to store it only if
 	// the env var is empty, and make declining the obvious default.

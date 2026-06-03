@@ -40,6 +40,10 @@ type apiRequest struct {
 	// PromptCacheKey routes the request to a consistent prompt cache. Stable
 	// across a conversation's turns → higher cache hit-rate. Omitted when empty.
 	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
+	// ReasoningEffort tunes how much a reasoning model deliberates before
+	// answering ("low" | "medium" | "high"). Omitted when empty so non-reasoning
+	// models and backends that don't support the field are unaffected.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // apiStreamOptions is the stream_options object on a streaming request.

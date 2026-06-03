@@ -28,6 +28,14 @@ type Config struct {
 	// Coauthor, when true, instructs the agent to append a Co-authored-by line
 	// to every git commit message it writes. Default is true (enabled).
 	Coauthor *bool `json:"coauthor,omitempty"`
+	// ShowReasoning controls whether a reasoning model's thinking trace is
+	// streamed to the terminal (dimmed). Covers both Anthropic thinking blocks
+	// and OpenAI reasoning_content. nil means the built-in default (enabled).
+	ShowReasoning *bool `json:"show_reasoning,omitempty"`
+	// ReasoningEffort sets the unified reasoning intensity ("low" | "medium" |
+	// "high"). OpenAI sends it as reasoning_effort; Anthropic maps it to an
+	// extended-thinking token budget. Empty means off (no extended reasoning).
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// APIKey, when set, is a plaintext fallback used only if the provider's
 	// env var is empty. Opt-in via `octo config` and stored mode 0600. Prefer
 	// the env var.

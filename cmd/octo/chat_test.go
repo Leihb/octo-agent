@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/provider"
 )
 
@@ -198,6 +199,64 @@ func TestResolveMaxTurns(t *testing.T) {
 				t.Errorf("resolveMaxTurns(%d, %v, %v) = %d, want %d", c.flagVal, c.seeded, c.interactive, got, c.want)
 			}
 		})
+	}
+}
+
+func TestResolveShowReasoning(t *testing.T) {
+	tru, fls := true, false
+	cases := []struct {
+		name    string
+		flagSet bool
+		flagVal bool
+		cfg     config.Config
+		want    bool
+	}{
+		{"default on", false, true, config.Config{}, true},
+		{"config off", false, true, config.Config{ShowReasoning: &fls}, false},
+		{"config on", false, true, config.Config{ShowReasoning: &tru}, true},
+		{"flag off beats config on", true, false, config.Config{ShowReasoning: &tru}, false},
+		{"flag on beats config off", true, true, config.Config{ShowReasoning: &fls}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := resolveShowReasoning(c.flagSet, c.flagVal, c.cfg); got != c.want {
+				t.Errorf("resolveShowReasoning(%v, %v, %+v) = %v, want %v", c.flagSet, c.flagVal, c.cfg, got, c.want)
+			}
+		})
+	}
+}
+
+func TestResolveReasoningEffort(t *testing.T) {
+	if got := resolveReasoningEffort("high", config.Config{ReasoningEffort: "low"}); got != "high" {
+		t.Errorf("flag should win: got %q", got)
+	}
+	if got := resolveReasoningEffort("", config.Config{ReasoningEffort: "medium"}); got != "medium" {
+		t.Errorf("config fallback: got %q", got)
+	}
+	if got := resolveReasoningEffort("", config.Config{}); got != "" {
+		t.Errorf("default off: got %q", got)
+	}
+}
+
+func TestValidReasoningEffort(t *testing.T) {
+	for _, ok := range []string{"", "low", "medium", "high"} {
+		if !validReasoningEffort(ok) {
+			t.Errorf("validReasoningEffort(%q) = false, want true", ok)
+		}
+	}
+	for _, bad := range []string{"none", "max", "LOW", "1"} {
+		if validReasoningEffort(bad) {
+			t.Errorf("validReasoningEffort(%q) = true, want false", bad)
+		}
+	}
+}
+
+func TestAnthropicThinkingBudget(t *testing.T) {
+	cases := map[string]int{"": 0, "low": 4096, "medium": 16384, "high": 32768}
+	for effort, want := range cases {
+		if got := anthropicThinkingBudget(effort); got != want {
+			t.Errorf("anthropicThinkingBudget(%q) = %d, want %d", effort, got, want)
+		}
 	}
 }
 

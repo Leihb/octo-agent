@@ -87,6 +87,102 @@ func TestSendStream_OpenAI_AggregatesAndCallsBack(t *testing.T) {
 	}
 }
 
+// reasoningOpenAIStream interleaves reasoning_content deltas (the field
+// DeepSeek/Kimi-style reasoning models stream) with the visible answer.
+const reasoningOpenAIStream = "" +
+	`data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"role":"assistant"}}]}` + "\n\n" +
+	`data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"reasoning_content":"let me "}}]}` + "\n\n" +
+	`data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"reasoning_content":"think"}}]}` + "\n\n" +
+	`data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":"answer"}}]}` + "\n\n" +
+	`data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n" +
+	"data: [DONE]\n\n"
+
+// SendStream must surface reasoning_content fragments to OnThinking (so the CLI
+// can display the trace) while keeping them out of OnText/Content, and must
+// forward ReasoningEffort to the wire as reasoning_effort.
+func TestSendStream_OpenAI_SurfacesReasoning(t *testing.T) {
+	var gotEffort string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bodyBytes, _ := io.ReadAll(r.Body)
+		var req apiRequest
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+			t.Fatalf("decode req: %v", err)
+		}
+		gotEffort = req.ReasoningEffort
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, reasoningOpenAIStream)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New("test-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.BaseURL = srv.URL
+
+	var text, thinking []string
+	resp, err := c.SendStream(context.Background(), provider.Request{
+		Model:           "deepseek-reasoner",
+		Messages:        []agent.Message{agent.NewUserMessage("hi")},
+		ReasoningEffort: "high",
+	}, provider.StreamCallbacks{
+		OnText:     func(d string) { text = append(text, d) },
+		OnThinking: func(d string) { thinking = append(thinking, d) },
+	})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+
+	if got, want := strings.Join(thinking, ""), "let me think"; got != want {
+		t.Errorf("thinking = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(text, ""), "answer"; got != want {
+		t.Errorf("text = %q, want %q", got, want)
+	}
+	// Reasoning must NOT leak into the visible content.
+	if resp.Content != "answer" {
+		t.Errorf("Content = %q, want %q (reasoning must stay out of visible text)", resp.Content, "answer")
+	}
+	if gotEffort != "high" {
+		t.Errorf("wire reasoning_effort = %q, want %q", gotEffort, "high")
+	}
+}
+
+// With no OnThinking callback the stream must still parse cleanly — reasoning is
+// accumulated for history round-trip but simply not surfaced.
+func TestSendStream_OpenAI_ReasoningWithoutCallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, reasoningOpenAIStream)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New("test-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.BaseURL = srv.URL
+
+	resp, err := c.SendStream(context.Background(), provider.Request{
+		Model:    "deepseek-reasoner",
+		Messages: []agent.Message{agent.NewUserMessage("hi")},
+	}, provider.StreamCallbacks{})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+	if resp.Content != "answer" {
+		t.Errorf("Content = %q, want %q", resp.Content, "answer")
+	}
+}
+
 // A finish_reason of "length" (output-cap truncation) must be normalised to the
 // canonical "max_tokens" sentinel so the agent loop's truncation recovery is
 // provider-agnostic.

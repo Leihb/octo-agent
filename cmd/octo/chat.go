@@ -147,6 +147,51 @@ func resolveCoauthor(noCoauthorFlag bool, cfg config.Config) bool {
 	return true
 }
 
+// resolveShowReasoning determines whether the reasoning/thinking trace is
+// streamed to the terminal. Precedence: an explicit --show-reasoning flag >
+// config file > default (true).
+func resolveShowReasoning(flagSet, flagVal bool, cfg config.Config) bool {
+	if flagSet {
+		return flagVal
+	}
+	if cfg.ShowReasoning != nil {
+		return *cfg.ShowReasoning
+	}
+	return true
+}
+
+// resolveReasoningEffort picks the reasoning intensity: --reasoning-effort flag
+// > config file > "" (off).
+func resolveReasoningEffort(flagVal string, cfg config.Config) string {
+	if flagVal != "" {
+		return flagVal
+	}
+	return cfg.ReasoningEffort
+}
+
+// validReasoningEffort reports whether e is an accepted reasoning intensity.
+func validReasoningEffort(e string) bool {
+	switch e {
+	case "", "low", "medium", "high":
+		return true
+	}
+	return false
+}
+
+// anthropicThinkingBudget maps a unified reasoning-effort level to an Anthropic
+// extended-thinking token budget. "" (off) yields 0, which disables thinking.
+func anthropicThinkingBudget(effort string) int {
+	switch effort {
+	case "low":
+		return 4096
+	case "medium":
+		return 16384
+	case "high":
+		return 32768
+	}
+	return 0
+}
+
 // defaultModels maps each provider to the model used when `--model` isn't
 // supplied. Both defaults are the cheapest reasoning-capable model in the
 // respective vendor's catalogue at the time of writing — the right pick for
@@ -193,7 +238,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	noCoauthor := fs.Bool("no-coauthor", false, "Disable appending Co-authored-by to git commit messages. Also OCTO_COAUTHOR=0.")
 	maxTurns := fs.Int("max-turns", 0, "Max provider round-trips per message in the agentic loop (0 = auto: 100 interactive, unlimited unattended/--prompt-file)")
 	compactThreshold := fs.Int("compact-threshold", 0, "Compact older history once a turn's input crosses this many tokens; 0 = auto (~75% of the model's context window), <0 = disabled")
-	thinkingBudget := fs.Int("thinking-budget", 0, "Enable extended thinking with this token budget (Anthropic/Kimi); 0 = off")
+	reasoningEffort := fs.String("reasoning-effort", "", "Reasoning intensity: low | medium | high (empty = off). OpenAI → reasoning_effort; Anthropic → mapped thinking budget. Also from `octo config`.")
+	showReasoning := fs.Bool("show-reasoning", true, "Stream the reasoning/thinking trace to the terminal (dimmed). Use --show-reasoning=false to hide it. Also from `octo config`.")
 	useSandbox := fs.Bool("sandbox", false, "Confine terminal commands to the project dir + tmp with no network (OS-enforced; macOS/Linux). Fails closed if unavailable.")
 	sandboxAllowNet := fs.Bool("sandbox-allow-net", false, "Under --sandbox, permit network access (default: denied)")
 	var sandboxWrite, sandboxRead stringList
@@ -293,6 +339,22 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	// Resolve reasoning controls: --reasoning-effort sets the intensity (OpenAI
+	// reasoning_effort / mapped Anthropic budget); --show-reasoning gates whether
+	// the trace is streamed to the terminal. Both fall back to `octo config`.
+	resolvedEffort := resolveReasoningEffort(*reasoningEffort, cfg)
+	if !validReasoningEffort(resolvedEffort) {
+		fmt.Fprintf(stderr, "octo chat: invalid --reasoning-effort %q (want 'low', 'medium', or 'high')\n", resolvedEffort)
+		return 2
+	}
+	showReasoningFlagSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "show-reasoning" {
+			showReasoningFlagSet = true
+		}
+	})
+	resolvedShowReasoning := resolveShowReasoning(showReasoningFlagSet, *showReasoning, cfg)
+
 	// Single-turn mode requires a message.
 	if !isREPL && resumeID != "" {
 		fmt.Fprintln(stderr, "octo chat: -c/--continue requires interactive mode (omit the message argument)")
@@ -385,10 +447,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// A stable per-process cache key lets OpenAI route every turn (and every
 	// tool-loop iteration) of this conversation to the same prompt cache.
 	a := agent.New(providerSender{
-		p:              prov,
-		cacheKey:       newCacheKey(),
-		thinkingBudget: *thinkingBudget,
-		thinkingOut:    stdout,
+		p:               prov,
+		cacheKey:        newCacheKey(),
+		thinkingBudget:  anthropicThinkingBudget(resolvedEffort),
+		reasoningEffort: resolvedEffort,
+		showReasoning:   resolvedShowReasoning,
+		thinkingOut:     stdout,
 	}, resolvedModel)
 	a.CWD = cwd
 	a.MaxTokens = *maxTokens
@@ -732,8 +796,17 @@ type providerSender struct {
 	// same prompt cache. Empty is fine — providers omit the field.
 	cacheKey string
 	// thinkingBudget, when > 0, enables extended thinking (Anthropic) with this
-	// token budget for the reasoning trace.
+	// token budget for the reasoning trace. Derived from the unified reasoning
+	// effort. Ignored by the OpenAI provider.
 	thinkingBudget int
+	// reasoningEffort ("low" | "medium" | "high"), when non-empty, is forwarded
+	// to the OpenAI provider as reasoning_effort. Ignored by Anthropic, which
+	// uses thinkingBudget instead.
+	reasoningEffort string
+	// showReasoning gates whether the streamed reasoning/thinking trace is
+	// rendered. When false, thinkingRenderer is a no-op even though the provider
+	// may still produce (and history may still carry) the trace.
+	showReasoning bool
 	// thinkingOut, when non-nil, is where the streamed thinking trace is printed
 	// (dimmed). Nil disables thinking display.
 	thinkingOut io.Writer
@@ -743,7 +816,7 @@ type providerSender struct {
 // trace dimmed, and a close function that ends the dim styling before the
 // visible answer begins. Both are no-ops when thinking display is off.
 func (s providerSender) thinkingRenderer() (onThinking func(string), closeThinking func()) {
-	if s.thinkingOut == nil || s.thinkingBudget <= 0 {
+	if s.thinkingOut == nil || !s.showReasoning {
 		return nil, func() {}
 	}
 	var started, closed bool
@@ -779,12 +852,13 @@ func (s providerSender) SendMessages(ctx context.Context, model, system string, 
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
 	}
 	resp, err := s.p.Send(ctx, provider.Request{
-		Model:          model,
-		SystemPrompt:   system,
-		Messages:       msgs,
-		MaxTokens:      maxTokens,
-		CacheKey:       s.cacheKey,
-		ThinkingBudget: s.thinkingBudget,
+		Model:           model,
+		SystemPrompt:    system,
+		Messages:        msgs,
+		MaxTokens:       maxTokens,
+		CacheKey:        s.cacheKey,
+		ThinkingBudget:  s.thinkingBudget,
+		ReasoningEffort: s.reasoningEffort,
 	})
 	if err != nil {
 		return agent.Reply{}, err
@@ -809,12 +883,13 @@ func (s providerSender) StreamMessages(
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
 	}
 	req := provider.Request{
-		Model:          model,
-		SystemPrompt:   system,
-		Messages:       msgs,
-		MaxTokens:      maxTokens,
-		CacheKey:       s.cacheKey,
-		ThinkingBudget: s.thinkingBudget,
+		Model:           model,
+		SystemPrompt:    system,
+		Messages:        msgs,
+		MaxTokens:       maxTokens,
+		CacheKey:        s.cacheKey,
+		ThinkingBudget:  s.thinkingBudget,
+		ReasoningEffort: s.reasoningEffort,
 	}
 	if sp, ok := s.p.(provider.StreamingProvider); ok {
 		onThinking, closeThinking := s.thinkingRenderer()
@@ -871,13 +946,14 @@ func (s providerSender) SendMessagesWithTools(
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
 	}
 	resp, err := s.p.Send(ctx, provider.Request{
-		Model:          model,
-		SystemPrompt:   system,
-		Messages:       msgs,
-		MaxTokens:      maxTokens,
-		CacheKey:       s.cacheKey,
-		Tools:          tools,
-		ThinkingBudget: s.thinkingBudget,
+		Model:           model,
+		SystemPrompt:    system,
+		Messages:        msgs,
+		MaxTokens:       maxTokens,
+		CacheKey:        s.cacheKey,
+		Tools:           tools,
+		ThinkingBudget:  s.thinkingBudget,
+		ReasoningEffort: s.reasoningEffort,
 	})
 	if err != nil {
 		return agent.Reply{}, err
@@ -901,13 +977,14 @@ func (s providerSender) StreamMessagesWithTools(
 		return agent.Reply{}, errors.New("providerSender: provider is nil")
 	}
 	req := provider.Request{
-		Model:          model,
-		SystemPrompt:   system,
-		Messages:       msgs,
-		MaxTokens:      maxTokens,
-		CacheKey:       s.cacheKey,
-		Tools:          tools,
-		ThinkingBudget: s.thinkingBudget,
+		Model:           model,
+		SystemPrompt:    system,
+		Messages:        msgs,
+		MaxTokens:       maxTokens,
+		CacheKey:        s.cacheKey,
+		Tools:           tools,
+		ThinkingBudget:  s.thinkingBudget,
+		ReasoningEffort: s.reasoningEffort,
 	}
 	if sp, ok := s.p.(provider.StreamingProvider); ok {
 		// Callbacks are forwarded. provider.StreamCallbacks is a per-event

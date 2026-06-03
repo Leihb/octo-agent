@@ -41,6 +41,12 @@ type Request struct {
 	// budget for the reasoning trace. Only the Anthropic provider honors it
 	// (Claude / Kimi k2.6 via the thinking request field); others ignore it.
 	ThinkingBudget int
+
+	// ReasoningEffort, when non-empty ("low" | "medium" | "high"), is forwarded
+	// as the OpenAI-protocol reasoning_effort request field. Only the OpenAI
+	// provider honors it; the Anthropic provider expresses reasoning intensity
+	// through ThinkingBudget instead and ignores this field.
+	ReasoningEffort string
 }
 
 // Response is the assistant reply produced by Send.

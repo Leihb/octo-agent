@@ -112,8 +112,10 @@ func chatCandidates(words []string, prev string) []string {
 		return []string{"anthropic", "openai"}
 	case "--permission-mode":
 		return []string{"interactive", "strict", "auto"}
+	case "--reasoning-effort":
+		return []string{"low", "medium", "high"}
 	case "--model", "--system", "--max-tokens", "--max-tokens-escalate", "--max-turns",
-		"--compact-threshold", "--thinking-budget",
+		"--compact-threshold",
 		"--sandbox-write", "--sandbox-read":
 		// These take freeform values; nothing useful to suggest.
 		return nil
@@ -248,13 +250,14 @@ var topLevelCommands = []string{
 
 // chatFlags + initFlags are intentionally not the full flag list — we ship
 // the most useful ones for TAB completion. Long-tail flags (e.g.
-// --thinking-budget) still work; users just type them in full. Keeping the
+// --max-tokens-escalate) still work; users just type them in full. Keeping the
 // list focused avoids drowning the completion popup with rarely-used flags.
 var chatFlags = []string{
 	"-c", "--continue", "--tools", "--no-tools", "--provider", "--model",
 	"--no-save", "--no-memory", "--no-suggest", "--sandbox", "--sandbox-allow-net",
 	"--permission-mode", "--list-sessions", "--list-skills",
 	"--quiet", "--verbose", "--plain", "--stream", "--system",
+	"--reasoning-effort", "--show-reasoning",
 	"--help",
 }
 
