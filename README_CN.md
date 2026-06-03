@@ -128,7 +128,7 @@ Octo 的系统提示由若干可选层叠加而成（后者覆盖前者）：
 
 ### 默认值（`octo config`）
 
-`octo config` 把默认 provider、model、（可选）base URL 和推理设置存到 `~/.octo/config.json`，这样裸跑 `octo chat` 就不必每次重敲 `--provider`/`--model`：
+`octo config` 把默认 provider、model、（可选）base URL 和推理设置存到 `~/.octo/config.yaml`，这样裸跑 `octo chat` 就不必每次重敲 `--provider`/`--model`：
 
 ```bash
 octo config        # 交互式向导
@@ -136,7 +136,7 @@ octo config show   # 打印当前生效设置及各项来源
 octo config path   # 打印配置文件路径
 ```
 
-优先级：**命令行 flag > 环境变量 > `~/.octo/config.json` > 内置默认**。API key 优先从 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 读取；向导可选择把 key 存进文件（权限 `0600`），但推荐用环境变量。
+优先级：**命令行 flag > 环境变量 > `~/.octo/config.yaml` > 内置默认**。API key 优先从 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 读取；向导可选择把 key 存进文件（权限 `0600`），但推荐用环境变量。
 
 ## Skills
 
