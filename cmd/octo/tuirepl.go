@@ -130,6 +130,7 @@ type bgExitMsg struct{ e tools.BgExit }                      // a background pro
 type subAgentNoteMsg struct{ ev tools.SubAgentNotification } // a sub-agent completed (async)
 type subAgentEventMsg struct{ ev tools.SubAgentEvent }       // a sub-agent's runtime activity (async)
 type suggestionMsg struct{ text string }                     // an after-turn follow-up suggestion (async)
+type titleMsg struct{ text string }                          // a generated session title (async)
 type tickMsg struct{}                                        // animation tick while a turn runs
 type askMsg struct {
 	prompt UserPrompt
@@ -345,6 +346,10 @@ type tuiModel struct {
 	// text in the empty input box (the textarea placeholder). Accepted with
 	// Tab/→, cleared when a turn starts. Empty means none pending.
 	suggestion string
+
+	// titlePending guards the one-shot async title generation so a second turn
+	// finishing before the first title returns doesn't fire it twice.
+	titlePending bool
 
 	// subAgents holds the live state of currently-running sub-agents, keyed by
 	// manager handle (agent_N), rendered as a bottom panel. An entry appears on
@@ -578,6 +583,14 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.flushPrints()
 
+	case titleMsg:
+		// Persist the generated title (silent — it surfaces in the session list).
+		m.titlePending = false
+		if msg.text != "" && !m.cfg.noSave {
+			_ = m.cfg.session.SetTitle(msg.text)
+		}
+		return m, m.flushPrints()
+
 	case subAgentNoteMsg:
 		// A sub-agent finished this round — drop it from the live panel (it's
 		// idle now; a later send_message re-adds it via a fresh "started").
@@ -623,10 +636,19 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Inbox during this window is drained by handleTurnFinished, so nothing is
 		// lost — only deferred by the few ms it takes the cancelled turn to unwind.
 
-		// On a clean completion, ask for one follow-up suggestion (off the event
-		// loop). Skipped on error/interrupt and when disabled (--no-suggest).
-		if m.cfg.suggest && msg.err == nil {
-			return m, tea.Batch(m.flushPrints(), m.suggestCmd())
+		// On a clean completion, kick off the off-loop after-turn helpers:
+		// a follow-up suggestion (when enabled via --suggest) and, once per
+		// session, a generated title for the session list. Both are skipped on
+		// error/interrupt.
+		if msg.err == nil {
+			cmds := []tea.Cmd{m.flushPrints()}
+			if m.cfg.suggest {
+				cmds = append(cmds, m.suggestCmd())
+			}
+			if c := m.titleCmd(); c != nil {
+				cmds = append(cmds, c)
+			}
+			return m, tea.Batch(cmds...)
 		}
 		return m, m.flushPrints()
 
@@ -733,6 +755,32 @@ func (m *tuiModel) suggestCmd() tea.Cmd {
 			return nil
 		}
 		return suggestionMsg{text: s}
+	}
+}
+
+// titleCmd generates a session title off the event loop, once per session. It
+// returns nil (no-op) when the session is already titled, a generation is
+// already in flight, saving is off, or there's no turn to summarize yet — so it
+// fires exactly once, after the first completed turn. The result is persisted
+// by the titleMsg handler.
+func (m *tuiModel) titleCmd() tea.Cmd {
+	if m.cfg.noSave || m.titlePending || m.cfg.session.Title != "" {
+		return nil
+	}
+	if m.a.History.Len() == 0 {
+		return nil
+	}
+	m.titlePending = true
+	a := m.a
+	tools := m.cfg.tools // same toolbelt as the loop, so the request hits the prompt cache
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		t, err := a.GenerateTitle(ctx, tools)
+		if err != nil {
+			return titleMsg{text: ""}
+		}
+		return titleMsg{text: t}
 	}
 }
 

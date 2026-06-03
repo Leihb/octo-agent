@@ -166,6 +166,146 @@ func TestSave_RewritesWhenHistoryShrinks(t *testing.T) {
 	}
 }
 
+func TestSetTitle_AppendsAndReloads(t *testing.T) {
+	// A title set after the first Save is appended as its own record (the meta
+	// header on disk is left untouched) and survives a reload.
+	setTempHome(t)
+
+	s := NewSession("m", "")
+	s.Messages = []Message{NewUserMessage("ping"), NewAssistantMessage("pong")}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTitle("  Fix the login bug  "); err != nil {
+		t.Fatalf("SetTitle: %v", err)
+	}
+
+	got, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "Fix the login bug" {
+		t.Errorf("Title = %q, want %q (trimmed)", got.Title, "Fix the login bug")
+	}
+	// Messages must be intact alongside the appended title record.
+	if len(got.Messages) != 2 {
+		t.Errorf("Messages len = %d, want 2", len(got.Messages))
+	}
+}
+
+func TestSetTitle_LastWins(t *testing.T) {
+	setTempHome(t)
+	s := NewSession("m", "")
+	s.Messages = []Message{NewUserMessage("ping")}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTitle("first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTitle("second"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "second" {
+		t.Errorf("Title = %q, want %q (last title record wins)", got.Title, "second")
+	}
+}
+
+func TestSetTitle_SurvivesCompaction(t *testing.T) {
+	// A history-shrinking Save (compaction) rewrites the file; the title must be
+	// folded back into the meta header rather than lost with the dropped lines.
+	setTempHome(t)
+	s := NewSession("m", "")
+	s.Messages = []Message{NewUserMessage("u1"), NewAssistantMessage("a1"), NewUserMessage("u2")}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTitle("kept title"); err != nil {
+		t.Fatal(err)
+	}
+	s.Messages = []Message{NewUserMessage("[summary]")} // shorter → rewriteAll
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "kept title" {
+		t.Errorf("Title = %q, want %q after compaction", got.Title, "kept title")
+	}
+}
+
+func TestSetTitle_BeforeSave(t *testing.T) {
+	// Setting a title on a never-saved session keeps it in memory; the first
+	// Save then persists it via the meta header (no file to append to yet).
+	setTempHome(t)
+	s := NewSession("m", "")
+	if err := s.SetTitle("early"); err != nil {
+		t.Fatal(err)
+	}
+	s.Messages = []Message{NewUserMessage("hi")}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "early" {
+		t.Errorf("Title = %q, want %q", got.Title, "early")
+	}
+}
+
+func TestDisplayTitle(t *testing.T) {
+	tests := []struct {
+		name string
+		s    *Session
+		want string
+	}{
+		{
+			name: "explicit title wins",
+			s:    &Session{Title: "My Title", Messages: []Message{NewUserMessage("ignored")}},
+			want: "My Title",
+		},
+		{
+			name: "falls back to first user message",
+			s:    &Session{Messages: []Message{NewUserMessage("help me refactor the parser")}},
+			want: "help me refactor the parser",
+		},
+		{
+			name: "strips system-reminder and takes first real line",
+			s: &Session{Messages: []Message{NewUserMessage(
+				"<system-reminder>injected context</system-reminder>\n\nreal question here")}},
+			want: "real question here",
+		},
+		{
+			name: "skips a leading tool-result user turn",
+			s: &Session{Messages: []Message{
+				NewToolResultMessage([]ContentBlock{NewToolResultBlock("id", "out", false)}),
+				NewUserMessage("the actual prompt"),
+			}},
+			want: "the actual prompt",
+		},
+		{
+			name: "untitled when empty",
+			s:    &Session{},
+			want: "(untitled)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.s.DisplayTitle(); got != tt.want {
+				t.Errorf("DisplayTitle() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSavePath_IsJSONL(t *testing.T) {
 	setTempHome(t)
 	s := NewSession("m", "")

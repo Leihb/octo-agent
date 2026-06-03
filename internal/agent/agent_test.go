@@ -1422,6 +1422,77 @@ func TestAgent_Suggest_NotConfigured(t *testing.T) {
 	}
 }
 
+func TestAgent_GenerateTitle(t *testing.T) {
+	send := &fakeSender{reply: Reply{Content: "\"Fix the login redirect bug\"."}}
+	a := New(send, "m")
+	a.System = "sys"
+	a.History.Append(NewUserMessage("the login page redirects in a loop"))
+	a.History.Append(NewAssistantMessage("found it"))
+
+	title, err := a.GenerateTitle(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GenerateTitle: %v", err)
+	}
+	if title != "Fix the login redirect bug" {
+		t.Errorf("title = %q, want %q (quotes + trailing punctuation stripped)", title, "Fix the login redirect bug")
+	}
+	// Must NOT pollute the conversation.
+	if a.History.Len() != 2 {
+		t.Errorf("history len = %d, want 2 (GenerateTitle must not append)", a.History.Len())
+	}
+	if n := len(send.gotMessages); n == 0 || send.gotMessages[n-1].Content != titleInstruction {
+		t.Errorf("last sent message = %+v, want the title instruction", send.gotMessages)
+	}
+	if send.gotMaxToks != titleMaxTokens {
+		t.Errorf("maxTokens = %d, want %d", send.gotMaxToks, titleMaxTokens)
+	}
+}
+
+func TestAgent_GenerateTitle_EmptyHistory(t *testing.T) {
+	a := New(&fakeSender{reply: Reply{Content: "x"}}, "m")
+	title, err := a.GenerateTitle(context.Background(), nil)
+	if err != nil || title != "" {
+		t.Errorf("GenerateTitle on empty history = (%q, %v), want (\"\", nil)", title, err)
+	}
+}
+
+func TestAgent_GenerateTitle_NotConfigured(t *testing.T) {
+	a := New(nil, "")
+	if _, err := a.GenerateTitle(context.Background(), nil); err == nil {
+		t.Error("GenerateTitle with no sender/model should error")
+	}
+}
+
+func TestCleanTitle(t *testing.T) {
+	cases := map[string]string{
+		"Refactor the parser":          "Refactor the parser",
+		"\"Quoted title\"":             "Quoted title",
+		"# Markdown heading":           "Markdown heading",
+		"trailing period.":             "trailing period",
+		"中文标题。":                        "中文标题",
+		"  \n  spaced out  \n ignored": "spaced out",
+		"":                             "",
+		"\n\n":                         "",
+	}
+	for in, want := range cases {
+		if got := cleanTitle(in); got != want {
+			t.Errorf("cleanTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCleanTitle_RuneSafeTruncation(t *testing.T) {
+	// A long CJK title must be truncated on a rune boundary, never mid-byte.
+	in := strings.Repeat("订", 80)
+	got := cleanTitle(in)
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("cleanTitle(long) = %q, want a trailing ellipsis", got)
+	}
+	if r := []rune(got); len(r) != 60 { // 59 kept + the ellipsis
+		t.Errorf("cleanTitle(long) rune len = %d, want 60", len(r))
+	}
+}
+
 func TestCleanSuggestion(t *testing.T) {
 	cases := map[string]string{
 		"run the tests":        "run the tests",
