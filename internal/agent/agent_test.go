@@ -250,6 +250,9 @@ type fakeToolSender struct {
 	// gotTools / gotMsgs capture the last tool-aware call's inputs.
 	gotTools []ToolDefinition
 	gotMsgs  []Message
+	// onCall, when set, runs just before each reply is returned, receiving the
+	// 0-based call index. Used to simulate a steer arriving mid-turn.
+	onCall func(callIdx int)
 }
 
 func (f *fakeToolSender) SendMessages(_ context.Context, _, _ string, msgs []Message, maxTokens int) (Reply, error) {
@@ -267,6 +270,9 @@ func (f *fakeToolSender) SendMessagesWithTools(_ context.Context, _, _ string, m
 }
 
 func (f *fakeToolSender) nextReply() (Reply, error) {
+	if f.onCall != nil {
+		f.onCall(f.calls)
+	}
 	if f.calls < len(f.errs) && f.errs[f.calls] != nil {
 		err := f.errs[f.calls]
 		f.calls++
