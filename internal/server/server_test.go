@@ -149,14 +149,18 @@ func TestStaticHandler_IndexFallback(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.http.Handler.ServeHTTP(w, req)
 
-	// The static handler redirects / to /index.html (301) when the embedded
-	// static directory exists, or serves fallback HTML when it doesn't.
-	// Accept either 200 (fallback) or 301 (redirect to index.html).
-	if w.Code != http.StatusOK && w.Code != http.StatusMovedPermanently {
-		t.Fatalf("status = %d, want 200 or 301", w.Code)
+	// The static handler must serve the SPA entrypoint at "/" with a 200 and
+	// HTML body. It must never reply with a redirect: http.FileServer's
+	// "/index.html" → "./" canonicalisation would bounce "/" back to itself
+	// in an infinite loop, leaving the UI unable to load.
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if w.Code == http.StatusOK && !strings.Contains(w.Body.String(), "Octo Agent Server") {
-		t.Fatal("expected fallback HTML")
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("Content-Type = %q, want text/html", ct)
+	}
+	if !strings.Contains(w.Body.String(), "<html") {
+		t.Fatalf("expected HTML body, got %q", w.Body.String())
 	}
 }
 

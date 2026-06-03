@@ -39,20 +39,24 @@ func (s *Server) staticHandler() http.Handler {
 			return
 		}
 
-		// Clean the path and try to open the file.
-		cleanPath := path.Clean(r.URL.Path)
-		if cleanPath == "/" {
-			cleanPath = "/index.html"
+		// Resolve the requested file. The root and any path that doesn't map
+		// to an embedded file are served the SPA entrypoint.
+		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if name != "" {
+			if f, err := sub.Open(name); err == nil {
+				_ = f.Close()
+				fileServer.ServeHTTP(w, r)
+				return
+			}
 		}
 
-		_, err := sub.Open(strings.TrimPrefix(cleanPath, "/"))
-		if err != nil {
-			// File not found — serve index.html for SPA routing.
-			cleanPath = "/index.html"
-		}
-
-		r.URL.Path = cleanPath
-		fileServer.ServeHTTP(w, r)
+		// Serve index.html directly rather than rewriting the path to
+		// "/index.html" and delegating to fileServer: http.FileServer
+		// canonicalises any "/index.html" request with a 301 redirect to
+		// "./", which resolves back to "/" and loops forever. ServeFileFS
+		// keys its redirect off r.URL.Path (here "/" or an SPA route), so it
+		// serves the file without redirecting.
+		http.ServeFileFS(w, r, sub, "index.html")
 	})
 }
 
