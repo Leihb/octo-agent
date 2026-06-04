@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
-// agentSpawner implements tools.Spawner by building a child agent on each
+// Spawner implements tools.Spawner by building a child agent on each
 // launch_agent call. The child shares the parent's Sender (one provider
 // connection) and System (same harness identity), but runs in isolation:
 // fresh History, no visibility into the parent's conversation, its own
@@ -24,7 +24,7 @@ import (
 // Resolving it on each Spawn — rather than capturing a slice at construction
 // — lets cmd/octo set up the spawner before computing the tool list, since
 // SetSpawner has to run first for launch_agent to appear in DefaultTools().
-type agentSpawner struct {
+type Spawner struct {
 	parent   *agent.Agent
 	executor agent.ToolExecutor
 	toolsFn  func() []agent.ToolDefinition
@@ -35,8 +35,8 @@ type agentSpawner struct {
 	reg *childRegistry
 }
 
-func newAgentSpawner(parent *agent.Agent, executor agent.ToolExecutor, toolsFn func() []agent.ToolDefinition) *agentSpawner {
-	return &agentSpawner{
+func NewSpawner(parent *agent.Agent, executor agent.ToolExecutor, toolsFn func() []agent.ToolDefinition) *Spawner {
+	return &Spawner{
 		parent:   parent,
 		executor: executor,
 		toolsFn:  toolsFn,
@@ -53,7 +53,7 @@ const childMaxTurns = 100
 // Spawn implements tools.Spawner. It builds an isolated child, registers it so
 // a later send_message can continue it, runs the first prompt, and returns the
 // child's id alongside its reply.
-func (s *agentSpawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools.SpawnResult, error) {
+func (s *Spawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools.SpawnResult, error) {
 	childTools := filterChildTools(s.toolsFn(), req.Tools, req.ReadOnly)
 
 	model := req.Model
@@ -91,7 +91,7 @@ func (s *agentSpawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools
 // Continue implements tools.Spawner. It re-runs a still-alive child with a new
 // message. An unknown / evicted id returns an error whose text steers the model
 // to launch a fresh sub-agent.
-func (s *agentSpawner) Continue(ctx context.Context, agentID, message string) (tools.SpawnResult, error) {
+func (s *Spawner) Continue(ctx context.Context, agentID, message string) (tools.SpawnResult, error) {
 	lc, ok := s.reg.get(agentID)
 	if !ok {
 		return tools.SpawnResult{}, fmt.Errorf(
@@ -122,7 +122,7 @@ func (s *agentSpawner) Continue(ctx context.Context, agentID, message string) (t
 // Continue. Tokens spent on the partial round are still accrued. Callers that
 // drive a continuation (the conductor) inspect
 // StopReason themselves.
-func (s *agentSpawner) runChild(ctx context.Context, lc *liveChild, prompt string) (reply string, in, out int, stopReason string, err error) {
+func (s *Spawner) runChild(ctx context.Context, lc *liveChild, prompt string) (reply string, in, out int, stopReason string, err error) {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 

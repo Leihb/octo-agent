@@ -538,7 +538,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	toolExecutor = tools.NewDefaultRegistry()
 	// Sub-agents share the parent's model for the Tool Search threshold decision
 	// (a model override is rare and still resolves to a sane window).
-	spawner := newAgentSpawner(a, toolExecutor, func() []agent.ToolDefinition {
+	spawner := app.NewSpawner(a, toolExecutor, func() []agent.ToolDefinition {
 		return tools.DefaultToolsFor(a.Model)
 	})
 	tools.SetSpawner(spawner)

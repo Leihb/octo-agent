@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 
 // TestVerify_SendMessageReallyResumes drives the exact production tool surface
 // the LLM triggers — LaunchAgentTool.Execute then SendMessageTool.Execute,
-// wired through the default SubAgentManager + real agentSpawner exactly as the
+// wired through the default SubAgentManager + real Spawner exactly as the
 // REPL wires them — and confirms send_message resumes the same child rather
 // than reporting "no longer alive".
 func TestVerify_SendMessageReallyResumes(t *testing.T) {
@@ -20,7 +20,7 @@ func TestVerify_SendMessageReallyResumes(t *testing.T) {
 	parent.System = "PARENT"
 
 	// Real spawner with the real childRegistry underneath.
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
 	// Wire the manager exactly like cmd/octo/tuirepl.go does in production:
 	// SetDefaultSubAgentManager so the bare tools resolve it via t.manager().

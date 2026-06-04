@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -56,7 +56,7 @@ func TestAgentSpawner_RunsChildAndRollsTokensIntoParent(t *testing.T) {
 		{Name: "grep"},
 		{Name: "launch_agent"},
 	}
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return parentTools })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return parentTools })
 
 	res, err := sp.Spawn(context.Background(), tools.SpawnRequest{
 		Description: "Investigate",
@@ -96,7 +96,7 @@ func TestAgentSpawner_AppliesToolAllowlist(t *testing.T) {
 		{Name: "terminal"},
 		{Name: "launch_agent"},
 	}
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return parentTools })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return parentTools })
 
 	// Allowlist restricts to read_file + grep. launch_agent always excluded.
 	got := filterChildTools(parentTools, []string{"read_file", "grep"}, false)
@@ -134,7 +134,7 @@ func TestAgentSpawner_AppliesToolAllowlist(t *testing.T) {
 func TestAgentSpawner_ModelOverride(t *testing.T) {
 	send := &subAgentSender{reply: "ok"}
 	parent := agent.New(send, "parent-model")
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
 	_, err := sp.Spawn(context.Background(), tools.SpawnRequest{
 		Description: "x",
@@ -152,7 +152,7 @@ func TestAgentSpawner_ModelOverride(t *testing.T) {
 func TestAgentSpawner_SpawnReturnsIDAndContinueResumesSameChild(t *testing.T) {
 	send := &subAgentSender{reply: "round one", inputTokens: 200, outputTokens: 80}
 	parent := agent.New(send, "parent-model")
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
 	res, err := sp.Spawn(context.Background(), tools.SpawnRequest{Description: "x", Prompt: "first task"})
 	if err != nil {
@@ -188,7 +188,7 @@ func TestAgentSpawner_SpawnReturnsIDAndContinueResumesSameChild(t *testing.T) {
 func TestSubAgentManager_SendResumesSameChildThroughSpawner(t *testing.T) {
 	send := &subAgentSender{reply: "round one", inputTokens: 100, outputTokens: 40}
 	parent := agent.New(send, "parent-model")
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
 	mgr := tools.NewSubAgentManager(sp)
 	notes := make(chan tools.SubAgentNotification, 4)
@@ -240,7 +240,7 @@ func TestSubAgentManager_SendResumesSameChildThroughSpawner(t *testing.T) {
 func TestAgentSpawner_ContinueAccruesOnlyDeltaTokens(t *testing.T) {
 	send := &subAgentSender{reply: "ok", inputTokens: 200, outputTokens: 80}
 	parent := agent.New(send, "parent-model")
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
 	res, err := sp.Spawn(context.Background(), tools.SpawnRequest{Description: "x", Prompt: "go"})
 	if err != nil {
@@ -268,7 +268,7 @@ func TestAgentSpawner_ContinueAccruesOnlyDeltaTokens(t *testing.T) {
 func TestAgentSpawner_ContinueUnknownID(t *testing.T) {
 	send := &subAgentSender{reply: "ok"}
 	parent := agent.New(send, "parent-model")
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
 	_, err := sp.Continue(context.Background(), "nope", "hi")
 	if err == nil || !strings.Contains(err.Error(), "no longer alive") {
@@ -279,7 +279,7 @@ func TestAgentSpawner_ContinueUnknownID(t *testing.T) {
 func TestAgentSpawner_ConcurrentContinueSerialized(t *testing.T) {
 	send := &subAgentSender{reply: "ok", inputTokens: 10, outputTokens: 5}
 	parent := agent.New(send, "parent-model")
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
 	res, err := sp.Spawn(context.Background(), tools.SpawnRequest{Description: "x", Prompt: "go"})
 	if err != nil {
@@ -354,7 +354,7 @@ func TestAgentSpawner_AppliesSystemSuffix(t *testing.T) {
 	send := &subAgentSender{reply: "ok"}
 	parent := agent.New(send, "parent-model")
 	parent.System = "BASE IDENTITY"
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
 	if _, err := sp.Spawn(context.Background(), tools.SpawnRequest{
 		Prompt:       "go",
@@ -374,7 +374,7 @@ func TestAgentSpawner_AppliesSystemSuffix(t *testing.T) {
 
 // onlyChildID returns the single registered child id, failing if there isn't
 // exactly one.
-func onlyChildID(t *testing.T, sp *agentSpawner) string {
+func onlyChildID(t *testing.T, sp *Spawner) string {
 	t.Helper()
 	sp.reg.mu.Lock()
 	defer sp.reg.mu.Unlock()
@@ -438,7 +438,7 @@ func TestChildRegistry_TTLEviction(t *testing.T) {
 func TestAgentSpawner_MarksContextSoRecursionRefused(t *testing.T) {
 	send := &subAgentSender{reply: "ok"}
 	parent := agent.New(send, "parent-model")
-	sp := newAgentSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
 	// Wire SpawnRequest into a real launch_agent tool that checks the sub-agent
 	// context flag. After Spawn returns, the OUTER context shouldn't be marked

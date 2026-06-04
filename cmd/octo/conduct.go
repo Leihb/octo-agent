@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/conductor"
 	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/prompt"
@@ -379,7 +380,7 @@ func buildConductAgent(f conductFlags, stdout, stderr io.Writer) (*agent.Agent, 
 	a.System = prompt.Compose("", cwd, buildEnvContext(cwd), "", "", true)
 
 	executor := tools.NewDefaultRegistry()
-	tools.SetSpawner(newAgentSpawner(a, executor, tools.DefaultTools))
+	tools.SetSpawner(app.NewSpawner(a, executor, tools.DefaultTools))
 	return a, func() { tools.SetSpawner(nil) }, 0
 }
 
