@@ -18,11 +18,9 @@ import (
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/prompt"
-	"github.com/Leihb/octo-agent/internal/provider"
-	"github.com/Leihb/octo-agent/internal/provider/anthropic"
-	"github.com/Leihb/octo-agent/internal/provider/openai"
 	"github.com/Leihb/octo-agent/internal/skills"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
@@ -55,7 +53,7 @@ type Server struct {
 	http *http.Server
 
 	// agent factory state (resolved once at start)
-	provider       provider.Provider
+	sender         agent.Sender
 	model          string
 	system         string
 	skillReg       *skills.Registry
@@ -75,7 +73,7 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 
-	prov, model, err := resolveProviderAndModel(cfg.Provider, cfg.Model)
+	sender, model, err := resolveProviderAndModel(cfg.Provider, cfg.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +88,7 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		cfg:            cfg,
 		mux:            http.NewServeMux(),
-		provider:       prov,
+		sender:         sender,
 		model:          model,
 		system:         cfg.System,
 		skillReg:       skillReg,
@@ -193,8 +191,7 @@ func (s *Server) forgetTurnLock(id string) {
 // buildAgent creates a fresh agent for a turn. The caller must have locked
 // the session's turn mutex.
 func (s *Server) buildAgent(sess *agent.Session) *agent.Agent {
-	sender := providerSender{p: s.provider}
-	a := agent.New(sender, s.model)
+	a := agent.New(s.sender, s.model)
 	a.CWD = s.cwd
 	a.MaxTokens = s.cfg.MaxTokens
 	a.System = prompt.Compose(s.system, s.cwd, s.envCtx, s.skillsManifest, "", true)
@@ -225,9 +222,13 @@ func readBodyJSON(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
-// ─── Provider resolution (shared logic extracted from cmd/octo) ─────────────
+// ─── Provider resolution ────────────────────────────────────────────────────
+//
+// The server resolves provider/model/key/base-URL exactly as before, then hands
+// the result to app.NewSender — internal/app is the single place that builds the
+// vendor client, so the server no longer imports internal/provider.
 
-func resolveProviderAndModel(flagProvider, flagModel string) (provider.Provider, string, error) {
+func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, string, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, "", fmt.Errorf("load config: %w", err)
@@ -248,14 +249,25 @@ func resolveProviderAndModel(flagProvider, flagModel string) (provider.Provider,
 		return nil, "", fmt.Errorf("unknown provider %q", provName)
 	}
 
-	prov, err := buildProvider(provName, cfg)
+	apiKey, err := resolveAPIKey(provName, cfg)
 	if err != nil {
 		return nil, "", err
 	}
-	return prov, model, nil
+	sender, err := app.NewSender(app.SenderOptions{
+		Provider: provName,
+		APIKey:   apiKey,
+		BaseURL:  resolveBaseURL(provName, cfg),
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return sender, model, nil
 }
 
-func buildProvider(name string, cfg config.Config) (provider.Provider, error) {
+// resolveAPIKey returns the API key for the vendor: the provider's env var,
+// else cfg.APIKey when the stored config targets the same provider. Errors with
+// the same "X is not set" message the server reported before.
+func resolveAPIKey(name string, cfg config.Config) (string, error) {
 	switch name {
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
@@ -263,34 +275,20 @@ func buildProvider(name string, cfg config.Config) (provider.Provider, error) {
 			apiKey = cfg.APIKey
 		}
 		if apiKey == "" {
-			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set")
+			return "", fmt.Errorf("ANTHROPIC_API_KEY is not set")
 		}
-		client, err := anthropic.New(apiKey)
-		if err != nil {
-			return nil, err
-		}
-		if baseURL := resolveBaseURL(name, cfg); baseURL != "" {
-			client.BaseURL = baseURL
-		}
-		return client, nil
+		return apiKey, nil
 	case "openai":
 		apiKey := os.Getenv("OPENAI_API_KEY")
 		if apiKey == "" && cfg.Provider == "openai" {
 			apiKey = cfg.APIKey
 		}
 		if apiKey == "" {
-			return nil, fmt.Errorf("OPENAI_API_KEY is not set")
+			return "", fmt.Errorf("OPENAI_API_KEY is not set")
 		}
-		client, err := openai.New(apiKey)
-		if err != nil {
-			return nil, err
-		}
-		if baseURL := resolveBaseURL(name, cfg); baseURL != "" {
-			client.BaseURL = baseURL
-		}
-		return client, nil
+		return apiKey, nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q", name)
+		return "", fmt.Errorf("unknown provider %q", name)
 	}
 }
 
@@ -369,94 +367,3 @@ func validateBindAddr(addr string) error {
 	}
 	return nil
 }
-
-// providerSender adapts provider.Provider into agent.Sender.
-type providerSender struct {
-	p provider.Provider
-}
-
-func (s providerSender) SendMessages(ctx context.Context, model, system string, msgs []agent.Message, maxTokens int) (agent.Reply, error) {
-	resp, err := s.p.Send(ctx, provider.Request{
-		Model:        model,
-		SystemPrompt: system,
-		Messages:     msgs,
-		MaxTokens:    maxTokens,
-	})
-	if err != nil {
-		return agent.Reply{}, err
-	}
-	return replyFromResponse(resp), nil
-}
-
-// SendMessagesWithTools implements agent.ToolSender. Without it the agent
-// loop's type assertion falls back to a plain tool-less Turn, so every tool
-// (web_search included) would silently vanish from the web UI even though
-// runTurn passes the full DefaultTools() set.
-func (s providerSender) SendMessagesWithTools(ctx context.Context, model, system string, msgs []agent.Message, maxTokens int, tools []agent.ToolDefinition) (agent.Reply, error) {
-	resp, err := s.p.Send(ctx, provider.Request{
-		Model:        model,
-		SystemPrompt: system,
-		Messages:     msgs,
-		MaxTokens:    maxTokens,
-		Tools:        tools,
-	})
-	if err != nil {
-		return agent.Reply{}, err
-	}
-	return replyFromResponse(resp), nil
-}
-
-// StreamMessagesWithTools implements agent.ToolStreamingSender, the capability
-// the SSE path (RunStream) requires to forward tools. Providers that can't
-// stream fall back to the buffered tool-aware send.
-func (s providerSender) StreamMessagesWithTools(
-	ctx context.Context,
-	model, system string,
-	msgs []agent.Message,
-	maxTokens int,
-	tools []agent.ToolDefinition,
-	onChunk func(string),
-	onToolDelta agent.ToolInputDeltaFunc,
-	onThinking agent.ThinkingDeltaFunc,
-) (agent.Reply, error) {
-	req := provider.Request{
-		Model:        model,
-		SystemPrompt: system,
-		Messages:     msgs,
-		MaxTokens:    maxTokens,
-		Tools:        tools,
-	}
-	if sp, ok := s.p.(provider.StreamingProvider); ok {
-		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{
-			OnText:      onChunk,
-			OnToolDelta: onToolDelta,
-			OnThinking:  onThinking,
-		})
-		if err != nil {
-			return agent.Reply{}, err
-		}
-		return replyFromResponse(resp), nil
-	}
-	return s.SendMessagesWithTools(ctx, model, system, msgs, maxTokens, tools)
-}
-
-func replyFromResponse(resp provider.Response) agent.Reply {
-	return agent.Reply{
-		Content:          resp.Content,
-		Blocks:           resp.Blocks,
-		Model:            resp.Model,
-		StopReason:       resp.StopReason,
-		InputTokens:      resp.InputTokens,
-		OutputTokens:     resp.OutputTokens,
-		CacheReadTokens:  resp.CacheReadTokens,
-		CacheWriteTokens: resp.CacheWriteTokens,
-	}
-}
-
-// Compile-time assertions: the server's sender must satisfy the full tool-
-// aware surface, or the agent loop silently degrades to a tool-less Turn.
-var (
-	_ agent.Sender              = providerSender{}
-	_ agent.ToolSender          = providerSender{}
-	_ agent.ToolStreamingSender = providerSender{}
-)

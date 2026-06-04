@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/Leihb/octo-agent/internal/agent"
-	"github.com/Leihb/octo-agent/internal/provider"
 	"github.com/Leihb/octo-agent/internal/skills"
 )
 
@@ -304,7 +303,7 @@ func mustServer(t *testing.T, cfg Config) *Server {
 		cwd:            "",
 		envCtx:         "",
 		turnLocks:      map[string]*sync.Mutex{},
-		provider:       &stubProvider{},
+		sender:         &stubSender{},
 	}
 	srv.registerRoutes()
 	// Wrap with CORS middleware so tests that exercise CORS hit the right layer.
@@ -312,51 +311,71 @@ func mustServer(t *testing.T, cfg Config) *Server {
 	return srv
 }
 
-// stubProvider implements provider.Provider for tests.
-type stubProvider struct{}
+// stubSender is a no-network agent.Sender for tests. It satisfies the full
+// tool-aware surface so the agent loop never degrades, and always replies
+// "stub reply".
+type stubSender struct{}
 
-func (s *stubProvider) Name() string { return "stub" }
-
-func (s *stubProvider) Send(_ context.Context, _ provider.Request) (provider.Response, error) {
-	return provider.Response{Content: "stub reply"}, nil
+func (stubSender) SendMessages(_ context.Context, _, _ string, _ []agent.Message, _ int) (agent.Reply, error) {
+	return agent.Reply{Content: "stub reply"}, nil
 }
 
-func (s *stubProvider) SendStream(_ context.Context, _ provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
-	if cb.OnText != nil {
-		cb.OnText("stub reply")
+func (stubSender) StreamMessages(_ context.Context, _, _ string, _ []agent.Message, _ int, onChunk func(string), _ func(string)) (agent.Reply, error) {
+	if onChunk != nil {
+		onChunk("stub reply")
 	}
-	return provider.Response{Content: "stub reply"}, nil
+	return agent.Reply{Content: "stub reply"}, nil
 }
 
-// recordingProvider captures the last Request it received so a test can assert
-// what the agent layer actually forwarded to the wire.
-type recordingProvider struct{ last provider.Request }
-
-func (p *recordingProvider) Name() string { return "recording" }
-
-func (p *recordingProvider) Send(_ context.Context, req provider.Request) (provider.Response, error) {
-	p.last = req
-	return provider.Response{Content: "ok"}, nil
+func (stubSender) SendMessagesWithTools(_ context.Context, _, _ string, _ []agent.Message, _ int, _ []agent.ToolDefinition) (agent.Reply, error) {
+	return agent.Reply{Content: "stub reply"}, nil
 }
 
-func (p *recordingProvider) SendStream(_ context.Context, req provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
-	p.last = req
-	if cb.OnText != nil {
-		cb.OnText("ok")
+func (stubSender) StreamMessagesWithTools(_ context.Context, _, _ string, _ []agent.Message, _ int, _ []agent.ToolDefinition, onChunk func(string), _ agent.ToolInputDeltaFunc, _ agent.ThinkingDeltaFunc) (agent.Reply, error) {
+	if onChunk != nil {
+		onChunk("stub reply")
 	}
-	return provider.Response{Content: "ok"}, nil
+	return agent.Reply{Content: "stub reply"}, nil
+}
+
+// recordingSender captures the tool definitions the agent layer forwarded so a
+// test can assert the full tool set reached the wire.
+type recordingSender struct{ lastTools []agent.ToolDefinition }
+
+func (s *recordingSender) SendMessages(_ context.Context, _, _ string, _ []agent.Message, _ int) (agent.Reply, error) {
+	return agent.Reply{Content: "ok"}, nil
+}
+
+func (s *recordingSender) StreamMessages(_ context.Context, _, _ string, _ []agent.Message, _ int, onChunk func(string), _ func(string)) (agent.Reply, error) {
+	if onChunk != nil {
+		onChunk("ok")
+	}
+	return agent.Reply{Content: "ok"}, nil
+}
+
+func (s *recordingSender) SendMessagesWithTools(_ context.Context, _, _ string, _ []agent.Message, _ int, toolDefs []agent.ToolDefinition) (agent.Reply, error) {
+	s.lastTools = toolDefs
+	return agent.Reply{Content: "ok"}, nil
+}
+
+func (s *recordingSender) StreamMessagesWithTools(_ context.Context, _, _ string, _ []agent.Message, _ int, toolDefs []agent.ToolDefinition, onChunk func(string), _ agent.ToolInputDeltaFunc, _ agent.ThinkingDeltaFunc) (agent.Reply, error) {
+	s.lastTools = toolDefs
+	if onChunk != nil {
+		onChunk("ok")
+	}
+	return agent.Reply{Content: "ok"}, nil
 }
 
 // TestRunTurnForwardsTools is the regression guard for the web-UI bug where the
-// server's providerSender only implemented the base Sender, so the agent loop
-// fell back to a tool-less Turn and every tool (web_search included) vanished.
+// server's sender only implemented the base Sender, so the agent loop fell back
+// to a tool-less Turn and every tool (web_search included) vanished.
 func TestRunTurnForwardsTools(t *testing.T) {
-	rec := &recordingProvider{}
+	rec := &recordingSender{}
 	srv := &Server{
 		cfg:       Config{Tools: true},
 		model:     "stub-model",
 		turnLocks: map[string]*sync.Mutex{},
-		provider:  rec,
+		sender:    rec,
 	}
 
 	sess := agent.NewSession("stub-model", "")
@@ -364,17 +383,17 @@ func TestRunTurnForwardsTools(t *testing.T) {
 		t.Fatalf("runTurn: %v", err)
 	}
 
-	if len(rec.last.Tools) == 0 {
-		t.Fatal("expected tools forwarded to provider, got none (sender degraded to tool-less Turn)")
+	if len(rec.lastTools) == 0 {
+		t.Fatal("expected tools forwarded to sender, got none (sender degraded to tool-less Turn)")
 	}
 	found := false
-	for _, d := range rec.last.Tools {
+	for _, d := range rec.lastTools {
 		if d.Name == "web_search" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("web_search not among forwarded tools: %v", rec.last.Tools)
+		t.Errorf("web_search not among forwarded tools: %v", rec.lastTools)
 	}
 }
