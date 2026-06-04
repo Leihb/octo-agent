@@ -17,7 +17,7 @@ internal/tools/    Concrete ToolExecutor implementations
 internal/version/  Version constants overridable via -ldflags
 ```
 
-Dependency direction is one-way: `provider → agent`, `tools → agent`, never the other way. `internal/app` is the single place that constructs provider clients and adapts them to `agent.Sender`; every entry point (`cmd/octo`, `internal/server`) reaches the LLM through it rather than importing `provider` directly. (`internal/server` still has its own copy pending migration.)
+Dependency direction is one-way: `provider → agent`, `tools → agent`, never the other way. `internal/app` is the single place that constructs provider clients and adapts them to `agent.Sender`; every entry point (`cmd/octo`, `internal/server`) reaches the LLM through it rather than importing `provider` directly.
 
 ## Adding capability
 
