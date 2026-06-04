@@ -18,6 +18,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/prompt"
 	"github.com/Leihb/octo-agent/internal/skills"
+	"github.com/Leihb/octo-agent/internal/tasks"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
@@ -167,6 +168,14 @@ func runChannelStart(args []string, stdin io.Reader, stdout, stderr io.Writer) i
 		return a
 	}
 
+	// Advertise sub-agent + task tools by registering the process-global gating
+	// sentinels. Each message overrides them with a ctx-scoped manager + store
+	// (see handleAgentMessage), so this is gating-only + a never-hit fallback.
+	// Skipped when tools are off.
+	if !*noTools {
+		defer registerChannelSubAgentTools(agentFactory())()
+	}
+
 	mode := channel.BindingMode(*bindMode)
 	mgr := channel.NewManager(chCfg, agentFactory, mode)
 
@@ -243,8 +252,21 @@ func handleAgentMessage(ctx context.Context, mgr *channel.Manager, ad channel.Ad
 	var toolDefs []agent.ToolDefinition
 	var executor agent.ToolExecutor
 	if toolsOn {
-		toolDefs = tools.DefaultTools()
 		executor = tools.NewDefaultRegistry()
+		toolDefs = tools.DefaultToolsFor(sess.Agent.Model)
+
+		// Per-message sub-agent manager + task store bound to THIS chat's agent,
+		// stamped into ctx so the sub-agent / task tools dispatch to them rather
+		// than the process-global gating sentinels. Synchronous — a chat message
+		// is request/response with no follow-up channel for an async result — and
+		// each message gets a private store, so concurrent chats stay isolated.
+		spawner := app.NewSpawner(sess.Agent, executor, func() []agent.ToolDefinition {
+			return tools.DefaultToolsFor(sess.Agent.Model)
+		})
+		subMgr := tools.NewSubAgentManager(spawner)
+		subMgr.SetSynchronous(true)
+		ctx = tools.WithSubAgentManager(ctx, subMgr)
+		ctx = tools.WithTaskStore(ctx, tasks.New())
 	}
 
 	_, _ = channel.RunAgent(ctx, sess, toolDefs, executor, ctrl, ev.Text)
@@ -261,4 +283,26 @@ func newChannelGate(cwd string) (agent.PermissionGate, error) {
 		return nil, fmt.Errorf("permission engine: %w", err)
 	}
 	return app.NewPermissionGate(engine, nil), nil
+}
+
+// registerChannelSubAgentTools installs the process-global sub-agent manager +
+// task store so DefaultToolsFor advertises launch_agent / send_message /
+// task_* . These are gating sentinels and a never-hit fallback — each message
+// stamps its own ctx-scoped, synchronous manager + store bound to that chat's
+// agent (handleAgentMessage), which dispatch prefers, so concurrent chats never
+// share sub-agent or task state. The template agent only seeds the sentinel
+// spawner. Returns a cleanup that clears the registrations.
+func registerChannelSubAgentTools(template *agent.Agent) func() {
+	executor := tools.NewDefaultRegistry()
+	spawner := app.NewSpawner(template, executor, func() []agent.ToolDefinition {
+		return tools.DefaultToolsFor(template.Model)
+	})
+	sub := tools.NewSubAgentManager(spawner)
+	sub.SetSynchronous(true)
+	tools.SetDefaultSubAgentManager(sub)
+	tools.SetTaskStore(tasks.New())
+	return func() {
+		tools.SetDefaultSubAgentManager(nil)
+		tools.SetTaskStore(nil)
+	}
 }
