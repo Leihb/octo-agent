@@ -39,6 +39,7 @@ func (GrepTool) Definition() agent.ToolDefinition {
 			"Respects .gitignore. Returns at most 200 output lines — narrow the " +
 			"pattern or set include/path if you hit the cap. Matching lines over " +
 			"500 chars are truncated with a preview of the first 500 bytes. " +
+			"Output includes line numbers. " +
 			"Requires `rg` on PATH.",
 		Parameters: map[string]any{
 			"type": "object",
@@ -103,7 +104,7 @@ func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (ag
 	// 500 bytes instead of replacing the entire line with an unhelpful
 	// "[Omitted long matching line]" marker, which previously caused the LLM
 	// to think the result was incomplete and retry in a loop.
-	args := []string{"--color=never", "--max-columns", "500", "--max-columns-preview"}
+	args := []string{"--color=never", "--line-number", "--max-columns", "500", "--max-columns-preview"}
 	switch mode {
 	case "content":
 		// default rg output
