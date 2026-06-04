@@ -15,13 +15,6 @@ type SendMessageTool struct {
 	mgr *SubAgentManager
 }
 
-func (t SendMessageTool) manager() *SubAgentManager {
-	if t.mgr != nil {
-		return t.mgr
-	}
-	return defaultSubAgentMgr
-}
-
 func (SendMessageTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name: "send_message",
@@ -65,9 +58,20 @@ func (t SendMessageTool) Execute(ctx context.Context, _ string, input map[string
 		return agent.ToolResult{Text: ""}, fmt.Errorf("send_message: message is required")
 	}
 
-	mgr := t.manager()
+	mgr := resolveSubAgentManager(ctx, t.mgr)
 	if mgr == nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("send_message: sub-agent dispatch is not configured for this session")
+	}
+
+	// Synchronous transports continue the child inline and return its reply,
+	// matching the synchronous launch_agent path. agentID is the spawner-side
+	// id launch_agent surfaced in its [agent <id>] tag.
+	if mgr.Synchronous() {
+		res, err := mgr.ContinueSync(ctx, agentID, message)
+		if err != nil {
+			return agent.ToolResult{Text: ""}, fmt.Errorf("send_message: %w", err)
+		}
+		return agent.ToolResult{Text: withAgentTag(res.AgentID, res.Reply)}, nil
 	}
 
 	if err := mgr.Send(agentID, message); err != nil {

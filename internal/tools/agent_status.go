@@ -15,13 +15,6 @@ type AgentStatusTool struct {
 	mgr *SubAgentManager
 }
 
-func (t AgentStatusTool) manager() *SubAgentManager {
-	if t.mgr != nil {
-		return t.mgr
-	}
-	return defaultSubAgentMgr
-}
-
 func (AgentStatusTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name: "agent_status",
@@ -51,7 +44,7 @@ func (t AgentStatusTool) Execute(ctx context.Context, _ string, input map[string
 		return agent.ToolResult{Text: ""}, fmt.Errorf("agent_status: agent_id is required")
 	}
 
-	mgr := t.manager()
+	mgr := resolveSubAgentManager(ctx, t.mgr)
 	if mgr == nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("agent_status: sub-agent dispatch is not configured for this session")
 	}

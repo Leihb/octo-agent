@@ -22,6 +22,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/prompt"
 	"github.com/Leihb/octo-agent/internal/skills"
+	"github.com/Leihb/octo-agent/internal/tasks"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
@@ -99,6 +100,7 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	s.registerRoutes()
+	s.enableSubAgentTools()
 
 	s.http = &http.Server{
 		Addr:         cfg.Addr,
@@ -111,13 +113,39 @@ func New(cfg Config) (*Server, error) {
 	return s, nil
 }
 
+// enableSubAgentTools registers the process-global sub-agent manager + task
+// store so DefaultToolsFor advertises launch_agent / send_message / task_* . On
+// the server these globals are gating sentinels and a never-hit fallback: every
+// turn stamps its own ctx-scoped manager + store (bound to that turn's agent)
+// via prepareToolTurn, and dispatch prefers the ctx-scoped ones — so concurrent
+// sessions never share sub-agent or task state. The template agent only seeds
+// the sentinel spawner. No-op when tools are disabled.
+func (s *Server) enableSubAgentTools() {
+	if !s.cfg.Tools {
+		return
+	}
+	template := agent.New(s.sender, s.model)
+	template.System = prompt.Compose(s.system, s.cwd, s.envCtx, s.skillsManifest, "", true)
+	executor := tools.NewDefaultRegistry()
+	spawner := app.NewSpawner(template, executor, func() []agent.ToolDefinition {
+		return tools.DefaultToolsFor(s.model)
+	})
+	mgr := tools.NewSubAgentManager(spawner)
+	mgr.SetSynchronous(true)
+	tools.SetDefaultSubAgentManager(mgr)
+	tools.SetTaskStore(tasks.New())
+}
+
 // ListenAndServe starts the HTTP server.
 func (s *Server) ListenAndServe() error {
 	return s.http.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server.
+// Shutdown gracefully shuts down the server, releasing the process-global
+// sub-agent + task registrations installed by enableSubAgentTools.
 func (s *Server) Shutdown(ctx context.Context) error {
+	tools.SetDefaultSubAgentManager(nil)
+	tools.SetTaskStore(nil)
 	return s.http.Shutdown(ctx)
 }
 

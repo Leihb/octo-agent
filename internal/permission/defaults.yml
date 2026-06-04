@@ -105,3 +105,24 @@ grep:
   - allow: { pattern: "" }
 web_search:
   - allow: { pattern: "" }
+
+# Control-plane / meta tools — allowed without prompting. They have no direct
+# side effect: a sub-agent inherits its parent's gate, so launch_agent /
+# send_message can't let it do anything the gate wouldn't already permit, and
+# the task_* tools are in-memory bookkeeping. Without an allow here they fall
+# through to the implicit ask, which a non-interactive transport (HTTP server,
+# IM bridge) resolves to deny — silently disabling sub-agents and tasks there.
+launch_agent:
+  - allow: { pattern: "" }
+send_message:
+  - allow: { pattern: "" }
+agent_status:
+  - allow: { pattern: "" }
+kill_agent:
+  - allow: { pattern: "" }
+task_create:
+  - allow: { pattern: "" }
+task_update:
+  - allow: { pattern: "" }
+task_list:
+  - allow: { pattern: "" }

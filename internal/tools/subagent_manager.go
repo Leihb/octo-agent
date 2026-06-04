@@ -124,12 +124,13 @@ func SetDefaultSubAgentManager(m *SubAgentManager) { defaultSubAgentMgr = m }
 // SubAgentManager owns the set of async sub-agents for a session.
 // Methods are safe for concurrent use.
 type SubAgentManager struct {
-	mu      sync.Mutex
-	agents  map[string]*asyncSubAgent
-	seq     int
-	spawner Spawner
-	onExit  func(SubAgentNotification)
-	onEvent func(SubAgentEvent)
+	mu          sync.Mutex
+	agents      map[string]*asyncSubAgent
+	seq         int
+	spawner     Spawner
+	onExit      func(SubAgentNotification)
+	onEvent     func(SubAgentEvent)
+	synchronous bool
 }
 
 // NewSubAgentManager returns an empty manager.
@@ -138,6 +139,80 @@ func NewSubAgentManager(spawner Spawner) *SubAgentManager {
 		agents:  map[string]*asyncSubAgent{},
 		spawner: spawner,
 	}
+}
+
+// SetSynchronous selects the launch_agent dispatch model. The default (false)
+// is the interactive async path: Start returns immediately and the reply
+// arrives via onExit, which the REPL/TUI re-injects as a follow-up turn. A
+// request/response transport (HTTP server, IM bridge) has no follow-up-turn
+// channel, so it sets this true: launch_agent then blocks the turn on RunSync
+// and returns the child's reply directly as the tool_result. Set once at
+// startup, before any turn runs.
+func (m *SubAgentManager) SetSynchronous(v bool) {
+	m.mu.Lock()
+	m.synchronous = v
+	m.mu.Unlock()
+}
+
+// Synchronous reports whether the manager runs sub-agents inline (see
+// SetSynchronous).
+func (m *SubAgentManager) Synchronous() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.synchronous
+}
+
+// RunSync spawns a sub-agent and blocks until it completes, returning its
+// reply. Used by the synchronous launch_agent path; the spawner stamps the
+// sub-agent marker and keeps the child resumable for a later ContinueSync.
+func (m *SubAgentManager) RunSync(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
+	if m.spawner == nil {
+		return SpawnResult{}, fmt.Errorf("subagent: no spawner configured")
+	}
+	return m.spawner.Spawn(ctx, req)
+}
+
+// ContinueSync re-runs a still-alive sub-agent (addressed by its spawner-side
+// id) with a new message and blocks until it replies. The synchronous
+// counterpart of Send.
+func (m *SubAgentManager) ContinueSync(ctx context.Context, agentID, message string) (SpawnResult, error) {
+	if m.spawner == nil {
+		return SpawnResult{}, fmt.Errorf("subagent: no spawner configured")
+	}
+	return m.spawner.Continue(ctx, agentID, message)
+}
+
+// subAgentManagerCtxKey carries a per-turn SubAgentManager so the sub-agent
+// tools dispatch to it instead of the process-global defaultSubAgentMgr. A
+// request/response transport (server, IM) builds a fresh manager bound to the
+// turn's agent and stamps it here; the interactive CLI leaves it unset and
+// falls through to the global.
+type subAgentManagerCtxKeyType struct{}
+
+var subAgentManagerCtxKey = subAgentManagerCtxKeyType{}
+
+// WithSubAgentManager returns ctx carrying mgr for the sub-agent tools to find.
+func WithSubAgentManager(ctx context.Context, mgr *SubAgentManager) context.Context {
+	return context.WithValue(ctx, subAgentManagerCtxKey, mgr)
+}
+
+// subAgentManagerFromContext returns the ctx-scoped manager, or nil.
+func subAgentManagerFromContext(ctx context.Context) *SubAgentManager {
+	m, _ := ctx.Value(subAgentManagerCtxKey).(*SubAgentManager)
+	return m
+}
+
+// resolveSubAgentManager picks the manager a tool should dispatch to: the
+// ctx-scoped one (per-turn, server/IM) first, then a tool-local override, then
+// the process-global default (CLI). Returns nil when none is configured.
+func resolveSubAgentManager(ctx context.Context, local *SubAgentManager) *SubAgentManager {
+	if m := subAgentManagerFromContext(ctx); m != nil {
+		return m
+	}
+	if local != nil {
+		return local
+	}
+	return defaultSubAgentMgr
 }
 
 // SetOnExit registers a completion hook fired once per sub-agent when it

@@ -134,13 +134,6 @@ type LaunchAgentTool struct {
 	mgr *SubAgentManager
 }
 
-func (t LaunchAgentTool) manager() *SubAgentManager {
-	if t.mgr != nil {
-		return t.mgr
-	}
-	return defaultSubAgentMgr
-}
-
 func (LaunchAgentTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name: "launch_agent",
@@ -199,7 +192,7 @@ func (t LaunchAgentTool) Execute(ctx context.Context, _ string, input map[string
 		desc = firstLine(prompt)
 	}
 
-	mgr := t.manager()
+	mgr := resolveSubAgentManager(ctx, t.mgr)
 	if mgr == nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: sub-agent dispatch is not configured for this session")
 	}
@@ -210,6 +203,19 @@ func (t LaunchAgentTool) Execute(ctx context.Context, _ string, input map[string
 		Tools:       stringSliceArg(input, "tools"),
 		Model:       strings.TrimSpace(stringArg(input, "model")),
 	}
+
+	// Synchronous transports (HTTP server, IM bridge) have no follow-up-turn
+	// channel to deliver an async result, so run the sub-agent inline and
+	// return its full reply as the tool_result. The [agent <id>] tag lets the
+	// model address it in a later send_message within the same turn.
+	if mgr.Synchronous() {
+		res, err := mgr.RunSync(ctx, req)
+		if err != nil {
+			return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: %w", err)
+		}
+		return agent.ToolResult{Text: withAgentTag(res.AgentID, res.Reply)}, nil
+	}
+
 	id, err := mgr.Start(req)
 	if err != nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("launch_agent: %w", err)

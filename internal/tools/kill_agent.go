@@ -14,13 +14,6 @@ type KillAgentTool struct {
 	mgr *SubAgentManager
 }
 
-func (t KillAgentTool) manager() *SubAgentManager {
-	if t.mgr != nil {
-		return t.mgr
-	}
-	return defaultSubAgentMgr
-}
-
 func (KillAgentTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name: "kill_agent",
@@ -50,7 +43,7 @@ func (t KillAgentTool) Execute(ctx context.Context, _ string, input map[string]a
 		return agent.ToolResult{Text: ""}, fmt.Errorf("kill_agent: agent_id is required")
 	}
 
-	mgr := t.manager()
+	mgr := resolveSubAgentManager(ctx, t.mgr)
 	if mgr == nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("kill_agent: sub-agent dispatch is not configured for this session")
 	}

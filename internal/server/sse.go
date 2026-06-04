@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"github.com/Leihb/octo-agent/internal/agent"
-	"github.com/Leihb/octo-agent/internal/app"
-	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
@@ -60,15 +58,19 @@ func (s *Server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 
 	a := s.buildAgent(sess)
 
+	runCtx := r.Context()
 	var toolDefs []agent.ToolDefinition
 	var executor agent.ToolExecutor
 	if s.cfg.Tools {
-		executor = tools.NewDefaultRegistry()
-		toolDefs = tools.DefaultTools()
-		engine, err := permission.New(permissionConfigPath(), s.cwd, permission.ModeStrict)
-		if err == nil {
-			a.Gate = app.NewPermissionGate(engine, nil)
+		var perr error
+		runCtx, executor, perr = s.prepareToolTurn(runCtx, a)
+		if perr != nil {
+			ev := agent.AgentEvent{Kind: agent.EventToolError, Err: perr.Error()}
+			b, _ := json.Marshal(ev)
+			sseEvent(w, string(b))
+			return
 		}
+		toolDefs = tools.DefaultToolsFor(a.Model)
 	}
 
 	eventHandler := func(ev agent.AgentEvent) {
@@ -76,7 +78,7 @@ func (s *Server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		sseEvent(w, string(b))
 	}
 
-	reply, err := a.RunStream(r.Context(), req.Message, toolDefs, executor, eventHandler)
+	reply, err := a.RunStream(runCtx, req.Message, toolDefs, executor, eventHandler)
 	if err != nil {
 		ev := agent.AgentEvent{Kind: agent.EventToolError, Err: err.Error()}
 		b, _ := json.Marshal(ev)

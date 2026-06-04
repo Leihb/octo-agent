@@ -37,6 +37,35 @@ func ActiveTaskStore() TaskStore { return activeTasks }
 
 func tasksEnabled() bool { return activeTasks != nil }
 
+// taskStoreCtxKey carries a per-turn TaskStore so the task_* tools dispatch to
+// it instead of the process-global activeTasks. A request/response transport
+// (server, IM) stamps a fresh per-session store here; the interactive CLI
+// leaves it unset and falls through to the global.
+type taskStoreCtxKeyType struct{}
+
+var taskStoreCtxKey = taskStoreCtxKeyType{}
+
+// WithTaskStore returns ctx carrying store for the task_* tools to find.
+func WithTaskStore(ctx context.Context, store TaskStore) context.Context {
+	return context.WithValue(ctx, taskStoreCtxKey, store)
+}
+
+// taskStoreFromContext returns the ctx-scoped store, or nil.
+func taskStoreFromContext(ctx context.Context) TaskStore {
+	s, _ := ctx.Value(taskStoreCtxKey).(TaskStore)
+	return s
+}
+
+// resolveTaskStore picks the store a task_* tool should use: the ctx-scoped one
+// (per-turn, server/IM) first, then the process-global default (CLI). Returns
+// nil when none is configured.
+func resolveTaskStore(ctx context.Context) TaskStore {
+	if s := taskStoreFromContext(ctx); s != nil {
+		return s
+	}
+	return activeTasks
+}
+
 // ============================================================================
 // task_create
 // ============================================================================
@@ -75,15 +104,16 @@ func (TaskCreateTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (TaskCreateTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
-	if !tasksEnabled() {
+func (TaskCreateTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
+	store := resolveTaskStore(ctx)
+	if store == nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("task_create: task tracking is not configured for this session")
 	}
 	subject := strings.TrimSpace(stringArg(input, "subject"))
 	if subject == "" {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("task_create: subject is required")
 	}
-	id, err := activeTasks.Create(
+	id, err := store.Create(
 		subject,
 		stringArg(input, "description"),
 		stringArg(input, "active_form"),
@@ -142,8 +172,9 @@ func (TaskUpdateTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (TaskUpdateTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
-	if !tasksEnabled() {
+func (TaskUpdateTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
+	store := resolveTaskStore(ctx)
+	if store == nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("task_update: task tracking is not configured for this session")
 	}
 	id := intArg(input, "task_id", 0)
@@ -176,7 +207,7 @@ func (TaskUpdateTool) Execute(_ context.Context, _ string, input map[string]any)
 		return agent.ToolResult{Text: ""}, fmt.Errorf("task_update: nothing to update (provide status, subject, description, or active_form)")
 	}
 
-	got, err := activeTasks.Update(id, u)
+	got, err := store.Update(id, u)
 	if err != nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("task_update: %w", err)
 	}
@@ -205,11 +236,12 @@ func (TaskListTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (TaskListTool) Execute(_ context.Context, _ string, _ map[string]any) (agent.ToolResult, error) {
-	if !tasksEnabled() {
+func (TaskListTool) Execute(ctx context.Context, _ string, _ map[string]any) (agent.ToolResult, error) {
+	store := resolveTaskStore(ctx)
+	if store == nil {
 		return agent.ToolResult{}, fmt.Errorf("task_list: task tracking is not configured for this session")
 	}
-	return agent.ToolResult{Text: FormatTaskList(activeTasks.List())}, nil
+	return agent.ToolResult{Text: FormatTaskList(store.List())}, nil
 }
 
 // FormatTaskList renders a slice of tasks for display. Used both by the

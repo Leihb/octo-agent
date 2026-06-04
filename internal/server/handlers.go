@@ -12,6 +12,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/permission"
+	"github.com/Leihb/octo-agent/internal/tasks"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
@@ -289,25 +290,48 @@ func (s *Server) runTurn(ctx context.Context, sess *agent.Session, userInput str
 		return reply.Content, nil
 	}
 
-	// Tool-enabled path: build executor and permission gate.
-	executor := tools.NewDefaultRegistry()
-	toolDefs := tools.DefaultTools()
-
-	// Server permission gate: strict mode — ask → deny.
-	cwd := s.cwd
-	engine, err := permission.New(permissionConfigPath(), cwd, permission.ModeStrict)
+	// Tool-enabled path: wire the per-turn tool environment (gate + ctx-scoped
+	// sub-agent manager + task store) bound to this turn's agent.
+	ctx, executor, err := s.prepareToolTurn(ctx, a)
 	if err != nil {
-		return "", fmt.Errorf("permission engine: %w", err)
+		return "", err
 	}
-	a.Gate = app.NewPermissionGate(engine, nil)
 
-	reply, err := a.Run(ctx, userInput, toolDefs, executor)
+	reply, err := a.Run(ctx, userInput, tools.DefaultToolsFor(a.Model), executor)
 	if err != nil {
 		return "", err
 	}
 
 	sess.SyncFrom(a.History)
 	return reply.Content, nil
+}
+
+// prepareToolTurn wires the per-turn tool environment for agent a: the strict,
+// non-interactive permission gate, plus a sub-agent manager and task store
+// bound to THIS turn's agent and stamped into ctx so the sub-agent / task tools
+// dispatch to them rather than the process-global gating sentinels. The manager
+// runs synchronously — a request/response turn has no follow-up channel for an
+// async sub-agent result — and each turn gets a private store, so concurrent
+// sessions never share sub-agent or task state. Returns the augmented ctx and
+// the executor to run the turn with.
+func (s *Server) prepareToolTurn(ctx context.Context, a *agent.Agent) (context.Context, agent.ToolExecutor, error) {
+	executor := tools.NewDefaultRegistry()
+
+	engine, err := permission.New(permissionConfigPath(), s.cwd, permission.ModeStrict)
+	if err != nil {
+		return ctx, nil, fmt.Errorf("permission engine: %w", err)
+	}
+	a.Gate = app.NewPermissionGate(engine, nil)
+
+	spawner := app.NewSpawner(a, executor, func() []agent.ToolDefinition {
+		return tools.DefaultToolsFor(a.Model)
+	})
+	mgr := tools.NewSubAgentManager(spawner)
+	mgr.SetSynchronous(true)
+	ctx = tools.WithSubAgentManager(ctx, mgr)
+	ctx = tools.WithTaskStore(ctx, tasks.New())
+
+	return ctx, executor, nil
 }
 
 func permissionConfigPath() string {
