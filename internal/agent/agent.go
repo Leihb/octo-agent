@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -499,8 +498,7 @@ func (a *Agent) runLoop(
 	a.appendUserInput(userInput)
 
 	limit := a.turnLimit()
-	streamStalls := 0        // transient mid-stream stalls re-issued for the current round
-	breaker := &dupBreaker{} // breaks degenerate identical-tool-call loops within this run
+	streamStalls := 0 // transient mid-stream stalls re-issued for the current round
 	for i := 0; limit == unlimitedTurns || i < limit; i++ {
 		// Interrupt (Ctrl-C) between iterations — e.g. right after a tool batch.
 		if ctx.Err() != nil {
@@ -627,7 +625,7 @@ func (a *Agent) runLoop(
 			// handler is threaded through to dispatchTools so streaming
 			// tools (StreamingToolExecutor) can fire EventToolProgress as
 			// output arrives mid-execution.
-			resultBlocks, err := dispatchTools(ctx, executor, reply.Blocks, handler, a.Gate, breaker)
+			resultBlocks, err := dispatchTools(ctx, executor, reply.Blocks, handler, a.Gate)
 			if err != nil {
 				return Reply{}, fmt.Errorf("agent: dispatch tools[%d]: %w", i, err)
 			}
@@ -1015,48 +1013,6 @@ var readOnlyTools = map[string]bool{
 type toolCall struct {
 	block      ContentBlock
 	denyReason string // non-empty → blocked by the gate; don't execute
-	sig        string // tool name + canonical input; identifies a repeat call
-	duplicate  bool   // identical to the previous executed call; nudge, don't execute
-}
-
-// dupBreaker remembers the signature of the previous dispatch's last executed
-// tool call so dispatchTools can short-circuit a byte-for-byte identical repeat.
-//
-// Weak models (observed with kimi k2.6) can latch onto one tool call and
-// re-issue the exact same call every turn without making progress — e.g. a grep
-// for a function that returns only its signature line, which the model keeps
-// re-running while expecting the body. Left unchecked the loop burns the entire
-// max-turns budget. Returning a nudge instead of re-executing breaks the loop
-// and tells the model to change strategy.
-//
-// Consecutive-only by design: it compares against the single most recent
-// executed call, so legitimate re-runs with intervening work (run tests → edit →
-// run tests) never trip. A dupBreaker is per-run (created in runLoop), so the
-// same call is fine across separate turns.
-type dupBreaker struct {
-	last string // signature of the previous dispatch's last executed call
-}
-
-// dupCallNudge is returned in place of re-executing an identical repeat call.
-// Phrased as a normal (non-error) result so the model treats it as feedback to
-// act on, not a failure to retry.
-const dupCallNudge = "You just ran this exact tool call (same name and arguments) and already have its " +
-	"result above. Re-running it returns identical output and makes no progress. Change your approach: adjust " +
-	"the arguments, use a different tool, or act on the result you already have. (For example, if a grep " +
-	"returned only a function's signature line, set context_lines or read the file to see the body.)"
-
-// callSignature is a stable identity for a tool call: name plus its input
-// serialized as canonical JSON (encoding/json sorts map keys, so the output is
-// deterministic regardless of map iteration order). Two calls share a signature
-// iff their name and arguments are byte-for-byte equivalent.
-func callSignature(name string, input map[string]any) string {
-	b, err := json.Marshal(input)
-	if err != nil {
-		// Unserialisable input is implausible for tool args, but fall back to a
-		// best-effort string so dedup can only ever miss, never misfire.
-		return name + "\x00" + fmt.Sprintf("%v", input)
-	}
-	return name + "\x00" + string(b)
 }
 
 // dispatchTools runs every tool_use block in blocks and returns the matching
@@ -1077,14 +1033,14 @@ func callSignature(name string, input map[string]any) string {
 // requires executor.Execute to be safe for concurrent calls on distinct
 // inputs — DefaultRegistry is (its only shared state, the read tracker, is
 // mutex-guarded).
-func dispatchTools(ctx context.Context, executor ToolExecutor, blocks []ContentBlock, handler EventHandler, gate PermissionGate, breaker *dupBreaker) ([]ContentBlock, error) {
-	// Pass 1 — collect calls, run the gate serially, and flag identical repeats.
+func dispatchTools(ctx context.Context, executor ToolExecutor, blocks []ContentBlock, handler EventHandler, gate PermissionGate) ([]ContentBlock, error) {
+	// Pass 1 — collect calls and run the gate serially.
 	var calls []toolCall
 	for _, b := range blocks {
 		if b.Type != "tool_use" {
 			continue
 		}
-		c := toolCall{block: b, sig: callSignature(b.Name, b.Input)}
+		c := toolCall{block: b}
 		if gate != nil {
 			if allowed, reason := gate.Check(ctx, b.Name, b.Input); !allowed {
 				if reason == "" {
@@ -1093,26 +1049,7 @@ func dispatchTools(ctx context.Context, executor ToolExecutor, blocks []ContentB
 				c.denyReason = reason
 			}
 		}
-		// A call identical to the previous dispatch's last executed call is a
-		// degenerate repeat: short-circuit it with a nudge rather than re-running.
-		if c.denyReason == "" && breaker != nil && breaker.last != "" && c.sig == breaker.last {
-			c.duplicate = true
-		}
 		calls = append(calls, c)
-	}
-
-	// Record the signature of this batch's last call that will actually execute,
-	// so the next dispatch can detect a repeat. Done before execution because
-	// "will execute" depends only on the gate/duplicate verdict, not the result.
-	// If every call was denied or skipped, breaker.last is left unchanged so a
-	// continuing repeat keeps tripping.
-	if breaker != nil {
-		for i := len(calls) - 1; i >= 0; i-- {
-			if calls[i].denyReason == "" && !calls[i].duplicate {
-				breaker.last = calls[i].sig
-				break
-			}
-		}
 	}
 
 	// Pass 2 — execute. Each tool may return multiple blocks (e.g. tool_result +
@@ -1125,10 +1062,6 @@ func dispatchTools(ctx context.Context, executor ToolExecutor, blocks []ContentB
 		for i := range calls {
 			if calls[i].denyReason != "" {
 				resultSlices[i] = []ContentBlock{NewToolResultBlock(calls[i].block.ID, calls[i].denyReason, true)}
-				continue
-			}
-			if calls[i].duplicate {
-				resultSlices[i] = []ContentBlock{NewToolResultBlock(calls[i].block.ID, dupCallNudge, false)}
 				continue
 			}
 			wg.Add(1)
@@ -1148,10 +1081,6 @@ func dispatchTools(ctx context.Context, executor ToolExecutor, blocks []ContentB
 		b := calls[i].block
 		if calls[i].denyReason != "" {
 			resultSlices[i] = []ContentBlock{NewToolResultBlock(b.ID, calls[i].denyReason, true)}
-			continue
-		}
-		if calls[i].duplicate {
-			resultSlices[i] = []ContentBlock{NewToolResultBlock(b.ID, dupCallNudge, false)}
 			continue
 		}
 		var (

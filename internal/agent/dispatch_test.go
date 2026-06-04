@@ -83,7 +83,7 @@ func TestDispatchTools_ParallelReadOnly(t *testing.T) {
 
 	done := make(chan []ContentBlock, 1)
 	go func() {
-		r, _ := dispatchTools(context.Background(), exec, blocks, nil, nil, nil)
+		r, _ := dispatchTools(context.Background(), exec, blocks, nil, nil)
 		done <- r
 	}()
 
@@ -126,7 +126,7 @@ func TestDispatchTools_MixedBatchSerialCorrect(t *testing.T) {
 		NewToolUseBlock("c2", "write_file", map[string]any{"path": "b", "content": "x"}),
 		NewToolUseBlock("c3", "grep", map[string]any{"pattern": "y"}),
 	}
-	results, err := dispatchTools(context.Background(), exec, blocks, nil, nil, nil)
+	results, err := dispatchTools(context.Background(), exec, blocks, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,84 +137,6 @@ func TestDispatchTools_MixedBatchSerialCorrect(t *testing.T) {
 		if results[i].Result != "ok:"+blocks[i].Name {
 			t.Errorf("results[%d].Result = %q", i, results[i].Result)
 		}
-	}
-}
-
-func TestCallSignature(t *testing.T) {
-	// Map key order must not affect the signature (encoding/json sorts keys).
-	a := callSignature("grep", map[string]any{"pattern": "x", "path": "p"})
-	b := callSignature("grep", map[string]any{"path": "p", "pattern": "x"})
-	if a != b {
-		t.Errorf("signature must be order-independent:\n %q\n %q", a, b)
-	}
-	// Different args → different signature.
-	if callSignature("grep", map[string]any{"pattern": "x"}) == callSignature("grep", map[string]any{"pattern": "y"}) {
-		t.Error("different args produced the same signature")
-	}
-	// Different tool name → different signature.
-	if callSignature("grep", nil) == callSignature("glob", nil) {
-		t.Error("different tool names produced the same signature")
-	}
-}
-
-func TestDispatchTools_DuplicateCallBroken(t *testing.T) {
-	// One breaker shared across dispatches simulates the run loop. The same
-	// (name, input) issued twice in a row must execute once, then be
-	// short-circuited with a non-error nudge on the repeat.
-	breaker := &dupBreaker{}
-	exec := &countingExec{}
-	call := []ContentBlock{NewToolUseBlock("c1", "grep", map[string]any{"pattern": "func cleanSuggestion"})}
-
-	first, err := dispatchTools(context.Background(), exec, call, nil, nil, breaker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first[0].Result != "ok:grep" || first[0].IsError {
-		t.Fatalf("first call should execute normally, got %+v", first[0])
-	}
-
-	repeat := []ContentBlock{NewToolUseBlock("c2", "grep", map[string]any{"pattern": "func cleanSuggestion"})}
-	second, err := dispatchTools(context.Background(), exec, repeat, nil, nil, breaker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second[0].IsError {
-		t.Errorf("duplicate nudge must not be an error result: %+v", second[0])
-	}
-	if !strings.Contains(second[0].Result, "this exact tool call") {
-		t.Errorf("duplicate should return the nudge, got %q", second[0].Result)
-	}
-	if len(exec.called) != 1 {
-		t.Errorf("executor ran %d times, want 1 (the repeat must be skipped)", len(exec.called))
-	}
-
-	// A different call after the repeat executes again and resets the breaker.
-	other := []ContentBlock{NewToolUseBlock("c3", "grep", map[string]any{"pattern": "something else"})}
-	third, err := dispatchTools(context.Background(), exec, other, nil, nil, breaker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if third[0].Result != "ok:grep" || third[0].IsError {
-		t.Errorf("a distinct call must execute, got %+v", third[0])
-	}
-	if len(exec.called) != 2 {
-		t.Errorf("executor ran %d times, want 2", len(exec.called))
-	}
-}
-
-func TestDispatchTools_NilBreakerNeverDedups(t *testing.T) {
-	// With no breaker (the test/legacy path), identical calls always execute.
-	exec := &countingExec{}
-	call := func(id string) []ContentBlock {
-		return []ContentBlock{NewToolUseBlock(id, "grep", map[string]any{"pattern": "x"})}
-	}
-	for _, id := range []string{"c1", "c2", "c3"} {
-		if _, err := dispatchTools(context.Background(), exec, call(id), nil, nil, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if len(exec.called) != 3 {
-		t.Errorf("nil breaker must not dedup: executor ran %d times, want 3", len(exec.called))
 	}
 }
 
@@ -238,7 +160,7 @@ func TestDispatchTools_DeniedCallInParallelBatch(t *testing.T) {
 		NewToolUseBlock("c2", "grep", map[string]any{"pattern": "x"}),
 		NewToolUseBlock("c3", "glob", map[string]any{"pattern": "*"}),
 	}
-	results, err := dispatchTools(context.Background(), exec, blocks, nil, gate, nil)
+	results, err := dispatchTools(context.Background(), exec, blocks, nil, gate)
 	if err != nil {
 		t.Fatal(err)
 	}

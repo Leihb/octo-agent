@@ -62,7 +62,7 @@ func (hugeExec) Execute(_ context.Context, _ string, _ map[string]any) (ToolResu
 
 func TestDispatchTools_TruncatesOversizedResult(t *testing.T) {
 	blocks := []ContentBlock{NewToolUseBlock("c1", "read_file", map[string]any{"path": "big"})}
-	results, err := dispatchTools(context.Background(), hugeExec{}, blocks, nil, nil, nil)
+	results, err := dispatchTools(context.Background(), hugeExec{}, blocks, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
