@@ -53,7 +53,6 @@ func (a *Agent) ConsolidateMemory(ctx context.Context, priorSummary, newNotes st
 	if err != nil {
 		return "", err
 	}
-	a.sessionInputTokens += reply.InputTokens
-	a.sessionOutputTokens += reply.OutputTokens
+	a.addUsage(reply.InputTokens, reply.OutputTokens)
 	return strings.TrimSpace(reply.Content), nil
 }

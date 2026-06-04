@@ -149,6 +149,11 @@ type Agent struct {
 	// and retrying. Aligned with Ruby's perform_context_overflow_compression.
 	overflow overflowRecovery
 
+	// usageMu guards the cumulative counters below. They are written by the
+	// turn loop (accrueUsage) AND by sub-agent goroutines (AccrueChildUsage,
+	// which run concurrently when a launch_agent batch fans out), and read from
+	// the TUI goroutine (SessionTokens / ContextUsage / SessionCacheTokens).
+	usageMu sync.Mutex
 	// Cumulative token counts for this session (all turns combined).
 	sessionInputTokens  int
 	sessionOutputTokens int
@@ -1226,6 +1231,8 @@ func textFromBlocks(blocks []ContentBlock) string {
 // accrueUsage folds one reply's token/cache counts into the session totals
 // and records the context size used by the compaction trigger.
 func (a *Agent) accrueUsage(reply Reply) {
+	a.usageMu.Lock()
+	defer a.usageMu.Unlock()
 	a.sessionInputTokens += reply.InputTokens
 	a.sessionOutputTokens += reply.OutputTokens
 	a.sessionCacheReadTokens += reply.CacheReadTokens
@@ -1243,6 +1250,8 @@ func (a *Agent) accrueUsage(reply Reply) {
 // SessionTokens returns the cumulative input and output token counts for all
 // turns made so far in this Agent's lifetime.
 func (a *Agent) SessionTokens() (inputTokens, outputTokens int) {
+	a.usageMu.Lock()
+	defer a.usageMu.Unlock()
 	return a.sessionInputTokens, a.sessionOutputTokens
 }
 
@@ -1252,8 +1261,26 @@ func (a *Agent) SessionTokens() (inputTokens, outputTokens int) {
 // left untouched — the child runs against the same provider but reports its
 // own cache hits internally; the parent only sees the bottom-line counts here.
 func (a *Agent) AccrueChildUsage(inputTokens, outputTokens int) {
+	a.addUsage(inputTokens, outputTokens)
+}
+
+// addUsage folds input/output token counts into the session totals under the
+// usage lock. Shared by AccrueChildUsage (concurrent sub-agent goroutines) and
+// the internal sub-operation accruals (compaction / consolidation / planning),
+// all of which can run while a sub-agent goroutine is still accruing.
+func (a *Agent) addUsage(inputTokens, outputTokens int) {
+	a.usageMu.Lock()
+	defer a.usageMu.Unlock()
 	a.sessionInputTokens += inputTokens
 	a.sessionOutputTokens += outputTokens
+}
+
+// resetContextTrigger zeroes the compaction-trigger context size under the
+// usage lock (it's read from the TUI goroutine via ContextUsage).
+func (a *Agent) resetContextTrigger() {
+	a.usageMu.Lock()
+	a.lastInputTokens = 0
+	a.usageMu.Unlock()
 }
 
 // ContextUsage reports how full the model's context window is: used is the
@@ -1261,13 +1288,18 @@ func (a *Agent) AccrueChildUsage(inputTokens, outputTokens int) {
 // window is the model's approximate context-window size. Lets the TUI status
 // bar render a "ctx N%" gauge. window is always > 0.
 func (a *Agent) ContextUsage() (used, window int) {
-	return a.lastInputTokens, contextWindow(a.Model)
+	a.usageMu.Lock()
+	used = a.lastInputTokens
+	a.usageMu.Unlock()
+	return used, contextWindow(a.Model)
 }
 
 // SessionCacheTokens returns the cumulative cache read/write token counts.
 // Read is input served from cache (cheap); write is input written into the
 // cache (Anthropic only). Both zero when the backend reports no cache info.
 func (a *Agent) SessionCacheTokens() (readTokens, writeTokens int) {
+	a.usageMu.Lock()
+	defer a.usageMu.Unlock()
 	return a.sessionCacheReadTokens, a.sessionCacheWriteTokens
 }
 

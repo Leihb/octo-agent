@@ -172,7 +172,7 @@ func (a *Agent) tryOverflowCompact(ctx context.Context, pullBackMode int, handle
 		a.History.Append(m)
 	}
 
-	a.lastInputTokens = 0 // reset trigger so we don't immediately re-compact
+	a.resetContextTrigger() // reset trigger so we don't immediately re-compact
 	emitCompactDone(handler, before, estimateMessages(a.History.Snapshot()), split)
 	return true
 }

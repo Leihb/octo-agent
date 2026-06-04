@@ -254,7 +254,7 @@ func (a *Agent) maybeCompact(ctx context.Context, handler EventHandler) error {
 		a.History.Append(m)
 	}
 	// Reset the trigger so we don't re-compact until the context grows again.
-	a.lastInputTokens = 0
+	a.resetContextTrigger()
 
 	emitCompactDone(handler, before, estimateMessages(a.History.Snapshot()), split)
 	return nil
@@ -341,8 +341,7 @@ func (a *Agent) summarize(ctx context.Context, msgs []Message, handler EventHand
 	}
 
 	// Summary tokens count toward the session budget like any other call.
-	a.sessionInputTokens += reply.InputTokens
-	a.sessionOutputTokens += reply.OutputTokens
+	a.addUsage(reply.InputTokens, reply.OutputTokens)
 	return reply.Content, nil
 }
 

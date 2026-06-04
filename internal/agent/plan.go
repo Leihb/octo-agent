@@ -133,8 +133,7 @@ func (a *Agent) PlanTask(ctx context.Context, goal string) (PlanResult, error) {
 	if err != nil {
 		return PlanResult{}, err
 	}
-	a.sessionInputTokens += reply.InputTokens
-	a.sessionOutputTokens += reply.OutputTokens
+	a.addUsage(reply.InputTokens, reply.OutputTokens)
 	return parsePlan(reply.Content)
 }
 

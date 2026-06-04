@@ -226,6 +226,10 @@ func DefaultTools() []agent.ToolDefinition { return DefaultToolsFor("") }
 func DefaultToolsFor(model string) []agent.ToolDefinition {
 	skillsOn := skillsEnabled()
 	mgrOn := subAgentManagerEnabled()
+	// In synchronous mode (server / IM bridge) sub-agents finish inline, so
+	// agent_status / kill_agent have nothing to inspect or terminate — withhold
+	// them even though the manager is on.
+	statusKillOn := mgrOn && !subAgentsSynchronous()
 	askerOn := askerEnabled()
 	tasksOn := tasksEnabled()
 	defs := make([]agent.ToolDefinition, 0, len(allTools))
@@ -242,10 +246,10 @@ func DefaultToolsFor(model string) []agent.ToolDefinition {
 		if _, isSend := t.(SendMessageTool); isSend && !mgrOn {
 			continue
 		}
-		if _, isStatus := t.(AgentStatusTool); isStatus && !mgrOn {
+		if _, isStatus := t.(AgentStatusTool); isStatus && !statusKillOn {
 			continue
 		}
-		if _, isKill := t.(KillAgentTool); isKill && !mgrOn {
+		if _, isKill := t.(KillAgentTool); isKill && !statusKillOn {
 			continue
 		}
 		if _, isAsk := t.(AskUserQuestionTool); isAsk && !askerOn {

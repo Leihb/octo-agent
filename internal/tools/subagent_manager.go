@@ -162,6 +162,14 @@ func (m *SubAgentManager) Synchronous() bool {
 	return m.synchronous
 }
 
+// subAgentsSynchronous reports whether the process-global manager runs
+// sub-agents inline. In synchronous mode a sub-agent completes before
+// launch_agent returns, so agent_status / kill_agent have nothing to act on —
+// DefaultToolsFor withholds them there rather than advertise dead tools.
+func subAgentsSynchronous() bool {
+	return defaultSubAgentMgr != nil && defaultSubAgentMgr.Synchronous()
+}
+
 // RunSync spawns a sub-agent and blocks until it completes, returning its
 // reply. Used by the synchronous launch_agent path; the spawner stamps the
 // sub-agent marker and keeps the child resumable for a later ContinueSync.
