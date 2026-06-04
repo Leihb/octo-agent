@@ -10,13 +10,14 @@ The canonical project guidance for contributors and AI coding agents. Keep this 
 
 ```
 cmd/octo/          CLI entry, flag parsing, REPL, sessions
+internal/app/      Provider-client construction + session bootstrap
 internal/agent/    Agent loop, history, content blocks, Sender interfaces
 internal/provider/ Provider interface + per-vendor implementations
 internal/tools/    Concrete ToolExecutor implementations
 internal/version/  Version constants overridable via -ldflags
 ```
 
-Dependency direction is one-way: `provider → agent`, `tools → agent`, never the other way. `cmd/octo` is the only package allowed to import `provider` directly; everything else talks through `agent.Sender` / `StreamingSender` / `ToolSender` / `ToolStreamingSender`.
+Dependency direction is one-way: `provider → agent`, `tools → agent`, never the other way. `internal/app` is the single place that constructs provider clients and adapts them to `agent.Sender`; every entry point (`cmd/octo`, `internal/server`) reaches the LLM through it rather than importing `provider` directly. (`internal/server` still has its own copy pending migration.)
 
 ## Adding capability
 

@@ -63,7 +63,7 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	prov, err := buildProvider(provName, cfg, stderr)
+	llmSender, err := buildSender(provName, cfg, stderr, senderTuning{})
 	if err != nil {
 		return 1
 	}
@@ -78,7 +78,7 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	a := agent.New(providerSender{p: prov, cacheKey: newCacheKey()}, resolvedModel)
+	a := agent.New(llmSender, resolvedModel)
 	a.System = prompt.Compose("", cwd, env, "", "", true) // init is a one-shot task; no skills/memory
 
 	engine, err := permission.New(permissionConfigPath(), cwd, resolvePermissionMode(*permMode))

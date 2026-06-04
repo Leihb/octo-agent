@@ -2,9 +2,7 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +13,6 @@ import (
 
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/config"
-	"github.com/Leihb/octo-agent/internal/provider"
 )
 
 // TestRunChat_NoArgs_NoStdin_Errors verifies the headless routing: with no
@@ -349,201 +346,6 @@ func TestRunChat_UnknownProvider(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "unknown provider") {
 		t.Errorf("stderr should mention unknown provider; got: %q", stderr.String())
-	}
-}
-
-func TestRunChat_EndToEnd(t *testing.T) {
-	// httptest server impersonating Anthropic — proves the full chain
-	// (cmd → adapter → provider → HTTP) is wired correctly.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{
-			"id":"msg_test",
-			"type":"message",
-			"role":"assistant",
-			"model":"claude-haiku-4-5-20251001",
-			"content":[{"type":"text","text":"pong"}],
-			"stop_reason":"end_turn",
-			"usage":{"input_tokens":3,"output_tokens":1}
-		}`))
-	}))
-	defer srv.Close()
-
-	// Override the Anthropic endpoint via env-derived plumbing: chat.go
-	// constructs the client itself, so we test end-to-end via the lower-level
-	// provider+adapter+agent chain rather than through runChat. (runChat's
-	// other paths are covered by the surrounding tests.)
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-
-	// Use the providerSender adapter directly to exercise the wiring.
-	fake := &mockProvider{reply: provider.Response{
-		Content: "pong", Model: "m", StopReason: "end_turn",
-	}}
-	a := agent.New(providerSender{p: fake}, "claude-haiku-4-5-20251001")
-	reply, err := a.Turn(context.Background(), "ping")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reply.Content != "pong" {
-		t.Errorf("Content = %q, want pong", reply.Content)
-	}
-	if fake.gotReq.Model != "claude-haiku-4-5-20251001" {
-		t.Errorf("model passed through = %q", fake.gotReq.Model)
-	}
-	if len(fake.gotReq.Messages) != 1 || fake.gotReq.Messages[0].Content != "ping" {
-		t.Errorf("messages passed through = %+v", fake.gotReq.Messages)
-	}
-}
-
-func TestProviderSender_NilProvider(t *testing.T) {
-	s := providerSender{p: nil}
-	if _, err := s.SendMessages(context.Background(), "m", "", nil, 0); err == nil {
-		t.Error("expected error for nil provider")
-	}
-}
-
-func TestProviderSender_ProviderError_Surfaces(t *testing.T) {
-	fake := &mockProvider{err: errors.New("upstream boom")}
-	s := providerSender{p: fake}
-	_, err := s.SendMessages(context.Background(), "m", "", []agent.Message{agent.NewUserMessage("hi")}, 0)
-	if err == nil || !strings.Contains(err.Error(), "upstream boom") {
-		t.Errorf("expected upstream error, got: %v", err)
-	}
-}
-
-// mockProvider implements provider.Provider for tests.
-type mockProvider struct {
-	reply  provider.Response
-	err    error
-	gotReq provider.Request
-}
-
-func (m *mockProvider) Name() string { return "mock" }
-
-func (m *mockProvider) Send(_ context.Context, req provider.Request) (provider.Response, error) {
-	m.gotReq = req
-	return m.reply, m.err
-}
-
-// streamingMockProvider also implements provider.StreamingProvider so we can
-// verify providerSender.StreamMessages picks the streaming path when the
-// underlying provider supports it.
-type streamingMockProvider struct {
-	mockProvider
-	deltas       []string
-	thinkDeltas  []string
-	streamReply  provider.Response
-	streamCalled bool
-	// onThinkingSet records whether the caller wired an OnThinking callback —
-	// providerSender drops it when reasoning display is off.
-	onThinkingSet bool
-}
-
-func (m *streamingMockProvider) SendStream(_ context.Context, req provider.Request, cb provider.StreamCallbacks) (provider.Response, error) {
-	m.streamCalled = true
-	m.gotReq = req
-	m.onThinkingSet = cb.OnThinking != nil
-	for _, d := range m.thinkDeltas {
-		if cb.OnThinking != nil {
-			cb.OnThinking(d)
-		}
-	}
-	for _, d := range m.deltas {
-		if cb.OnText != nil {
-			cb.OnText(d)
-		}
-	}
-	if m.err != nil {
-		return provider.Response{}, m.err
-	}
-	return m.streamReply, nil
-}
-
-func TestProviderSender_ReasoningSink_Gating(t *testing.T) {
-	cases := []struct {
-		name          string
-		showReasoning bool
-		onThinking    func(string)
-		wantForwarded bool // whether the provider received a non-nil OnThinking
-	}{
-		{"on + handler → forwarded", true, func(string) {}, true},
-		{"off → dropped", false, func(string) {}, false},
-		{"on but nil handler → nil", true, nil, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			fake := &streamingMockProvider{
-				thinkDeltas: []string{"reasoning"},
-				streamReply: provider.Response{Content: "ok", StopReason: "end_turn"},
-			}
-			s := providerSender{p: fake, showReasoning: c.showReasoning}
-			var got []string
-			_, err := s.StreamMessages(
-				context.Background(), "m", "",
-				[]agent.Message{agent.NewUserMessage("hi")}, 0,
-				func(string) {},
-				c.onThinking,
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if fake.onThinkingSet != c.wantForwarded {
-				t.Errorf("provider OnThinking set = %v, want %v", fake.onThinkingSet, c.wantForwarded)
-			}
-			_ = got
-		})
-	}
-}
-
-func TestProviderSender_StreamingPathPreferred(t *testing.T) {
-	fake := &streamingMockProvider{
-		deltas:      []string{"hi ", "there"},
-		streamReply: provider.Response{Content: "hi there", Model: "m", StopReason: "end_turn"},
-	}
-	s := providerSender{p: fake}
-
-	var got []string
-	reply, err := s.StreamMessages(
-		context.Background(), "m", "",
-		[]agent.Message{agent.NewUserMessage("hi")}, 0,
-		func(d string) { got = append(got, d) },
-		nil,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !fake.streamCalled {
-		t.Error("expected SendStream to be called when provider supports it")
-	}
-	if reply.Content != "hi there" {
-		t.Errorf("Content = %q", reply.Content)
-	}
-	if len(got) != 2 || got[0] != "hi " || got[1] != "there" {
-		t.Errorf("chunks = %v", got)
-	}
-}
-
-func TestProviderSender_StreamingFallback_NonStreamingProvider(t *testing.T) {
-	// mockProvider only implements provider.Provider — not StreamingProvider.
-	// providerSender.StreamMessages must fall back to Send and synthesise
-	// a single onChunk call with the full content.
-	fake := &mockProvider{reply: provider.Response{Content: "buffered"}}
-	s := providerSender{p: fake}
-
-	var got []string
-	reply, err := s.StreamMessages(
-		context.Background(), "m", "",
-		[]agent.Message{agent.NewUserMessage("hi")}, 0,
-		func(d string) { got = append(got, d) },
-		nil,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reply.Content != "buffered" {
-		t.Errorf("Content = %q", reply.Content)
-	}
-	if len(got) != 1 || got[0] != "buffered" {
-		t.Errorf("fallback should emit one chunk with full content; got %v", got)
 	}
 }
 

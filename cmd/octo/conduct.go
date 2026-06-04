@@ -368,11 +368,11 @@ func buildConductAgent(f conductFlags, stdout, stderr io.Writer) (*agent.Agent, 
 		fmt.Fprintf(stderr, "octo conduct: unknown provider %q (use 'anthropic' or 'openai')\n", provName)
 		return nil, func() {}, 2
 	}
-	prov, err := buildProvider(provName, cfg, stderr)
+	llmSender, err := buildSender(provName, cfg, stderr, senderTuning{})
 	if err != nil {
 		return nil, func() {}, 1
 	}
-	a := agent.New(providerSender{p: prov, cacheKey: newCacheKey()}, resolvedModel)
+	a := agent.New(llmSender, resolvedModel)
 	a.MaxTokens = defaultMaxTokensForPlanner
 	cwd, _ := os.Getwd()
 	a.CWD = cwd

@@ -6,9 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/config"
-	"github.com/Leihb/octo-agent/internal/provider/anthropic"
-	"github.com/Leihb/octo-agent/internal/provider/openai"
 )
 
 // firstNonEmpty returns the first non-empty string, or "" if all are empty.
@@ -93,11 +92,8 @@ func effectiveEndpoint(provider string, cfg config.Config) string {
 	if u := resolveBaseURL(provider, cfg); u != "" {
 		return u
 	}
-	switch provider {
-	case providerAnthropic:
-		return anthropic.DefaultBaseURL + " (default)"
-	case providerOpenAI:
-		return openai.DefaultBaseURL + " (default)"
+	if def := app.DefaultBaseURL(provider); def != "" {
+		return def + " (default)"
 	}
 	return "(default)"
 }

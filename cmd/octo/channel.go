@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/channel"
 	_ "github.com/Leihb/octo-agent/internal/channel/adapters/weixin"
 	"github.com/Leihb/octo-agent/internal/channel/adapters/weixin/ilink"
@@ -121,10 +122,13 @@ func runChannelStart(args []string, stdin io.Reader, stdout, stderr io.Writer) i
 		fmt.Fprintf(stderr, "octo channel: unknown provider %q\n", provName)
 		return 2
 	}
-	prov, err := buildProvider(provName, cfg, stderr)
+	// Validate credentials once (printing setup help on a missing key); the
+	// per-session sender is built in the factory below with a fresh cache key.
+	apiKey, err := resolveAPIKey(provName, cfg, stderr)
 	if err != nil {
 		return 1
 	}
+	baseURL := resolveBaseURL(provName, cfg)
 
 	// Build agent factory.
 	cwd, _ := os.Getwd()
@@ -134,10 +138,15 @@ func runChannelStart(args []string, stdin io.Reader, stdout, stderr io.Writer) i
 	tools.SetSkills(skillReg)
 
 	agentFactory := func() *agent.Agent {
-		a := agent.New(providerSender{
-			p:        prov,
-			cacheKey: newCacheKey(),
-		}, resolvedModel)
+		// The key was validated above; NewSender only re-errors on client
+		// construction, which doesn't happen for an already-resolved key.
+		llmSender, _ := app.NewSender(app.SenderOptions{
+			Provider: provName,
+			APIKey:   apiKey,
+			BaseURL:  baseURL,
+			CacheKey: newCacheKey(),
+		})
+		a := agent.New(llmSender, resolvedModel)
 		a.CWD = cwd
 		a.MaxTokens = *maxTokens
 		a.MaxTurns = *maxTurns

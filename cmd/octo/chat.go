@@ -15,15 +15,13 @@ import (
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/hooks"
 	"github.com/Leihb/octo-agent/internal/mcp"
 	"github.com/Leihb/octo-agent/internal/memory"
 	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/prompt"
-	"github.com/Leihb/octo-agent/internal/provider"
-	"github.com/Leihb/octo-agent/internal/provider/anthropic"
-	"github.com/Leihb/octo-agent/internal/provider/openai"
 	"github.com/Leihb/octo-agent/internal/skills"
 	"github.com/Leihb/octo-agent/internal/tasks"
 	"github.com/Leihb/octo-agent/internal/tools"
@@ -415,7 +413,11 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	prov, err := buildProvider(provName, cfg, stderr)
+	llmSender, err := buildSender(provName, cfg, stderr, senderTuning{
+		thinkingBudget:  anthropicThinkingBudget(resolvedEffort),
+		reasoningEffort: resolvedEffort,
+		showReasoning:   resolvedShowReasoning,
+	})
 	if err != nil {
 		return 1
 	}
@@ -467,15 +469,10 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	// A stable per-process cache key lets OpenAI route every turn (and every
-	// tool-loop iteration) of this conversation to the same prompt cache.
-	a := agent.New(providerSender{
-		p:               prov,
-		cacheKey:        newCacheKey(),
-		thinkingBudget:  anthropicThinkingBudget(resolvedEffort),
-		reasoningEffort: resolvedEffort,
-		showReasoning:   resolvedShowReasoning,
-	}, resolvedModel)
+	// The sender (built above with a stable per-process cache key) lets OpenAI
+	// route every turn — and every tool-loop iteration — of this conversation
+	// to the same prompt cache.
+	a := agent.New(llmSender, resolvedModel)
 	a.CWD = cwd
 	a.MaxTokens = *maxTokens
 	a.MaxTokensEscalate = resolveMaxTokensEscalate(*maxTokensEscalate, provName)
@@ -754,13 +751,46 @@ func printUsageLine(w io.Writer, reply agent.Reply) {
 		reply.InputTokens, reply.OutputTokens, reply.CacheReadTokens, reply.CacheWriteTokens)
 }
 
-// buildProvider constructs a provider.Provider for the requested vendor.
-// Credentials and endpoint resolve env-first, then fall back to the persisted
-// config (cfg): the API key comes from the provider's env var, else cfg.APIKey
-// when the stored config is for this same provider; the base URL likewise. On
-// configuration errors it writes a user-facing message to stderr and returns a
+// senderTuning carries the optional reasoning/thinking knobs a caller wants on
+// the sender. The zero value (no extended reasoning) is what the IM bridge and
+// server use.
+type senderTuning struct {
+	thinkingBudget  int
+	reasoningEffort string
+	showReasoning   bool
+}
+
+// buildSender resolves credentials/endpoint (env-first, then the persisted
+// config) and returns an agent.Sender built through internal/app — the single
+// place that constructs provider clients. On a configuration error it writes a
+// user-facing message to stderr and returns a non-nil error. A fresh
+// prompt-cache key is generated per call.
+func buildSender(name string, cfg config.Config, stderr io.Writer, tuning senderTuning) (agent.Sender, error) {
+	apiKey, err := resolveAPIKey(name, cfg, stderr)
+	if err != nil {
+		return nil, err
+	}
+	s, err := app.NewSender(app.SenderOptions{
+		Provider:        name,
+		APIKey:          apiKey,
+		BaseURL:         resolveBaseURL(name, cfg),
+		CacheKey:        newCacheKey(),
+		ThinkingBudget:  tuning.thinkingBudget,
+		ReasoningEffort: tuning.reasoningEffort,
+		ShowReasoning:   tuning.showReasoning,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "octo chat: %v\n", err)
+		return nil, err
+	}
+	return s, nil
+}
+
+// resolveAPIKey returns the API key for the requested vendor: the provider's
+// env var, else cfg.APIKey when the stored config is for this same provider. On
+// a missing key it prints provider-specific setup help to stderr and returns a
 // non-nil error.
-func buildProvider(name string, cfg config.Config, stderr io.Writer) (provider.Provider, error) {
+func resolveAPIKey(name string, cfg config.Config, stderr io.Writer) (string, error) {
 	switch name {
 	case providerAnthropic:
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
@@ -779,17 +809,9 @@ func buildProvider(name string, cfg config.Config, stderr io.Writer) (provider.P
 			fmt.Fprintln(stderr, "Or use OpenAI:")
 			fmt.Fprintln(stderr, "  export OPENAI_API_KEY=sk-...")
 			fmt.Fprintln(stderr, "  octo chat --provider openai")
-			return nil, errors.New("missing ANTHROPIC_API_KEY")
+			return "", errors.New("missing ANTHROPIC_API_KEY")
 		}
-		client, err := anthropic.New(apiKey)
-		if err != nil {
-			fmt.Fprintf(stderr, "octo chat: %v\n", err)
-			return nil, err
-		}
-		if baseURL := resolveBaseURL(name, cfg); baseURL != "" {
-			client.BaseURL = baseURL
-		}
-		return client, nil
+		return apiKey, nil
 
 	case providerOpenAI:
 		apiKey := os.Getenv("OPENAI_API_KEY")
@@ -808,59 +830,14 @@ func buildProvider(name string, cfg config.Config, stderr io.Writer) (provider.P
 			fmt.Fprintln(stderr, "Or use Anthropic (the default):")
 			fmt.Fprintln(stderr, "  export ANTHROPIC_API_KEY=sk-ant-...")
 			fmt.Fprintln(stderr, "  octo chat                 # no --provider flag needed")
-			return nil, errors.New("missing OPENAI_API_KEY")
+			return "", errors.New("missing OPENAI_API_KEY")
 		}
-		client, err := openai.New(apiKey)
-		if err != nil {
-			fmt.Fprintf(stderr, "octo chat: %v\n", err)
-			return nil, err
-		}
-		if baseURL := resolveBaseURL(name, cfg); baseURL != "" {
-			client.BaseURL = baseURL
-		}
-		return client, nil
+		return apiKey, nil
 
 	default:
 		fmt.Fprintf(stderr, "octo chat: unknown provider %q (use 'anthropic' or 'openai')\n", name)
-		return nil, fmt.Errorf("unknown provider %q", name)
+		return "", fmt.Errorf("unknown provider %q", name)
 	}
-}
-
-// providerSender adapts a provider.Provider into agent.Sender. Keeping the
-// adapter in cmd/octo means the agent package never imports provider — a
-// one-directional dep graph that pays off as more provider implementations
-// land.
-type providerSender struct {
-	p provider.Provider
-	// cacheKey is a stable per-conversation identifier forwarded as the
-	// provider's prompt-cache key (OpenAI prompt_cache_key). Keeping it
-	// constant across a session's turns lets the backend route them to the
-	// same prompt cache. Empty is fine — providers omit the field.
-	cacheKey string
-	// thinkingBudget, when > 0, enables extended thinking (Anthropic) with this
-	// token budget for the reasoning trace. Derived from the unified reasoning
-	// effort. Ignored by the OpenAI provider.
-	thinkingBudget int
-	// reasoningEffort ("low" | "medium" | "high"), when non-empty, is forwarded
-	// to the OpenAI provider as reasoning_effort. Ignored by Anthropic, which
-	// uses thinkingBudget instead.
-	reasoningEffort string
-	// showReasoning gates whether the reasoning/thinking trace is surfaced to
-	// the agent event stream (and thus rendered by the view). When false the
-	// provider is told not to stream reasoning, even though the model may still
-	// produce it server-side and history may still carry it.
-	showReasoning bool
-}
-
-// reasoningSink returns the OnThinking callback to hand the provider: the
-// agent's onThinking when reasoning display is enabled, else nil so the
-// provider skips surfacing reasoning entirely. The trace's dim styling lives
-// in the view layer (plainView / TUI), not here.
-func (s providerSender) reasoningSink(onThinking func(string)) func(string) {
-	if !s.showReasoning || onThinking == nil {
-		return nil
-	}
-	return onThinking
 }
 
 // newCacheKey returns a random hex token used as the prompt-cache key for one
@@ -873,172 +850,3 @@ func newCacheKey() string {
 	}
 	return "octo-" + hex.EncodeToString(b[:])
 }
-
-func (s providerSender) SendMessages(ctx context.Context, model, system string, msgs []agent.Message, maxTokens int) (agent.Reply, error) {
-	if s.p == nil {
-		return agent.Reply{}, errors.New("providerSender: provider is nil")
-	}
-	resp, err := s.p.Send(ctx, provider.Request{
-		Model:           model,
-		SystemPrompt:    system,
-		Messages:        msgs,
-		MaxTokens:       maxTokens,
-		CacheKey:        s.cacheKey,
-		ThinkingBudget:  s.thinkingBudget,
-		ReasoningEffort: s.reasoningEffort,
-	})
-	if err != nil {
-		return agent.Reply{}, err
-	}
-	return replyFromResponse(resp), nil
-}
-
-// StreamMessages implements agent.StreamingSender by delegating to the
-// underlying provider's SendStream — when the provider implements
-// provider.StreamingProvider. If it doesn't (e.g. a future
-// non-streaming-capable backend), we fall back to the buffered Send path
-// and synthesise a single onChunk call with the full content so callers
-// see the same shape either way.
-func (s providerSender) StreamMessages(
-	ctx context.Context,
-	model, system string,
-	msgs []agent.Message,
-	maxTokens int,
-	onChunk func(string),
-	onThinking func(string),
-) (agent.Reply, error) {
-	if s.p == nil {
-		return agent.Reply{}, errors.New("providerSender: provider is nil")
-	}
-	req := provider.Request{
-		Model:           model,
-		SystemPrompt:    system,
-		Messages:        msgs,
-		MaxTokens:       maxTokens,
-		CacheKey:        s.cacheKey,
-		ThinkingBudget:  s.thinkingBudget,
-		ReasoningEffort: s.reasoningEffort,
-	}
-	if sp, ok := s.p.(provider.StreamingProvider); ok {
-		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{
-			OnText:     onChunk,
-			OnThinking: s.reasoningSink(onThinking),
-		})
-		if err != nil {
-			return agent.Reply{}, err
-		}
-		return replyFromResponse(resp), nil
-	}
-
-	resp, err := s.p.Send(ctx, req)
-	if err != nil {
-		return agent.Reply{}, err
-	}
-	if onChunk != nil && resp.Content != "" {
-		onChunk(resp.Content)
-	}
-	return replyFromResponse(resp), nil
-}
-
-func replyFromResponse(resp provider.Response) agent.Reply {
-	return agent.Reply{
-		Content:          resp.Content,
-		Blocks:           resp.Blocks,
-		Model:            resp.Model,
-		StopReason:       resp.StopReason,
-		InputTokens:      resp.InputTokens,
-		OutputTokens:     resp.OutputTokens,
-		CacheReadTokens:  resp.CacheReadTokens,
-		CacheWriteTokens: resp.CacheWriteTokens,
-	}
-}
-
-// SendMessagesWithTools implements agent.ToolSender. It passes the tool
-// definitions to the provider via provider.Request.Tools and returns the full
-// content-block list (including tool_use blocks) in the Reply.
-func (s providerSender) SendMessagesWithTools(
-	ctx context.Context,
-	model, system string,
-	msgs []agent.Message,
-	maxTokens int,
-	tools []agent.ToolDefinition,
-) (agent.Reply, error) {
-	if s.p == nil {
-		return agent.Reply{}, errors.New("providerSender: provider is nil")
-	}
-	resp, err := s.p.Send(ctx, provider.Request{
-		Model:           model,
-		SystemPrompt:    system,
-		Messages:        msgs,
-		MaxTokens:       maxTokens,
-		CacheKey:        s.cacheKey,
-		Tools:           tools,
-		ThinkingBudget:  s.thinkingBudget,
-		ReasoningEffort: s.reasoningEffort,
-	})
-	if err != nil {
-		return agent.Reply{}, err
-	}
-	return replyFromResponse(resp), nil
-}
-
-// StreamMessagesWithTools implements agent.ToolStreamingSender. It passes
-// tools to the provider and streams text deltas via onChunk; tool_use blocks
-// are accumulated and returned in Reply.Blocks at the end of the stream.
-func (s providerSender) StreamMessagesWithTools(
-	ctx context.Context,
-	model, system string,
-	msgs []agent.Message,
-	maxTokens int,
-	tools []agent.ToolDefinition,
-	onChunk func(string),
-	onToolDelta agent.ToolInputDeltaFunc,
-	onThinking agent.ThinkingDeltaFunc,
-) (agent.Reply, error) {
-	if s.p == nil {
-		return agent.Reply{}, errors.New("providerSender: provider is nil")
-	}
-	req := provider.Request{
-		Model:           model,
-		SystemPrompt:    system,
-		Messages:        msgs,
-		MaxTokens:       maxTokens,
-		CacheKey:        s.cacheKey,
-		Tools:           tools,
-		ThinkingBudget:  s.thinkingBudget,
-		ReasoningEffort: s.reasoningEffort,
-	}
-	if sp, ok := s.p.(provider.StreamingProvider); ok {
-		// Callbacks are forwarded straight through. provider.StreamCallbacks is
-		// a per-event union — reasoning streams first, then text and tool-input
-		// deltas interleave. Dim styling for the reasoning trace lives in the
-		// view; reasoningSink drops it entirely when display is off.
-		resp, err := sp.SendStream(ctx, req, provider.StreamCallbacks{
-			OnText:      onChunk,
-			OnToolDelta: onToolDelta,
-			OnThinking:  s.reasoningSink(onThinking),
-		})
-		if err != nil {
-			return agent.Reply{}, err
-		}
-		return replyFromResponse(resp), nil
-	}
-
-	// Buffered fallback.
-	resp, err := s.p.Send(ctx, req)
-	if err != nil {
-		return agent.Reply{}, err
-	}
-	if onChunk != nil && resp.Content != "" {
-		onChunk(resp.Content)
-	}
-	return replyFromResponse(resp), nil
-}
-
-// Compile-time assertions: providerSender satisfies all agent sender interfaces.
-var (
-	_ agent.Sender              = providerSender{}
-	_ agent.StreamingSender     = providerSender{}
-	_ agent.ToolSender          = providerSender{}
-	_ agent.ToolStreamingSender = providerSender{}
-)
