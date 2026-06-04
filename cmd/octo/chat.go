@@ -23,7 +23,6 @@ import (
 	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/prompt"
 	"github.com/Leihb/octo-agent/internal/skills"
-	"github.com/Leihb/octo-agent/internal/tasks"
 	"github.com/Leihb/octo-agent/internal/tools"
 	"github.com/Leihb/octo-agent/internal/version"
 )
@@ -535,14 +534,13 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	// Agentic setup — shared by both paths, which each run the full tool loop.
-	toolExecutor = tools.NewDefaultRegistry()
-	// Sub-agents share the parent's model for the Tool Search threshold decision
-	// (a model override is rare and still resolves to a sane window).
-	spawner := app.NewSpawner(a, toolExecutor, func() []agent.ToolDefinition {
-		return tools.DefaultToolsFor(a.Model)
-	})
-	tools.SetSpawner(spawner)
-	subAgentMgr = tools.NewSubAgentManager(spawner)
+	// WireTools builds the executor, registers the sub-agent spawner, creates the
+	// sub-agent manager, and installs the session task store; its cleanup resets
+	// those process-global registrations at session end.
+	toolEnv, toolCleanup := app.WireTools(a, true)
+	defer toolCleanup()
+	toolExecutor = toolEnv.Executor
+	subAgentMgr = toolEnv.SubAgentMgr
 	if useTUI {
 		// bubbletea owns stdin and renders its own input; the asker and gate
 		// are wired to the TUI sink inside runTUI.
@@ -567,11 +565,6 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		tools.SetAsker(newREPLAsker(replView))
 		defer tools.SetAsker(nil)
 	}
-
-	// Session-scoped task tracker backing the task_create / task_update /
-	// task_list tools. Lost on exit by design.
-	tools.SetTaskStore(tasks.New())
-	defer tools.SetTaskStore(nil)
 
 	// MCP servers: load config, connect, register so DefaultTools and
 	// DefaultRegistry pick them up. Best-effort — a misconfigured or missing
