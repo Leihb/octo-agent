@@ -150,7 +150,7 @@ type Agent struct {
 
 	// usageMu guards the cumulative counters below. They are written by the
 	// turn loop (accrueUsage) AND by sub-agent goroutines (AccrueChildUsage,
-	// which run concurrently when a launch_agent batch fans out), and read from
+	// which run concurrently when a sub_agent batch fans out), and read from
 	// the TUI goroutine (SessionTokens / ContextUsage / SessionCacheTokens).
 	usageMu sync.Mutex
 	// Cumulative token counts for this session (all turns combined).
@@ -1176,7 +1176,7 @@ func (a *Agent) SessionTokens() (inputTokens, outputTokens int) {
 
 // AccrueChildUsage folds tokens spent by a spawned sub-agent into this
 // agent's session totals, so /cost and SessionTokens still report one
-// consolidated number even when the LLM used launch_agent. cache totals are
+// consolidated number even when the LLM used sub_agent. cache totals are
 // left untouched — the child runs against the same provider but reports its
 // own cache hits internally; the parent only sees the bottom-line counts here.
 func (a *Agent) AccrueChildUsage(inputTokens, outputTokens int) {

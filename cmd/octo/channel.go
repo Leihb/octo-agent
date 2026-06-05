@@ -295,8 +295,8 @@ func newChannelGate(cwd string) (agent.PermissionGate, error) {
 }
 
 // registerChannelSubAgentTools installs the process-global sub-agent manager +
-// task store so DefaultToolsFor advertises launch_agent / send_message /
-// task_* . These are gating sentinels and a never-hit fallback — each message
+// task store so DefaultToolsFor advertises sub_agent / task_* . These are gating
+// sentinels and a never-hit fallback — each message
 // stamps its own ctx-scoped, synchronous manager + store bound to that chat's
 // agent (handleAgentMessage), which dispatch prefers, so concurrent chats never
 // share sub-agent or task state. The template agent only seeds the sentinel

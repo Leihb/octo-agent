@@ -9,7 +9,7 @@ import (
 )
 
 // AgentTool is the unified sub-agent tool. It replaces the previous
-// launch_agent / send_message / explore_agent / plan_agent / general_agent /
+// explore_agent / plan_agent / general_agent /
 // code_review_agent split with a single tool controlled by parameters.
 //
 // Parameters:

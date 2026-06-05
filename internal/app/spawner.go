@@ -13,25 +13,25 @@ import (
 )
 
 // Spawner implements tools.Spawner by building a child agent on each
-// launch_agent call. The child shares the parent's Sender (one provider
+// sub_agent call. The child shares the parent's Sender (one provider
 // connection) and System (same harness identity), but runs in isolation:
 // fresh History, no visibility into the parent's conversation, its own
 // loop budget. The final child reply text is returned to the parent as the
-// launch_agent tool_result; the child's token usage is rolled into the
+// sub_agent tool_result; the child's token usage is rolled into the
 // parent's session totals so /cost reports one consolidated number.
 //
 // toolsFn is a deferred lookup of the LLM-facing tool catalog (DefaultTools).
 // Resolving it on each Spawn — rather than capturing a slice at construction
 // — lets cmd/octo set up the spawner before computing the tool list, since
-// SetSpawner has to run first for launch_agent to appear in DefaultTools().
+// SetSpawner has to run first for sub_agent to appear in DefaultTools().
 type Spawner struct {
 	parent   *agent.Agent
 	executor agent.ToolExecutor
 	toolsFn  func() []agent.ToolDefinition
 	// reg keeps spawned children alive after Spawn returns so a later
-	// send_message (tools.Spawner.Continue) can re-run them with their history
-	// intact. In-memory and session-scoped: it lives as long as this spawner
-	// (one per REPL session), and a fresh process starts empty.
+	// Continue can re-run them with their history intact. In-memory and
+	// session-scoped: it lives as long as this spawner (one per REPL session),
+	// and a fresh process starts empty.
 	reg *childRegistry
 }
 
@@ -46,12 +46,12 @@ func NewSpawner(parent *agent.Agent, executor agent.ToolExecutor, toolsFn func()
 
 // childMaxTurns caps the sub-agent's tool loop.
 // Set to the same default as the parent (100) so sub-agents have enough
-// budget for complex sub-tasks. Each Continue (send_message) re-arms
+// budget for complex sub-tasks. Each Continue re-arms
 // this budget for the next round.
 const childMaxTurns = 100
 
 // Spawn implements tools.Spawner. It builds an isolated child, registers it so
-// a later send_message can continue it, runs the first prompt, and returns the
+// a later Continue can resume it, runs the first prompt, and returns the
 // child's id alongside its reply.
 func (s *Spawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools.SpawnResult, error) {
 	childTools := filterChildTools(s.toolsFn(), req.Tools, req.ReadOnly)
@@ -90,7 +90,7 @@ func (s *Spawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools.Spaw
 
 // Continue implements tools.Spawner. It re-runs a still-alive child with a new
 // message. An unknown / evicted id returns an error whose text steers the model
-// to launch a fresh sub-agent.
+// to start a fresh sub-agent.
 func (s *Spawner) Continue(ctx context.Context, agentID, message string) (tools.SpawnResult, error) {
 	lc, ok := s.reg.get(agentID)
 	if !ok {
@@ -190,12 +190,12 @@ func filterChildTools(parent []agent.ToolDefinition, allowed []string, readOnly 
 	return out
 }
 
-// Live-child registry — keeps spawned sub-agents addressable for send_message.
+// Live-child registry — keeps spawned sub-agents addressable for Continue.
 
 const (
 	// maxLiveChildren caps how many sub-agents stay resumable at once. Beyond
 	// this the least-recently-used is evicted (its history is dropped; a
-	// send_message to it then fails and the model relaunches).
+	// Continue to it then fails and the model relaunches).
 	maxLiveChildren = 8
 	// childIdleTTL evicts a sub-agent that hasn't been touched in this long,
 	// so abandoned children don't pin their histories in memory for the whole

@@ -119,7 +119,7 @@ func New(cfg Config) (*Server, error) {
 }
 
 // enableSubAgentTools registers the process-global sub-agent manager + task
-// store so DefaultToolsFor advertises launch_agent / send_message / task_* . On
+// store so DefaultToolsFor advertises sub_agent / task_* . On
 // the server these globals are gating sentinels and a never-hit fallback: every
 // turn stamps its own ctx-scoped manager + store (bound to that turn's agent)
 // via prepareToolTurn, and dispatch prefers the ctx-scoped ones — so concurrent

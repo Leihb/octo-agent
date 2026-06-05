@@ -15,7 +15,7 @@ func TestWireTools_SetsUpEnvAndCleansUp(t *testing.T) {
 	env, cleanup := WireTools(a, true)
 
 	if tools.ActiveSpawner() == nil {
-		t.Error("WireTools should register a spawner so launch_agent appears in the catalog")
+		t.Error("WireTools should register a spawner so sub_agent appears in the catalog")
 	}
 	if tools.ActiveTaskStore() == nil {
 		t.Error("WireTools(enableTasks=true) should install a task store")

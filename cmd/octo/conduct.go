@@ -356,7 +356,7 @@ func runConductShow(args []string, stdout, stderr io.Writer) int {
 }
 
 // buildConductAgent constructs the planner/worker parent agent and registers
-// the spawner so launch_agent-style workers can run. The returned cleanup
+// the spawner so sub_agent-style workers can run. The returned cleanup
 // unregisters the spawner.
 func buildConductAgent(f conductFlags, stdout, stderr io.Writer) (*agent.Agent, func(), int) {
 	cfg, err := config.Load()

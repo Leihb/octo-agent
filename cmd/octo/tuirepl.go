@@ -665,7 +665,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case subAgentNoteMsg:
 		// A sub-agent finished this round — drop it from the live panel (it's
-		// idle now; a later send_message re-adds it via a fresh "started").
+		// idle now; a later Continue re-adds it via a fresh "started").
 		m.removeSubAgent(msg.ev.AgentID)
 		// Async sub-agent completion: the full result rode into the conversation
 		// via Inbox; no scrollback notice needed.
@@ -777,7 +777,7 @@ func (m *tuiModel) handleSubAgentEvent(ev tools.SubAgentEvent) {
 	}
 	switch ev.Kind {
 	case "started":
-		// A fresh round (launch or send_message): reset the chain, keep the slot.
+		// A fresh round (sub_agent): reset the chain, keep the slot.
 		sa.toolCount = 0
 		sa.recent = nil
 		sa.errored = false

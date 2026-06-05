@@ -12,9 +12,9 @@ import "context"
 // concurrent sub-agents streaming their prose.
 type SubAgentEvent struct {
 	AgentID     string // manager handle, e.g. "agent_1"
-	Description string // human-readable label from launch_agent
+	Description string // human-readable label from sub_agent
 	// Kind is one of:
-	//   "started"    — the sub-agent began a task (or a send_message round)
+	//   "started"    — the sub-agent began a task (or a Continue round)
 	//   "tool"       — it dispatched a tool (ToolName set)
 	//   "tool_error" — a tool returned an error (ToolName set)
 	Kind     string

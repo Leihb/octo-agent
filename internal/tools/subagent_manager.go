@@ -12,10 +12,10 @@ import (
 const maxSubAgentResultBytes = 1 << 20 // 1 MiB
 
 // SubAgentNotification is delivered to the onExit hook when a sub-agent
-// finishes a task (launch_agent) or replies to a message (send_message).
+// finishes a task (spawn) or replies to a message (continue).
 type SubAgentNotification struct {
 	AgentID      string // e.g. "agent_1"
-	Description  string // human-readable label from launch_agent
+	Description  string // human-readable label from sub_agent
 	Kind         string // "spawn_done" | "message_reply"
 	Result       string // final reply text
 	InputTokens  int
@@ -145,11 +145,11 @@ func NewSubAgentManager(spawner Spawner) *SubAgentManager {
 	}
 }
 
-// SetSynchronous selects the launch_agent dispatch model. The default (false)
+// SetSynchronous selects the sub_agent dispatch model. The default (false)
 // is the interactive async path: Start returns immediately and the reply
 // arrives via onExit, which the REPL/TUI re-injects as a follow-up turn. A
 // request/response transport (HTTP server, IM bridge) has no follow-up-turn
-// channel, so it sets this true: launch_agent then blocks the turn on RunSync
+// channel, so it sets this true: sub_agent then blocks the turn on RunSync
 // and returns the child's reply directly as the tool_result. Set once at
 // startup, before any turn runs.
 func (m *SubAgentManager) SetSynchronous(v bool) {
@@ -168,14 +168,14 @@ func (m *SubAgentManager) Synchronous() bool {
 
 // subAgentsSynchronous reports whether the process-global manager runs
 // sub-agents inline. In synchronous mode a sub-agent completes before
-// launch_agent returns, so agent_status / kill_agent have nothing to act on —
+// sub_agent returns, so agent_status / kill_agent have nothing to act on —
 // DefaultToolsFor withholds them there rather than advertise dead tools.
 func subAgentsSynchronous() bool {
 	return defaultSubAgentMgr != nil && defaultSubAgentMgr.Synchronous()
 }
 
 // RunSync spawns a sub-agent and blocks until it completes, returning its
-// reply. Used by the synchronous launch_agent path; the spawner stamps the
+// reply. Used by the synchronous sub_agent path; the spawner stamps the
 // sub-agent marker and keeps the child resumable for a later ContinueSync.
 func (m *SubAgentManager) RunSync(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
 	if m.spawner == nil {

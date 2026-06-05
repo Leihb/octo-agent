@@ -6,7 +6,7 @@ import (
 )
 
 // TestAccrueChildUsageConcurrent guards the usage-counter mutex: a fanned-out
-// launch_agent batch runs sub-agents concurrently, each folding its tokens into
+// sub_agent batch runs sub-agents concurrently, each folding its tokens into
 // the shared parent via AccrueChildUsage. Run with -race, this catches an
 // unguarded counter; the sum check catches lost updates.
 func TestAccrueChildUsageConcurrent(t *testing.T) {

@@ -182,8 +182,8 @@ func TestAgentSpawner_SpawnReturnsIDAndContinueResumesSameChild(t *testing.T) {
 
 // TestSubAgentManager_SendResumesSameChildThroughSpawner exercises the full
 // async path: SubAgentManager hands the model an agent_N handle, but the
-// resumable child lives in childRegistry under an 8-hex id. send_message
-// (Manager.Send → Spawner.Continue) must reach the same child, not miss the
+// resumable child lives in childRegistry under an 8-hex id. Manager.Send
+// (Spawner.Continue) must reach the same child, not miss the
 // registry and report "no longer alive".
 func TestSubAgentManager_SendResumesSameChildThroughSpawner(t *testing.T) {
 	send := &subAgentSender{reply: "round one", inputTokens: 100, outputTokens: 40}
@@ -225,7 +225,7 @@ func TestSubAgentManager_SendResumesSameChildThroughSpawner(t *testing.T) {
 
 	reply := waitNote("message_reply")
 	if strings.Contains(reply.Result, "no longer alive") {
-		t.Fatalf("send_message failed to reach the child: %q", reply.Result)
+		t.Fatalf("Send failed to reach the child: %q", reply.Result)
 	}
 	if reply.Result != "round two" {
 		t.Errorf("message_reply result = %q, want %q", reply.Result, "round two")
@@ -233,7 +233,7 @@ func TestSubAgentManager_SendResumesSameChildThroughSpawner(t *testing.T) {
 	// The continuation must reuse the same child: its history now carries
 	// [user1, assistant1, user2] = 3 messages.
 	if got := len(send.lastMessages); got != 3 {
-		t.Errorf("after send_message, child saw %d messages, want 3 (same child resumed)", got)
+		t.Errorf("after Send, child saw %d messages, want 3 (same child resumed)", got)
 	}
 }
 
@@ -439,12 +439,12 @@ func TestAgentSpawner_MarksContextSoRecursionRefused(t *testing.T) {
 	parent := agent.New(send, "parent-model")
 	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
 
-	// Wire SpawnRequest into a real launch_agent tool that checks the sub-agent
+	// Wire SpawnRequest into a real sub_agent tool that checks the sub-agent
 	// context flag. After Spawn returns, the OUTER context shouldn't be marked
 	// (only descendants of the spawn call are), but inside Spawn the child's
 	// Run sees the marked context. We can't reach that from the outside cleanly,
 	// so verify behavior by stubbing the spawner and asserting it would refuse
-	// a recursive launch_agent call.
+	// a recursive sub_agent call.
 	tools.SetSpawner(sp)
 	t.Cleanup(func() { tools.SetSpawner(nil) })
 
