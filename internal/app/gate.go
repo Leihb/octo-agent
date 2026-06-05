@@ -31,8 +31,8 @@ type permissionGate struct {
 
 // Check implements agent.PermissionGate.
 func (g *permissionGate) Check(ctx context.Context, name string, input map[string]any) (bool, string) {
-	// A Tool Search tool_call wraps the real MCP tool — evaluate policy (and
-	// prompt) against the wrapped tool, not the opaque "tool_call" bridge.
+	// A Tool Search mcp_call wraps the real MCP tool — evaluate policy (and
+	// prompt) against the wrapped tool, not the opaque "mcp_call" bridge.
 	if real, realInput, ok := tools.ToolCallTarget(name, input); ok {
 		name, input = real, realInput
 	}

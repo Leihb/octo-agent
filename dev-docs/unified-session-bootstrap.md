@@ -143,6 +143,6 @@ server 与 IM 经 `internal/app` 装配后,自动获得与 CLI 相同的 MCP、T
 ## 测试
 
 - **PR1**:cmd/octo 现有测试全绿即证明行为不变;为 `app.Bootstrap` 加单测(给定 Options 产出预期 gate 类型 / 工具列表 / 清理钩子调用)。
-- 统一 gate 的 `ask` 解析:`Interactive=true`+asker→prompt;`Interactive=false`→deny;`tool_call` 解包后按真实名鉴权(从现有 gate 测试迁移)。
+- 统一 gate 的 `ask` 解析:`Interactive=true`+asker→prompt;`Interactive=false`→deny;`mcp_call` 解包后按真实名鉴权(从现有 gate 测试迁移)。
 - **PR2/PR3**:server / channel 现有测试守护;新增"非交互入口的 ask 一律 deny"与"IM 现在会拦截危险工具"的断言。
 - 遵循"go test 无 live network":provider 用 httptest,MCP 用假 server。

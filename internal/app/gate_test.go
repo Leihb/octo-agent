@@ -114,14 +114,14 @@ func TestGate_NonInteractive_DeniesAsk(t *testing.T) {
 }
 
 func TestGate_UnwrapsToolCall(t *testing.T) {
-	// A Tool Search tool_call must be evaluated against the wrapped tool name.
+	// A Tool Search mcp_call must be evaluated against the wrapped tool name.
 	g := NewPermissionGate(newEngine(t, permission.ModeInteractive), nil)
-	ok, reason := g.Check(context.Background(), "tool_call", map[string]any{
+	ok, reason := g.Check(context.Background(), "mcp_call", map[string]any{
 		"name":      "terminal",
 		"arguments": map[string]any{"command": "rm -rf /"},
 	})
 	if ok {
-		t.Error("tool_call wrapping rm -rf / must be denied via the unwrapped name")
+		t.Error("mcp_call wrapping rm -rf / must be denied via the unwrapped name")
 	}
 	if !strings.Contains(reason, "permission_denied") {
 		t.Errorf("expected denial reason, got %q", reason)

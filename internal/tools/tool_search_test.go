@@ -108,7 +108,7 @@ func TestExecToolDescribe_UnknownName(t *testing.T) {
 }
 
 func TestToolCallTarget_Unwraps(t *testing.T) {
-	real, args, ok := ToolCallTarget("tool_call", map[string]any{
+	real, args, ok := ToolCallTarget(toolCallName, map[string]any{
 		"name":      "mcp__github__create_issue",
 		"arguments": map[string]any{"title": "hi"},
 	})
@@ -118,14 +118,14 @@ func TestToolCallTarget_Unwraps(t *testing.T) {
 	if args["title"] != "hi" {
 		t.Errorf("args not carried through: %v", args)
 	}
-	// A non-tool_call name is left alone.
+	// A non-mcp_call name is left alone.
 	if _, _, ok := ToolCallTarget("terminal", map[string]any{"command": "ls"}); ok {
-		t.Error("ToolCallTarget should not unwrap a non-tool_call name")
+		t.Error("ToolCallTarget should not unwrap a non-mcp_call name")
 	}
 }
 
 func TestExecToolCall_RejectsNonMCP(t *testing.T) {
-	// tool_call only proxies mcp__ tools; a bare name must error cleanly.
+	// mcp_call only proxies mcp__ tools; a bare name must error cleanly.
 	if _, err := execToolCall(context.Background(), map[string]any{"name": "terminal", "arguments": map[string]any{}}); err == nil {
 		t.Error("expected error proxying a non-MCP tool name")
 	}

@@ -15,17 +15,20 @@ import (
 
 // Tool Search defers MCP tool schemas behind three bridge tools instead of
 // uploading every schema on every turn. The model discovers tools with
-// tool_search, loads one schema with tool_describe, and invokes it with
-// tool_call — which routes straight into executeMCP, so all the existing
+// mcp_search, loads one schema with mcp_describe, and invokes it with
+// mcp_call — which routes straight into executeMCP, so all the existing
 // mcp__-prefix dispatch, permission, and hook machinery runs against the real
 // tool name. See dev-docs/tool-search-mcp.md.
 
-// Bridge tool names. tool_call is the only path by which a deferred MCP tool is
-// actually invoked when Tool Search is active.
+// Bridge tool names. The mcp_ prefix is deliberate: it tells the model these
+// three tools are the MCP-only discover/describe/invoke path, so it doesn't
+// mistake mcp_call for a generic dispatcher and route built-in tools (sub_agent,
+// read_file, …) through it. mcp_call is the only path by which a deferred MCP
+// tool is actually invoked when Tool Search is active.
 const (
-	toolSearchName   = "tool_search"
-	toolDescribeName = "tool_describe"
-	toolCallName     = "tool_call"
+	toolSearchName   = "mcp_search"
+	toolDescribeName = "mcp_describe"
+	toolCallName     = "mcp_call"
 )
 
 // mcpCatalog returns the deferred MCP tool catalog (the same defs mcpToolDefs
@@ -142,8 +145,10 @@ func toolSearchBridgeDefs() []agent.ToolDefinition {
 			Description: fmt.Sprintf("Search the catalog of available MCP tools by keyword and "+
 				"return matching tool names with a one-line description (NOT their full schema). "+
 				"MCP tools are not loaded up front — discover them here first. Workflow: "+
-				"tool_search to find a tool, tool_describe to load its parameters, tool_call to "+
-				"invoke it. Returns up to %d hits by default.", cfg.SearchLimit),
+				"mcp_search to find a tool, mcp_describe to load its parameters, mcp_call to "+
+				"invoke it. This catalog holds ONLY MCP (mcp__-prefixed) tools — built-in tools "+
+				"like sub_agent or read_file are not here; call those directly by name. Returns "+
+				"up to %d hits by default.", cfg.SearchLimit),
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -162,13 +167,13 @@ func toolSearchBridgeDefs() []agent.ToolDefinition {
 		{
 			Name: toolDescribeName,
 			Description: "Load the full JSON Schema (parameters) for one MCP tool discovered via " +
-				"tool_search. Call this before tool_call so you know the tool's exact arguments.",
+				"mcp_search. Call this before mcp_call so you know the tool's exact arguments.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"name": map[string]any{
 						"type":        "string",
-						"description": "The exact tool name from tool_search (e.g. 'mcp__github__create_issue').",
+						"description": "The exact tool name from mcp_search (e.g. 'mcp__github__create_issue').",
 					},
 				},
 				"required": []string{"name"},
@@ -176,9 +181,11 @@ func toolSearchBridgeDefs() []agent.ToolDefinition {
 		},
 		{
 			Name: toolCallName,
-			Description: "Invoke an MCP tool discovered via tool_search. Pass the tool name and its " +
-				"arguments (matching the schema from tool_describe). This is the only way to call a " +
-				"deferred MCP tool while Tool Search is active.",
+			Description: "Invoke an MCP tool (and ONLY an MCP tool — its name starts with mcp__) " +
+				"discovered via mcp_search. Pass the tool name and its arguments (matching the schema " +
+				"from mcp_describe). This is the only way to call a deferred MCP tool while Tool Search " +
+				"is active. Do NOT route built-in tools (sub_agent, read_file, terminal, …) through " +
+				"here — call those directly by their own name.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -188,7 +195,7 @@ func toolSearchBridgeDefs() []agent.ToolDefinition {
 					},
 					"arguments": map[string]any{
 						"type":        "object",
-						"description": "The arguments object for the tool, matching its schema from tool_describe.",
+						"description": "The arguments object for the tool, matching its schema from mcp_describe.",
 					},
 				},
 				"required": []string{"name", "arguments"},
@@ -204,7 +211,7 @@ func toolSearchBridgeDefs() []agent.ToolDefinition {
 func execToolSearch(input map[string]any) (agent.ToolResult, error) {
 	query := strings.TrimSpace(stringArg(input, "query"))
 	if query == "" {
-		return agent.ToolResult{Text: ""}, fmt.Errorf("tool_search: query is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("mcp_search: query is required")
 	}
 	cfg := toolSearchConfig()
 	limit := intArg(input, "limit", cfg.SearchLimit)
@@ -225,7 +232,7 @@ func execToolSearch(input map[string]any) (agent.ToolResult, error) {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d match(es) for %q — use tool_describe to load a tool's parameters:\n", len(hits), query)
+	fmt.Fprintf(&b, "%d match(es) for %q — use mcp_describe to load a tool's parameters:\n", len(hits), query)
 	for _, d := range hits {
 		desc := firstLine(d.Description)
 		if desc == "" {
@@ -240,18 +247,18 @@ func execToolSearch(input map[string]any) (agent.ToolResult, error) {
 func execToolDescribe(input map[string]any) (agent.ToolResult, error) {
 	name := strings.TrimSpace(stringArg(input, "name"))
 	if name == "" {
-		return agent.ToolResult{Text: ""}, fmt.Errorf("tool_describe: name is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("mcp_describe: name is required")
 	}
 	for _, d := range mcpCatalog() {
 		if d.Name == name {
 			schema, err := json.MarshalIndent(d.Parameters, "", "  ")
 			if err != nil {
-				return agent.ToolResult{Text: ""}, fmt.Errorf("tool_describe: marshal schema: %w", err)
+				return agent.ToolResult{Text: ""}, fmt.Errorf("mcp_describe: marshal schema: %w", err)
 			}
 			return agent.ToolResult{Text: fmt.Sprintf("%s\n\n%s\n\n%s", d.Name, firstLine(d.Description), string(schema))}, nil
 		}
 	}
-	return agent.ToolResult{Text: ""}, fmt.Errorf("tool_describe: no tool named %q (use tool_search to find the exact name)", name)
+	return agent.ToolResult{Text: ""}, fmt.Errorf("mcp_describe: no tool named %q (use mcp_search to find the exact name)", name)
 }
 
 // execToolCall unwraps {name, arguments} and forwards to executeMCP, so the
@@ -260,7 +267,7 @@ func execToolDescribe(input map[string]any) (agent.ToolResult, error) {
 func execToolCall(ctx context.Context, input map[string]any) (agent.ToolResult, error) {
 	name := strings.TrimSpace(stringArg(input, "name"))
 	if name == "" {
-		return agent.ToolResult{Text: ""}, fmt.Errorf("tool_call: name is required")
+		return agent.ToolResult{Text: ""}, fmt.Errorf("mcp_call: name is required")
 	}
 	args, _ := input["arguments"].(map[string]any)
 	if args == nil {
@@ -269,14 +276,14 @@ func execToolCall(ctx context.Context, input map[string]any) (agent.ToolResult, 
 	out, ok, err := executeMCP(ctx, name, args)
 	if !ok {
 		// executeMCP only declines names without the mcp__ prefix.
-		return agent.ToolResult{Text: ""}, fmt.Errorf("tool_call: %q is not an MCP tool (names look like 'mcp__<server>__<tool>')", name)
+		return agent.ToolResult{Text: ""}, fmt.Errorf("mcp_call: %q is not an MCP tool (MCP names look like 'mcp__<server>__<tool>'). If it's a built-in tool such as sub_agent, call it directly by name instead of through mcp_call", name)
 	}
 	return agent.ToolResult{Text: out}, err
 }
 
-// ToolCallTarget unwraps a tool_call bridge invocation into the real MCP tool
+// ToolCallTarget unwraps an mcp_call bridge invocation into the real MCP tool
 // name and its arguments, so permission checks and hooks key on the real tool
-// rather than the "tool_call" wrapper. ok is false when name isn't a tool_call
+// rather than the "mcp_call" wrapper. ok is false when name isn't an mcp_call
 // (or carries no inner tool name), in which case the caller uses name/input
 // unchanged.
 func ToolCallTarget(name string, input map[string]any) (realName string, realInput map[string]any, ok bool) {

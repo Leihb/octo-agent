@@ -69,7 +69,7 @@ func (r DefaultRegistry) Execute(ctx context.Context, name string, input map[str
 	}
 
 	// Tool Search bridge: search/describe the deferred MCP catalog, or invoke
-	// a tool through tool_call (which routes back into executeMCP on the real
+	// a tool through mcp_call (which routes back into executeMCP on the real
 	// name). Handled here because the bridge tools aren't in allTools.
 	switch name {
 	case toolSearchName:
