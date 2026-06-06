@@ -639,15 +639,20 @@ const Sessions = (() => {
     }
     // Upload file to server via HTTP — only the path is returned, no base64 in memory
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("files", file);
     fetch("/api/upload", { method: "POST", body: formData })
       .then(r => r.json())
       .then(data => {
-        if (!data.ok) { alert(`Upload failed: ${data.error}`); return; }
+        const files = data.files || [];
+        if (files.length === 0 || files[0].error) {
+          alert(`Upload failed: ${files[0]?.error || data.error || "unknown error"}`);
+          return;
+        }
+        const uploaded = files[0];
         _pendingFiles.push({
-          name:      data.name,
-          path:      data.path,
-          mime_type: file.type
+          name:      uploaded.name,
+          path:      uploaded.url,
+          mime_type: uploaded.mime_type || file.type
         });
         _renderAttachmentPreviews();
         setTimeout(() => $("user-input").focus(), 100);

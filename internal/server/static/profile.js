@@ -145,8 +145,12 @@ const Profile = (() => {
     try {
       const res  = await fetch("/api/memories");
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "Load failed");
-      _data.memories = data.memories || [];
+      if (!res.ok) throw new Error(data.error || "Load failed");
+      // Backend returns {files: [{name, path}, ...]} — map to frontend shape.
+      _data.memories = (data.files || []).map(f => ({
+        filename: f.name || "",
+        path:     f.path || "",
+      }));
     } catch (e) {
       console.error("[Profile] load memories failed", e);
       _data.memories = [];
@@ -273,7 +277,6 @@ const Profile = (() => {
           fetch("/api/memories/" + encodeURIComponent(m.filename))
             .then(r => r.json())
             .then(d => {
-              if (!d.ok) throw new Error(d.error || "Load failed");
               const stripped = _stripFrontmatter(d.content || "");
               body.innerHTML = _renderMarkdown(stripped)
                 || `<div class="profile-empty">${_t("profile.emptyContent")}</div>`;

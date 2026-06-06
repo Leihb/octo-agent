@@ -112,7 +112,7 @@ const Tasks = (() => {
     });
     row.querySelector(".task-btn-del").addEventListener("click", e => {
       e.stopPropagation();
-      Tasks.delete(t.name);
+      Tasks.delete(t.id);
     });
 
     return row;
@@ -286,9 +286,9 @@ const Tasks = (() => {
       Sessions.select(session.id);
     },
 
-    async delete(name) {
-      if (!confirm(I18n.t("tasks.confirmDelete", { name }))) return;
-      const res = await fetch(`/api/cron-tasks/${encodeURIComponent(name)}`, { method: "DELETE" });
+    async delete(id) {
+      if (!confirm(I18n.t("tasks.confirmDelete"))) return;
+      const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!res.ok) { alert(I18n.t("tasks.deleteError")); return; }
 
       await Tasks.load();
