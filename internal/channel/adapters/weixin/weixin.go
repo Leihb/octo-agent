@@ -449,20 +449,21 @@ func (a *Adapter) SendTyping(chatID, contextToken string) error {
 	return nil
 }
 
-// ValidateConfig checks for token presence.
+// ValidateConfig checks for token or credential file presence.
+// Weixin is optional — returns nil when nothing is configured.
 func (a *Adapter) ValidateConfig(cfg channel.PlatformConfig) []string {
-	var errs []string
-	if token, _ := cfg[cfgToken].(string); token == "" {
-		// Token might be in credentials file — only warn if neither present.
-		credPath, _ := cfg[cfgCredPath].(string)
-		if credPath == "" {
-			credPath = ilink.DefaultCredPath()
-		}
-		if _, err := os.Stat(credPath); os.IsNotExist(err) {
-			errs = append(errs, "token is required (or run `octo channel login` first)")
-		}
+	token, _ := cfg[cfgToken].(string)
+	if token != "" {
+		return nil
 	}
-	return errs
+	credPath, _ := cfg[cfgCredPath].(string)
+	if credPath == "" {
+		credPath = ilink.DefaultCredPath()
+	}
+	if _, err := os.Stat(credPath); err == nil {
+		return nil
+	}
+	return nil // Weixin is optional; login is a separate setup step.
 }
 
 // ─── Inbound message handling ────────────────────────────────────────────
