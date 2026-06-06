@@ -1,490 +1,871 @@
 <!DOCTYPE html>
-<html lang="en" id="html-root">
+<html lang="en" id="html-root" data-font-size="medium">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Octo Agent</title>
-<link rel="icon" type="image/svg+xml" href="/icon.svg">
-<link rel="stylesheet" href="/css/app.css">
-<style>
-/* Inline critical CSS — theme init must run before stylesheet loads
-   to prevent flash of wrong theme. */
-:root {
-  --bg: #0d1117;
-  --surface: #161b22;
-  --sidebar-bg: #0d1117;
-  --border: #30363d;
-  --text: #c9d1d9;
-  --text-secondary: #8b949e;
-  --accent: #58a6ff;
-  --accent-hover: #79b8ff;
-  --user-bg: #238636;
-  --user-bg-soft: rgba(35, 134, 54, 0.15);
-  --bot-bg: #161b22;
-  --error: #f85149;
-  --success: #3fb950;
-  --warning: #d29922;
-  --muted: #484f58;
-  --hover: rgba(88, 166, 255, 0.1);
-  --modal-overlay: rgba(0, 0, 0, 0.6);
-}
-
-[data-theme="light"] {
-  --bg: #ffffff;
-  --surface: #f6f8fa;
-  --sidebar-bg: #f6f8fa;
-  --border: #d0d7de;
-  --text: #1f2328;
-  --text-secondary: #656d76;
-  --accent: #0969da;
-  --accent-hover: #0550ae;
-  --user-bg: #1a7f37;
-  --user-bg-soft: rgba(26, 127, 55, 0.08);
-  --bot-bg: #f6f8fa;
-  --hover: rgba(9, 105, 218, 0.08);
-}
-</style>
-<script>
-// Inline theme init — runs before CSS renders to prevent flash.
-(function() {
-  var saved = localStorage.getItem("octo-theme");
-  var theme = saved || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-  document.documentElement.setAttribute("data-theme", theme);
-})();
-</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="page-title">Octo</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="/vendor/hljs/hljs-theme.css">
+  <link rel="stylesheet" href="/app.css">
+  <script>
+    // Inline theme init — must run before CSS renders to prevent flash of wrong theme.
+    (function() {
+      var saved = localStorage.getItem("octo-theme");
+      var theme = saved || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
 </head>
 <body>
-<div id="offline-banner" style="display:none">Connection lost. Reconnecting…</div>
+<div id="offline-banner" style="display:none" data-i18n="offline.banner"></div>
 <div id="app" style="visibility:hidden">
 
-  <!-- ── TOP HEADER ────────────────────────────────────────────────────── -->
+  <!-- ── TOP HEADER ──────────────────────────────────────────────────────── -->
   <header id="top-header">
     <div id="header-left">
       <button id="btn-toggle-sidebar" class="sidebar-toggle-btn" title="Toggle sidebar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
           <rect width="18" height="18" x="3" y="3" rx="2"/>
           <path d="M9 3v18"/>
         </svg>
       </button>
-      <div id="header-brand" style="cursor:pointer" onclick="Router.navigate('welcome')">
-        <span class="header-logo">🐙 Octo</span>
+      <div id="header-brand" style="cursor:pointer" onclick="Router.navigate('chat')">
+        <img class="header-logo-img" id="header-logo-img" src="" alt="" style="display:none">
+        <span class="header-logo-divider"></span>
+        <span class="header-logo" id="header-logo">Octo</span>
       </div>
     </div>
     <div id="header-right">
       <button id="theme-toggle-header" class="theme-toggle-btn" title="Toggle theme">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
           <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
         </svg>
       </button>
     </div>
   </header>
 
-  <!-- ── Sidebar overlay (mobile) ──────────────────────────────────────── -->
+  <!-- ── Sidebar overlay (mobile only) ───────────────────────────────────── -->
   <div id="sidebar-overlay"></div>
 
-  <!-- ── CONTENT ROW ───────────────────────────────────────────────────── -->
+  <!-- ── CONTENT ROW (Sidebar + Main) ────────────────────────────────────── -->
   <div id="content-row">
 
-  <!-- ── SIDEBAR ────────────────────────────────────────────────────── -->
+  <!-- ── SIDEBAR ──────────────────────────────────────────────────────── -->
   <aside id="sidebar">
+    <!-- Sidebar navigation groups -->
     <div id="sidebar-list">
-
-      <!-- Sessions Section -->
+      <!-- Chat Group -->
       <div id="chat-section">
+        <!-- Header: "Sessions" label + 🔍 + [+ ▾] split button -->
         <div class="sidebar-divider">
-          <span>Sessions</span>
+          <span data-i18n="sidebar.chat">Sessions</span>
           <div class="sidebar-divider-actions">
-            <button id="btn-session-search-toggle" class="btn-icon-sm" title="Search sessions" style="display:none">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+            <!-- Magnifier toggle (shown when ≥10 sessions, managed by JS) -->
+            <button id="btn-session-search-toggle" class="btn-icon-sm" title="Search sessions" style="display:none" aria-label="Search sessions">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.6"/>
                 <line x1="10.3" y1="10.3" x2="14" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
               </svg>
             </button>
             <div class="btn-split-wrap">
-              <button id="btn-new-session-inline" class="btn-split-main" title="New Session">+ New Session</button>
+              <button id="btn-new-session-inline" class="btn-split-main" title="New Session" data-i18n="sessions.newSession">+ New Session</button>
               <button id="btn-new-session-arrow" class="btn-split-arrow" title="Options">▾</button>
+              <!-- Dropdown -->
               <div id="new-session-dropdown" class="new-session-dropdown" hidden>
-                <div class="dropdown-item" id="btn-new-session-more">More Options</div>
+                <div class="dropdown-item" id="btn-new-session-modal" data-i18n="sessions.newSessionAdvanced">
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="vertical-align: -1px; margin-right: 5px; opacity: 0.6;">
+                    <path d="M8 0a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 0zm0 13a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 13zm8-5a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2a.5.5 0 01.5.5zM3 8a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2A.5.5 0 013 8zm10.657-5.657a.5.5 0 010 .707l-1.414 1.415a.5.5 0 11-.707-.708l1.414-1.414a.5.5 0 01.707 0zm-9.193 9.193a.5.5 0 010 .707L3.05 13.657a.5.5 0 01-.707-.707l1.414-1.414a.5.5 0 01.707 0zm9.193 2.121a.5.5 0 01-.707 0l-1.414-1.414a.5.5 0 01.707-.707l1.414 1.414a.5.5 0 010 .707zM4.464 4.465a.5.5 0 01-.707 0L2.343 3.05a.5.5 0 11.707-.707l1.414 1.414a.5.5 0 010 .708z"/>
+                  </svg>
+                  <span data-i18n="sessions.newSessionAdvanced">More Options</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Search panel -->
+        <!-- Search panel (hidden by default, toggled by magnifier button) -->
         <div id="session-search-bar" class="session-search-panel" hidden>
           <div class="search-panel-card">
+            <!-- Input row -->
             <div class="search-input-row">
               <span class="search-icon">🔍</span>
               <input id="session-search-q" type="text" class="search-input"
-                     placeholder="Search sessions…" autocomplete="off" />
-              <button id="btn-search-q-clear" class="btn-search-q-clear" hidden>✕</button>
+                     data-i18n-placeholder="sessions.search.placeholder" placeholder="Search sessions…"
+                     autocomplete="off" />
+              <button id="btn-search-q-clear" class="btn-search-q-clear" aria-label="Clear text" hidden>✕</button>
             </div>
+            <!-- Filter row -->
             <div class="search-filter-row">
               <select id="session-search-type" class="search-select">
-                <option value="">All types</option>
-                <option value="manual">Default</option>
-                <option value="cron">Scheduled</option>
-                <option value="channel">Channel</option>
-                <option value="setup">Setup</option>
-                <option value="coding">Coding</option>
+                <option value=""        data-i18n="sessions.search.typeAll">All types</option>
+                <option value="manual"  data-i18n="sessions.search.typeManual">Default</option>
+                <option value="cron"    data-i18n="sessions.search.typeCron">Scheduled</option>
+                <option value="channel" data-i18n="sessions.search.typeChannel">Channel</option>
+                <option value="setup"   data-i18n="sessions.search.typeSetup">Setup</option>
+                <option value="coding"  data-i18n="sessions.search.typeCoding">Coding</option>
               </select>
               <div class="search-date-wrap">
-                <button id="session-search-date" class="search-date" type="button">Date</button>
+                <button id="session-search-date" class="search-date datepicker-trigger" type="button" data-value="" data-i18n="sessions.search.datePlaceholder"></button>
               </div>
-              <button id="btn-search-clear-all" class="btn-search-clear-all" hidden>✕</button>
+              <button id="btn-search-clear-all" class="btn-search-clear-all" aria-label="Clear filters" hidden>✕</button>
             </div>
           </div>
         </div>
 
-        <!-- Session list -->
-        <div id="session-list"></div>
-      </div>
+        <!-- Cron view header (hidden by default, shown when viewing cron sessions) -->
+        <div id="cron-view-header" class="sidebar-divider" style="display:none">
+          <button id="btn-cron-back" class="btn-icon-sm" title="Back" aria-label="Back to session list">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <span data-i18n="sessions.cronGroup">Scheduled Tasks</span>
+          <span></span><!-- spacer -->
+        </div>
 
-      <!-- Config Section -->
+        <!-- Unified session list (all sources + profiles, newest first) -->
+        <div id="session-list"></div>
+        <!-- Load more button rendered dynamically by Sessions.renderList() -->
+      </div>
+      
+      <!-- Config Group -->
       <div id="config-section">
-        <div class="sidebar-divider"><span>Config</span></div>
+        <div class="sidebar-divider"><span data-i18n="sidebar.config">Config</span></div>
         <div id="config-nav-items">
           <div id="tasks-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
               </svg>
-              <div class="task-info"><span class="task-name">Scheduled Tasks</span></div>
+              <div class="task-info">
+                <span class="task-name" id="tasks-sidebar-label" data-i18n="sidebar.tasks">Task Management</span>
+              </div>
             </div>
           </div>
           <div id="skills-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
                 <path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"/>
               </svg>
-              <div class="task-info"><span class="task-name">Skills</span></div>
+              <div class="task-info">
+                <span class="task-name" id="skills-sidebar-label" data-i18n="sidebar.skills">Skill Management</span>
+              </div>
             </div>
           </div>
           <div id="channels-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
-                <rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+                <rect x="5" y="2" width="14" height="20" rx="2"/>
+                <path d="M12 18h.01"/>
               </svg>
-              <div class="task-info"><span class="task-name">Channels</span></div>
+              <div class="task-info">
+                <span class="task-name" id="channels-sidebar-label" data-i18n="sidebar.channels">Channel Management</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- My Data Section -->
+      <!-- My Data Group — personal data management (profile, memories, trash) -->
       <div id="data-section">
-        <div class="sidebar-divider"><span>My Data</span></div>
+        <div class="sidebar-divider"><span data-i18n="sidebar.dataSection">My Data</span></div>
         <div id="data-nav-items">
           <div id="profile-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
               </svg>
-              <div class="task-info"><span class="task-name">Profile &amp; Soul</span></div>
+              <div class="task-info">
+                <span class="task-name" id="profile-sidebar-label" data-i18n="sidebar.profile">Profile &amp; Soul</span>
+              </div>
             </div>
+          </div>
+          <div id="memories-sidebar-item" class="task-item task-item-summary" style="display:none" aria-hidden="true">
+            <!-- Deprecated: Memories is now merged into the Profile panel.
+                 Kept as a hidden placeholder so any legacy CSS selector that
+                 targets this id still resolves harmlessly. -->
           </div>
           <div id="trash-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
                 <path d="M10 11v6"/><path d="M14 11v6"/>
                 <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
               </svg>
-              <div class="task-info"><span class="task-name">File Recall</span></div>
+              <div class="task-info">
+                <span class="task-name" id="trash-sidebar-label" data-i18n="sidebar.trash">File Recall</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
     </div>
 
-    <!-- Sidebar Footer -->
+    <!-- Bottom Settings -->
     <div id="sidebar-footer">
       <div class="sidebar-nav-row">
         <button id="btn-settings" class="sidebar-nav-btn" title="Settings">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
-          <span>Settings</span>
+          <span data-i18n="sidebar.settings">Settings</span>
         </button>
+        <!-- Version badge: independent button, right side of the row -->
         <span id="version-badge" class="version-badge" style="display:none">
           <span id="version-text" class="version-text"></span>
+          <span id="version-update-dot"   class="version-update-dot"   style="display:none"></span>
+          <span id="version-restart-dot"  class="version-restart-dot"  style="display:none"></span>
+          <span id="version-spinner"      class="version-spinner"       style="display:none"></span>
+          <span id="version-done-check"   class="version-done-check"    style="display:none">✓</span>
         </span>
       </div>
     </div>
   </aside>
 
-  <!-- ── MAIN ───────────────────────────────────────────────────────── -->
+  <!-- ── MAIN ─────────────────────────────────────────────────────────── -->
   <main id="main">
 
+
+    <!-- Onboard panel: kept as empty shell (soul_setup auto-launches /onboard session) -->
+    <div id="onboard-panel" style="display:none"></div>
+
     <!-- Welcome screen -->
-    <div id="welcome" class="centered" style="display:none">
-      <h2>👋 Welcome to Octo</h2>
-      <p>Create a new session or select one from the sidebar.</p>
-      <button id="btn-welcome-new">New Session</button>
+    <div id="welcome" class="centered">
+      <div class="welcome-icon" style="display:none"></div>
+      <h2 id="welcome-title" data-i18n="welcome.title" data-i18n-vars="brand=Octo">Welcome to Octo</h2>
+      <p data-i18n="welcome.body">Create a new session or select one from the sidebar.</p>
+      <button id="btn-welcome-new" data-i18n="welcome.btn">New Session</button>
     </div>
 
-    <!-- Chat panel -->
-    <div id="chat-panel" style="display:none">
-      <div id="messages"></div>
-
-      <!-- New message notification banner -->
-      <div id="new-message-banner" class="new-message-banner" style="display:none">
-        <span>New messages ↓</span>
-      </div>
-
-      <!-- Session info bar -->
-      <div id="session-info-bar" style="display:none">
-        <span id="sib-status"></span>
-        <span class="sib-sep">│</span>
-        <span id="sib-id" class="sib-id-clickable" title="Click for session actions"></span>
-        <span class="sib-sep">│</span>
-        <span id="sib-dir" title="Click to change directory"></span>
-        <span class="sib-sep">│</span>
-        <span id="sib-model" class="sib-model-clickable" title="Click to switch model"></span>
-        <span class="sib-sep">│</span>
-        <span id="sib-mode"></span>
-      </div>
-
-      <!-- Input area -->
-      <div id="input-area">
-        <div id="ws-disconnect-hint" style="display:none"></div>
-
-        <!-- Image preview strip -->
-        <div id="image-preview-strip" style="display:none"></div>
-
-        <!-- Input bar -->
-        <div id="input-bar">
-          <input type="file" id="image-file-input"
-                 accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,application/zip,text/plain,.md,.csv,.log"
-                 multiple style="display:none">
-          <button id="btn-attach" title="Attach file">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-            </svg>
-          </button>
-          <textarea id="user-input" rows="1" placeholder="Message… (Enter to send, Shift+Enter for newline)"></textarea>
-          <button id="btn-send">Send</button>
-          <button id="btn-interrupt" style="display:none" title="Stop">■</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Scheduled Tasks panel -->
+    <!-- Scheduled Tasks list panel (shown when user clicks "Scheduled Tasks") -->
     <div id="task-detail-panel" style="display:none">
       <div id="task-detail-body">
+        <!-- Title and Description -->
         <div class="task-page-header">
-          <h2 class="task-page-title">Scheduled Tasks</h2>
-          <p class="task-page-subtitle">Manage and schedule automated tasks for your assistant</p>
-          <button id="btn-create-task" class="btn-create-task">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 12h14"/><path d="M12 5v14"/>
+          <h2 class="task-page-title" data-i18n="tasks.title">Scheduled Tasks</h2>
+          <p class="task-page-subtitle" data-i18n="tasks.subtitle">Manage and schedule automated tasks for your assistant</p>
+          <button id="btn-create-task" class="btn-create-task" title="Create a new task">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+              <path d="M5 12h14"/>
+              <path d="M12 5v14"/>
             </svg>
-            <span>Create Task</span>
+            <span data-i18n="tasks.btn.create">Create Task</span>
           </button>
         </div>
+        
         <div id="task-list-table"></div>
       </div>
     </div>
 
-    <!-- Skills panel -->
+    <!-- Chat panel -->
+    <div id="chat-panel" style="display:none">
+
+      <div id="messages"></div>
+      <!-- New message notification banner -->
+      <div id="new-message-banner" class="new-message-banner" style="display:none">
+        <span data-i18n="chat.newMessageHint">New messages ↓</span>
+      </div>
+      <!-- Session info bar — mirrors CLI bottom status bar -->
+      <div id="session-info-bar" style="display:none">
+        <!-- Order: status | id | dir | model | mode | tasks -->
+        <!-- Pattern: element + separator-after-element (except last) -->
+        <span id="sib-status"></span>
+        <span class="sib-sep sib-sep-after-status">│</span>
+        <span id="sib-bgtasks" class="sib-bgtasks" style="display:none" tabindex="0"
+              role="status" aria-live="polite"></span>
+        <span class="sib-sep sib-sep-after-bgtasks" style="display:none">│</span>
+        <span id="sib-id-wrap">
+          <span id="sib-id" class="sib-id-clickable" data-i18n-title="sessions.actions.tooltip" title="Click for session actions"></span>
+          <div id="sib-actions-dropdown" class="sib-actions-dropdown" style="display:none" role="menu"></div>
+        </span>
+        <span class="sib-sep sib-sep-after-id">│</span>
+        <span id="sib-dir" data-i18n-title="sib.dir.tooltip" title="Click to change directory"></span>
+        <span class="sib-sep sib-sep-after-dir">│</span>
+        <span id="sib-model-wrap">
+          <span id="sib-model" class="sib-model-clickable" data-i18n-title="sib.model.tooltip" title="Click to switch model"></span>
+          <div id="sib-model-dropdown" class="sib-model-dropdown" style="display:none"></div>
+        </span>
+        <span class="sib-sep sib-sep-after-model">│</span>
+        <span id="sib-reasoning-wrap">
+          <span id="sib-reasoning" class="sib-reasoning-clickable" data-i18n-title="sib.reasoning.tooltip" title="Click to change reasoning effort"></span>
+          <div id="sib-reasoning-dropdown" class="sib-reasoning-dropdown" style="display:none" role="menu"></div>
+        </span>
+        <span class="sib-sep sib-sep-after-reasoning">│</span>
+        <!-- Latency signal: 4-bar signal + TTFT number. Hidden until the first LLM
+             call completes (see updateInfoBar / Sessions.renderSignalBars). Click
+             opens a mini benchmark panel (see Step 3/4 — not yet implemented). -->
+        <span id="sib-signal-wrap" style="display:none">
+          <span id="sib-signal" class="sib-signal-clickable" data-i18n-title="sib.signal.tooltip" title="Recent LLM latency">
+            <span class="sig-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <span class="sig-text"></span>
+          </span>
+        </span>
+        <span class="sib-sep sib-sep-after-signal" style="display:none">│</span>
+        <!-- Detail fields: mode, tasks -->
+        <span class="sib-detail">
+          <span id="sib-mode"></span>
+          <span class="sib-sep sib-sep-after-mode">│</span>
+          <span id="sib-tasks"></span>
+        </span>
+      </div>
+
+      <div id="input-area">
+        <div id="ws-disconnect-hint" style="display:none"></div>
+        <!-- Skill autocomplete dropdown (shown when user types /xxx) -->
+        <div id="skill-autocomplete" style="display:none" role="listbox" aria-label="Skills">
+          <div class="skill-ac-header-row">
+            <div class="skill-ac-left">
+              <div class="skill-ac-title" data-i18n="sidebar.skills">Skills</div>
+              <label class="skill-ac-filter-toggle">
+                <input type="checkbox" id="chk-ac-show-system-skills">
+                <span class="skill-ac-toggle-track"></span>
+                <span class="skill-ac-filter-label" data-i18n="skills.filter.showSystemShort">System</span>
+              </label>
+            </div>
+          </div>
+          <div id="skill-autocomplete-list"></div>
+        </div>
+        <!-- Image preview strip (hidden when empty) -->
+        <div id="image-preview-strip" style="display:none"></div>
+        <!-- "N messages waiting" hint — only visible when the agent has
+             pending user messages it'll drain at the next iteration boundary -->
+        <div id="input-queue-hint" class="input-queue-hint" style="display:none"
+             role="status" aria-live="polite"></div>
+        <div id="input-bar">
+          <!-- Hidden file picker -->
+          <input type="file" id="image-file-input" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,application/zip,application/x-zip-compressed,application/gzip,application/x-gzip,application/x-tar,application/x-compressed-tar,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint,text/csv,application/csv,text/markdown,text/plain,.csv,.md,.markdown,.txt,.log,.tar,.gz,.tgz,.tar.gz" multiple style="display:none">
+          <button id="btn-attach" title="Attach file (image, pdf, docx, md, tar.gz…) — drag & drop / Ctrl+V also work">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+          <button id="btn-slash" title="Insert skill command (/)">
+            <span>/</span>
+          </button>
+          <textarea id="user-input" rows="1"
+            data-i18n-placeholder="chat.input.placeholder"
+            placeholder="Message… (Enter to send, Shift+Enter for newline)"></textarea>
+          <button id="btn-send" data-i18n="chat.btn.send">Send</button>
+          <button id="btn-interrupt" style="display:none" title="Stop"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SKILLS PANEL ───────────────────────────────────────────────── -->
     <div id="skills-panel" style="display:none">
       <div id="skills-body">
+        <!-- Title and Description -->
         <div class="skills-page-header">
-          <h2 class="skills-page-title">Skills</h2>
-          <p class="skills-page-subtitle">Extend your assistant's capabilities with custom skills</p>
+          <h2 class="skills-page-title" data-i18n="skills.title">Skills</h2>
+          <p class="skills-page-subtitle" data-i18n="skills.subtitle">Extend your assistant's capabilities with custom skills</p>
           <div class="skill-action-btns">
-            <button id="btn-import-skill" class="btn-import-skill">Import</button>
-            <button id="btn-create-skill" class="btn-create-skill">Create</button>
+            <button id="btn-import-skill" class="btn-import-skill" title="Import skill from ZIP or GitHub URL">
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span data-i18n="skills.btn.import">Import</span>
+            </button>
+            <button id="btn-create-skill" class="btn-create-skill" title="Create a new skill with AI">
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+                <path d="M5 12h14"/>
+                <path d="M12 5v14"/>
+              </svg>
+              <span data-i18n="skills.btn.create">Create</span>
+            </button>
           </div>
         </div>
+
+        <!-- Tab bar with controls -->
         <div id="skills-tabs">
           <div class="skills-tabs-left">
-            <button class="skills-tab active" data-tab="my-skills">My Skills</button>
+            <button class="skills-tab active" data-tab="my-skills" id="tab-my-skills" data-i18n="skills.tab.my">My Skills</button>
+          </div>
+          <div class="skills-tabs-controls">
+            <!-- Show system skills toggle -->
+            <label class="skills-filter-toggle" id="label-show-system">
+              <input type="checkbox" id="chk-show-system-skills">
+              <span class="skills-filter-toggle-track"></span>
+              <span class="skills-filter-label" data-i18n="skills.filter.showSystem">Show system skills</span>
+            </label>
           </div>
         </div>
+
+        <!-- Inline import bar (toggled by Import button) -->
         <div id="skill-import-bar" class="skill-import-bar" style="display:none">
-          <input id="skill-import-input" class="skill-import-input" type="text"
-                 placeholder="Paste ZIP or GitHub URL…" />
-          <button id="btn-skill-import-confirm" class="btn-skill-import-confirm">Install</button>
-          <button id="btn-skill-import-cancel" class="btn-skill-import-cancel">✕</button>
+          <div class="skill-import-bar-inner">
+            <!-- Link icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="skill-import-link-icon">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            <input id="skill-import-input" class="skill-import-input" type="text"
+                   placeholder="Paste ZIP or GitHub URL…" data-i18n-placeholder="skills.import.placeholder" />
+            <!-- Hidden file input for local ZIP selection -->
+            <input id="skill-import-file" type="file" accept=".zip" style="display:none" />
+            <!-- Browse local file button -->
+            <button id="btn-skill-import-browse" class="btn-skill-import-browse" title="Choose local ZIP file">
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+            </button>
+            <button id="btn-skill-import-confirm" class="btn-skill-import-confirm">
+              <span data-i18n="skills.import.install">Install</span>
+            </button>
+            <button id="btn-skill-import-cancel" class="btn-skill-import-cancel" title="Cancel">✕</button>
+          </div>
         </div>
         <div id="skills-list"></div>
       </div>
     </div>
 
-    <!-- Channels panel -->
+    <!-- ── CHANNELS PANEL ─────────────────────────────────────────────── -->
     <div id="channels-panel" style="display:none">
       <div id="channels-body">
         <div class="channels-page-header">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start">
-            <div>
-              <h2 class="channels-page-title">Channels</h2>
-              <p class="channels-page-subtitle">Connect IM platforms so your users can chat with the assistant</p>
-            </div>
-            <div style="position:relative">
-              <button id="btn-add-channel" class="btn-create-task" style="white-space:nowrap">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M5 12h14"/><path d="M12 5v14"/>
-                </svg>
-                <span>Add Platform</span>
-              </button>
-              <div id="add-channel-dropdown" class="new-session-dropdown" hidden style="right:0;min-width:220px"></div>
-            </div>
-          </div>
+          <h2 class="channels-page-title" data-i18n="channels.title">Channels</h2>
+          <p class="channels-page-subtitle" data-i18n="channels.subtitle">Connect IM platforms so your users can chat with the assistant via Feishu or WeCom</p>
         </div>
+
         <div id="channels-list"></div>
       </div>
     </div>
 
-    <!-- Trash/File Recall panel -->
+    <!-- ── TRASH PANEL — Recently deleted files across all projects ─── -->
     <div id="trash-panel" style="display:none">
       <div id="trash-body">
         <div class="channels-page-header">
-          <h2>File Recall</h2>
-          <p>Files the agent moved to trash across all projects.</p>
+          <h2 class="channels-page-title" data-i18n="trash.title">File Recall</h2>
+          <p class="channels-page-subtitle" data-i18n="trash.subtitle">Files the agent moved to trash across all projects. Recall them back to where they were, or clear the ones you don't need.</p>
         </div>
+
         <div class="trash-toolbar">
           <span class="trash-summary" id="trash-summary"></span>
           <div class="trash-actions">
-            <button id="btn-trash-refresh" class="btn-trash-action">Refresh</button>
-            <button id="btn-trash-empty-old" class="btn-trash-action">Empty &gt;7 days</button>
-            <button id="btn-trash-empty-all" class="btn-trash-action btn-trash-danger">Empty all</button>
+            <button id="btn-trash-refresh" class="btn-trash-action" title="Refresh">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+                <path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+              </svg>
+              <span data-i18n="trash.refresh">Refresh</span>
+            </button>
+            <button id="btn-trash-empty-old" class="btn-trash-action" title="Permanently delete files older than 7 days">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span data-i18n="trash.emptyOld">Empty &gt;7 days</span>
+            </button>
+            <button id="btn-trash-empty-orphans" class="btn-trash-action" title="Permanently delete entries whose original project directory no longer exists (e.g. test temp dirs)">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span data-i18n="trash.emptyOrphans">Clean orphans</span>
+            </button>
+            <button id="btn-trash-empty-all" class="btn-trash-action btn-trash-danger" title="Permanently delete all trashed files">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/><path d="M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+              <span data-i18n="trash.emptyAll">Empty all</span>
+            </button>
           </div>
         </div>
+
         <div id="trash-list"></div>
       </div>
     </div>
 
-    <!-- Profile panel -->
+    <!-- ── PROFILE PANEL — "Assistant Memory": a 3-tab window into the agent's inner state.
+         All mutations happen through sessions (never in-browser editors):
+           SOUL tab   → [让助理整理性格] → /onboard scope:soul
+           USER tab   → [让助理更新档案] → /onboard scope:user
+           Memory tab → per-card [整理] → /onboard path:<abs>
+                        per-card [删除] → direct DELETE /api/memories/:filename (with confirm)
+         ────────────────────────────────────────────────────────────── -->
     <div id="profile-panel" style="display:none">
       <div id="profile-body">
         <div class="channels-page-header">
-          <h2>Assistant Memory</h2>
-          <p>A window into the assistant's inner life.</p>
+          <h2 class="channels-page-title" data-i18n="profile.title">Assistant Memory</h2>
+          <p class="channels-page-subtitle" data-i18n="profile.subtitle">A window into the assistant's inner life: who it is, who you are, and what it remembers about your work together.</p>
         </div>
+
+        <!-- Tab bar -->
         <div class="profile-tabs" role="tablist">
-          <button class="profile-tab active" data-tab="soul">Soul</button>
-          <button class="profile-tab" data-tab="user">User</button>
-          <button class="profile-tab" data-tab="memories">Memories</button>
+          <button class="profile-tab active" role="tab" aria-selected="true"
+                  data-tab="soul" id="profile-tab-soul" data-i18n="profile.tab.soul">Soul</button>
+          <button class="profile-tab" role="tab" aria-selected="false"
+                  data-tab="user" id="profile-tab-user" data-i18n="profile.tab.user">User</button>
+          <button class="profile-tab" role="tab" aria-selected="false"
+                  data-tab="memories" id="profile-tab-memories" data-i18n="profile.tab.memories">Memories</button>
         </div>
-        <section class="profile-tab-panel active" id="profile-pane-soul">
+
+        <!-- Tab: SOUL.md -->
+        <section class="profile-tab-panel active" id="profile-pane-soul" role="tabpanel" aria-labelledby="profile-tab-soul">
           <header class="profile-section-head">
-            <h3>Who I am</h3>
+            <h3 class="profile-section-title" data-i18n="profile.whoIAm">Who I am</h3>
+            <div class="profile-section-meta">
+              <span class="profile-path" id="profile-soul-path"></span>
+              <span class="profile-status" id="profile-soul-status"></span>
+            </div>
           </header>
           <div id="profile-soul-body" class="profile-markdown"></div>
+          <div class="profile-pane-footer">
+            <p class="profile-pane-footer-hint" data-i18n="profile.soul.curateHint">Not quite right? Let the assistant curate this through a short conversation.</p>
+            <button id="btn-profile-curate-soul" class="btn-profile-update" data-i18n="profile.soul.curateBtn">Have the assistant curate this</button>
+          </div>
         </section>
-        <section class="profile-tab-panel" id="profile-pane-user" style="display:none">
+
+        <!-- Tab: USER.md -->
+        <section class="profile-tab-panel" id="profile-pane-user" role="tabpanel" aria-labelledby="profile-tab-user" style="display:none">
           <header class="profile-section-head">
-            <h3>Who you are</h3>
+            <h3 class="profile-section-title" data-i18n="profile.whoYouAre">Who you are</h3>
+            <div class="profile-section-meta">
+              <span class="profile-path" id="profile-user-path"></span>
+              <span class="profile-status" id="profile-user-status"></span>
+            </div>
           </header>
           <div id="profile-user-body" class="profile-markdown"></div>
+          <div class="profile-pane-footer">
+            <p class="profile-pane-footer-hint" data-i18n="profile.user.curateHint">Changed jobs? Picked up new interests? Let the assistant update your profile.</p>
+            <button id="btn-profile-curate-user" class="btn-profile-update" data-i18n="profile.user.curateBtn">Have the assistant update this</button>
+          </div>
         </section>
-        <section class="profile-tab-panel" id="profile-pane-memories" style="display:none">
+
+        <!-- Tab: Memories -->
+        <section class="profile-tab-panel" id="profile-pane-memories" role="tabpanel" aria-labelledby="profile-tab-memories" style="display:none">
           <header class="profile-section-head">
-            <h3>Memories</h3>
+            <h3 class="profile-section-title" data-i18n="memories.title">Memories</h3>
+            <div class="profile-section-meta">
+              <span class="memories-summary" id="memories-summary"></span>
+              <button id="btn-memories-refresh-list" class="btn-memories-mini" data-i18n-title="memories.reloadList" data-i18n="memories.reloadList">Reload</button>
+            </div>
           </header>
+          <p class="profile-section-hint" data-i18n="memories.subtitle">Long-term memories stored under ~/.octo/memories/. Most recent first. Use "Curate" to let the assistant tidy a memory, or "Delete" to drop one.</p>
           <div id="memories-list"></div>
         </section>
       </div>
     </div>
 
-    <!-- Settings panel -->
+    <!-- ── SETTINGS PANEL ──────────────────────────────────────────────── -->
     <div id="settings-panel" style="display:none">
-      <header id="settings-header"><span>Settings</span></header>
+      <header id="settings-header">
+        <span data-i18n="settings.title">Settings</span>
+      </header>
       <div id="settings-body">
+
+        <!-- Models section -->
         <section class="settings-section">
           <div class="settings-section-title">
-            <span>AI Models</span>
-            <button id="btn-add-model" class="btn-settings-add">+ Add Model</button>
+            <span data-i18n="settings.models.title">AI Models</span>
+            <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
           </div>
           <div id="model-cards"></div>
         </section>
+
+        <!-- Personalize section -->
         <section class="settings-section">
-          <div class="settings-section-title"><span>Personalize</span></div>
+          <div class="settings-section-title">
+            <span data-i18n="settings.personalize.title">Personalize</span>
+          </div>
           <div class="settings-personalize">
-            <p>Re-run the onboarding to update your assistant's personality.</p>
-            <button id="btn-rerun-onboard" class="btn-settings-action">✨ Re-run Onboard</button>
+            <p class="settings-personalize-desc" data-i18n="settings.personalize.desc">Re-run the onboarding to update your assistant's personality and user profile (SOUL.md &amp; USER.md).</p>
+            <button id="btn-rerun-onboard" class="btn-settings-action" data-i18n="settings.personalize.btn">✨ Re-run Onboard</button>
           </div>
         </section>
+
+        <!-- Browser section -->
         <section class="settings-section">
-          <div class="settings-section-title"><span>Language</span></div>
-          <div class="settings-lang-btns">
-            <button class="settings-lang-btn" data-lang="en">English</button>
-            <button class="settings-lang-btn" data-lang="zh">中文</button>
+          <div class="settings-section-title">
+            <span data-i18n="settings.browser.title">Browser</span>
+          </div>
+          <div class="settings-personalize">
+            <p class="settings-personalize-desc" id="browser-status-desc" data-i18n="settings.browser.desc">Connect your browser to enable browser automation.</p>
+            <div class="settings-browser-actions">
+              <label class="toggle-switch" id="browser-toggle-wrap" style="display:none">
+                <input type="checkbox" id="browser-toggle-input">
+                <span class="toggle-slider"></span>
+              </label>
+              <button id="btn-browser-setup" class="btn-settings-action" data-i18n="settings.browser.btn">🌐 Configure Browser</button>
+            </div>
           </div>
         </section>
+
+        <!-- Language section -->
+        <section class="settings-section" id="language-section">
+          <div class="settings-section-title">
+            <span data-i18n="settings.lang.title">Language</span>
+          </div>
+          <div class="settings-lang-btns">
+            <button id="settings-btn-lang-en" class="settings-lang-btn" data-lang="en" data-i18n="settings.lang.en">English</button>
+            <button id="settings-btn-lang-zh" class="settings-lang-btn" data-lang="zh" data-i18n="settings.lang.zh">中文</button>
+          </div>
+        </section>
+
+        <!-- Font Size section -->
+        <section class="settings-section" id="font-size-section">
+          <div class="settings-section-title">
+            <span data-i18n="settings.fontSize.title">Font Size</span>
+          </div>
+          <div class="settings-lang-btns">
+            <button id="settings-btn-font-small" class="settings-lang-btn" data-font="small" data-i18n="settings.fontSize.small">小</button>
+            <button id="settings-btn-font-medium" class="settings-lang-btn" data-font="medium" data-i18n="settings.fontSize.medium">中</button>
+            <button id="settings-btn-font-large" class="settings-lang-btn" data-font="large" data-i18n="settings.fontSize.large">大</button>
+          </div>
+        </section>
+
+        <!-- Currency section -->
+        <section class="settings-section" id="currency-section">
+          <div class="settings-section-title">
+            <span data-i18n="settings.currency.title">Currency</span>
+          </div>
+          <div class="settings-lang-btns">
+            <button id="settings-btn-currency-usd" class="settings-lang-btn" data-currency="USD">$ USD</button>
+            <button id="settings-btn-currency-cny" class="settings-lang-btn" data-currency="CNY">¥ CNY</button>
+          </div>
+        </section>
+
+
+
       </div>
     </div>
 
   </main>
+
   </div><!-- end #content-row -->
+
 </div><!-- end #app -->
 
-<!-- New Session Modal -->
+<!-- Setup panel: first-run mandatory setup (language + API key).
+     Rendered as a fixed full-screen overlay so the sidebar is hidden. -->
+<div id="setup-panel" style="display:none">
+  <div id="setup-card">
+
+    <!-- Header: logo + brand + subtitle -->
+    <div id="setup-header">
+      <div id="setup-logo">✦</div>
+      <h1 id="setup-title" data-i18n="onboard.title" data-i18n-vars="brand=Octo">Welcome to Octo</h1>
+      <p id="setup-subtitle" data-i18n="onboard.subtitle">Let's get you set up in a minute.</p>
+    </div>
+
+    <!-- Step indicators -->
+    <div id="setup-steps">
+      <div class="setup-step active" id="setup-dot-1"><span>1</span></div>
+      <div class="setup-step-line"></div>
+      <div class="setup-step" id="setup-dot-2"><span>2</span></div>
+    </div>
+
+    <!-- Step 1: Language selection -->
+    <div id="setup-phase-lang">
+      <p class="setup-phase-label" data-i18n="onboard.lang.prompt">Choose your language</p>
+      <div id="setup-lang-row">
+        <div id="setup-lang-btns">
+          <button id="setup-btn-lang-en" class="setup-lang-btn">English</button>
+          <button id="setup-btn-lang-zh" class="setup-lang-btn active">中文</button>
+        </div>
+        <button id="setup-btn-lang-next" class="setup-next-btn" data-i18n="onboard.lang.next">Continue →</button>
+      </div>
+    </div>
+
+    <!-- Step 2: API Key setup -->
+    <div id="setup-phase-key" style="display:none">
+      <p class="setup-phase-label" data-i18n="onboard.key.title">Connect your AI model</p>
+
+      <div class="setup-field">
+        <label class="setup-label" data-i18n="onboard.key.provider">Provider</label>
+        <div class="custom-select-wrapper" id="setup-provider-wrapper">
+          <div class="custom-select-trigger" tabindex="0">
+            <span class="custom-select-value placeholder" data-i18n="onboard.key.provider.placeholder">— Choose provider —</span>
+            <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+            </svg>
+          </div>
+          <div class="custom-select-dropdown" id="setup-provider-dropdown">
+            <div class="custom-select-option" data-value="" data-i18n="onboard.key.provider.placeholder">— Choose provider —</div>
+          </div>
+        </div>
+        <div id="setup-provider-promo" class="provider-promo-hint"></div>
+      </div>
+
+      <div class="setup-field">
+        <label class="setup-label" data-i18n="onboard.key.model">Model</label>
+        <div class="model-name-combobox">
+          <input id="setup-model" type="text" class="setup-input model-name-input" data-i18n-placeholder="settings.models.placeholder.model" placeholder="e.g. claude-sonnet-4-5">
+          <button type="button" id="setup-model-dropdown-btn" class="model-name-dropdown-btn" aria-label="Select model">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div id="setup-model-dropdown" class="model-name-dropdown" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="setup-field">
+        <label class="setup-label" data-i18n="onboard.key.baseurl">Base URL</label>
+        <div class="base-url-combobox">
+          <input id="setup-base-url" type="text" class="setup-input base-url-input" data-i18n-placeholder="settings.models.placeholder.baseurl" placeholder="https://api.anthropic.com">
+          <button type="button" id="setup-base-url-dropdown-btn" class="base-url-dropdown-btn" aria-label="Select preset endpoint">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div id="setup-base-url-dropdown" class="base-url-dropdown" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="setup-field">
+        <label class="setup-label">
+          <span data-i18n="onboard.key.apikey">API Key</span>
+          <a id="setup-get-apikey-link" href="#" target="_blank" rel="noopener" style="display:none;margin-left:0.5rem;font-size:0.75rem;color:var(--accent,#6366f1);text-decoration:none;opacity:0.85;" data-i18n="onboard.key.getApiKey">How to get →</a>
+        </label>
+        <div class="setup-input-row">
+          <input id="setup-api-key" type="password" class="setup-input" data-i18n-placeholder="settings.models.placeholder.apikey" placeholder="sk-…">
+          <button id="setup-toggle-key" class="btn-toggle-key" title="Show/hide">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="setup-docs-hint" style="font-size:0.75rem;margin-top:2px;text-align:left;">
+        <span style="color:var(--muted,#6b7280);" data-i18n="onboard.key.docsGuide.question">New to AI keys?</span>
+        <a id="setup-docs-link" href="https://www.octo.com/docs/ai-key-guide" target="_blank" rel="noopener" style="margin-left:0.25rem;color:var(--accent,#6366f1);text-decoration:none;" data-i18n="onboard.key.docsGuide.cta">See the guide →</a>
+      </div>
+
+      <div id="setup-test-result" class="setup-test-result" style="min-height:0;"></div>
+
+      <div class="setup-key-actions">
+        <button id="setup-btn-back" class="setup-back-btn" data-i18n="onboard.key.btn.back">← Back</button>
+        <button id="setup-btn-test" class="setup-submit-btn" data-i18n="onboard.key.btn.test">Test & Continue →</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── NEW SESSION MODAL ─────────────────────────────────────────────────── -->
 <div id="new-session-modal" class="modal-overlay" style="display:none">
   <div class="modal-box new-session-modal">
     <div class="modal-header">
-      <h3 class="modal-title">Create New Session</h3>
+      <h3 class="modal-title" data-i18n="sessions.modal.title">Create New Session</h3>
     </div>
     <div class="modal-body">
       <div class="modal-field">
-        <label class="modal-label">Agent</label>
+        <label class="modal-label" data-i18n="sessions.modal.agent">Agent</label>
         <select id="new-session-agent" class="modal-select">
-          <option value="general">General</option>
-          <option value="coding">Coding</option>
+          <option value="general" data-i18n="sessions.modal.agent.general">General</option>
+          <option value="coding" data-i18n="sessions.modal.agent.coding">Coding</option>
         </select>
       </div>
+
       <div class="modal-field">
-        <label class="modal-label">Session Name</label>
-        <input id="new-session-name" type="text" class="modal-input"
+        <label class="modal-label" data-i18n="sessions.modal.name">Session Name</label>
+        <input id="new-session-name" type="text" class="modal-input" 
+               data-i18n-placeholder="sessions.modal.name.placeholder" 
                placeholder="Leave empty to auto-generate">
       </div>
+
       <div class="modal-field">
-        <label class="modal-label">Model</label>
-        <select id="new-session-model" class="modal-select"></select>
+        <label class="modal-label" data-i18n="sessions.modal.model">Model</label>
+        <select id="new-session-model" class="modal-select">
+          <!-- Populated dynamically from configured models -->
+        </select>
       </div>
+
       <div class="modal-field">
-        <label class="modal-label">Working Directory</label>
-        <input id="new-session-directory" type="text" class="modal-input"
+        <label class="modal-label" data-i18n="sessions.modal.directory">Working Directory</label>
+        <input id="new-session-directory" type="text" class="modal-input" 
+               data-i18n-placeholder="sessions.modal.directory.placeholder"
                placeholder="~/workspace/my-project">
+      </div>
+
+      <div id="new-session-init-project-field" class="modal-field-checkbox" style="display:none">
+        <label class="modal-checkbox-label">
+          <input id="new-session-init-project" type="checkbox" class="modal-checkbox">
+          <span data-i18n="sessions.modal.initProject">Initialize full-stack project (/new)</span>
+        </label>
       </div>
     </div>
     <div class="modal-footer">
-      <button id="new-session-cancel" class="btn-secondary">Cancel</button>
-      <button id="new-session-create" class="btn-primary">Create Session</button>
+      <button id="new-session-cancel" class="btn-secondary" data-i18n="modal.cancel">Cancel</button>
+      <button id="new-session-create" class="btn-primary" data-i18n="sessions.modal.create">Create Session</button>
     </div>
   </div>
 </div>
 
-<!-- Prompt Modal (for confirmations) -->
+<!-- ── CONFIRMATION MODAL ────────────────────────────────────────────────── -->
+<div id="modal-overlay" class="modal-overlay" style="display:none">
+  <div class="modal-box sm">
+    <div id="modal-message" class="modal-confirm-message"></div>
+    <div class="modal-actions">
+      <button id="modal-no"  class="btn-secondary" data-i18n="modal.no">No</button>
+      <button id="modal-yes" class="btn-primary" data-i18n="modal.yes">Yes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Prompt modal for text input -->
 <div id="prompt-modal-overlay" class="modal-overlay" style="display:none">
   <div class="modal-box sm">
-    <div class="modal-title" id="prompt-modal-title"></div>
-    <div class="modal-body" id="prompt-modal-body"></div>
+    <div id="prompt-modal-message" style="font-size:0.875rem;line-height:1.6;margin-bottom:0.75rem"></div>
+    <input type="text" id="prompt-modal-input" class="prompt-modal-input" autocomplete="off" spellcheck="false">
     <div class="modal-actions">
-      <button id="prompt-modal-cancel" class="btn-secondary">Cancel</button>
-      <button id="prompt-modal-ok" class="btn-primary">OK</button>
+      <button id="prompt-modal-cancel" class="btn-secondary" data-i18n="modal.cancel">Cancel</button>
+      <button id="prompt-modal-ok" class="btn-primary" data-i18n="modal.ok">OK</button>
     </div>
   </div>
 </div>
 
-<!-- Scripts: load order matters -->
-<script src="/vendor/marked.min.js"></script>
-<script src="/js/auth.js"></script>
-<script src="/js/theme.js"></script>
-<script src="/js/i18n.js"></script>
-<script src="/js/ws.js"></script>
-<script src="/js/ws-dispatcher.js"></script>
-<script src="/js/sessions.js"></script>
-<script src="/js/skills.js"></script>
-<script src="/js/tasks.js"></script>
-<script src="/js/channels.js"></script>
-<script src="/js/settings.js"></script>
-<script src="/js/profile.js"></script>
-<script src="/js/trash.js"></script>
-<script src="/js/version.js"></script>
-<script src="/js/app.js"></script>
+<!-- Rename Session Modal -->
+<div id="rename-modal-overlay" class="modal-overlay" style="display:none">
+  <div class="modal-box sm">
+    <div class="modal-title" data-i18n="sessions.actions.rename">Rename</div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label class="modal-label" for="rename-modal-input">
+          <span data-i18n="sessions.modal.name">Name</span>
+          <span class="label-required">*</span>
+        </label>
+        <input type="text" id="rename-modal-input" class="modal-input" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="rename-modal-cancel" class="btn-secondary" data-i18n="modal.cancel">Cancel</button>
+      <button id="rename-modal-save" class="btn-primary" data-i18n="modal.ok">OK</button>
+    </div>
+  </div>
+</div>
+
+
+
+<script src="/marked.min.js"></script>
+<script src="/vendor/hljs/highlight.min.js"></script>
+<script src="/vendor/katex/katex.min.js"></script>
+<script src="/vendor/katex/auto-render.min.js"></script>
+<script src="/i18n.js"></script>
+<script src="/auth.js"></script>
+<script src="/theme.js"></script>
+<script src="/ws.js"></script>
+<script src="/ws-dispatcher.js"></script>
+<script src="/sessions.js"></script>
+<script src="/datepicker.js"></script>
+<script src="/tasks.js"></script>
+<script src="/skills.js"></script>
+<script src="/channels.js"></script>
+<script src="/settings.js"></script>
+<script src="/onboard.js"></script>
+<script src="/trash.js"></script>
+<script src="/profile.js"></script>
+<script src="/version.js"></script>
+<script src="/sidebar.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>
