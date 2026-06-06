@@ -281,6 +281,12 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 // ─── GET /api/health ────────────────────────────────────────────────────────
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	// When an access_key is provided, validate it so the Web UI can use this
+	// endpoint to verify the key before storing it. Without a key, stay public.
+	if r.URL.Query().Get("access_key") != "" && !s.validateAccessKey(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

@@ -141,6 +141,28 @@ func TestAccessKey_HealthIsPublic(t *testing.T) {
 	}
 }
 
+func TestAccessKey_HealthRejectsWrongKey(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false, AccessKey: "test-secret-42"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health?access_key=wrong", nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("health with wrong key: status = %d, want 401", w.Code)
+	}
+}
+
+func TestAccessKey_HealthAcceptsCorrectKey(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false, AccessKey: "test-secret-42"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health?access_key=test-secret-42", nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("health with correct key: status = %d, want 200", w.Code)
+	}
+}
+
 func TestAccessKey_GeneratedWhenEmpty(t *testing.T) {
 	// When AccessKey is empty and OCTO_ACCESS_KEY is not set, a random key is generated.
 	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
