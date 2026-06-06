@@ -197,12 +197,12 @@ func TestHandleListSessions(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	var body []sessionSummary
+	var body sessionListResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body == nil {
-		t.Fatal("expected non-nil slice")
+	if body.Sessions == nil {
+		t.Fatal("expected non-nil sessions slice")
 	}
 }
 

@@ -57,21 +57,23 @@ func (s *Server) replayLiveState(sessionID string, conn *wsConn) {
 
 	// Replay progress.
 	p := state.progress
-	b, _ := json.Marshal(wsEventProgress{
-		Type:         "progress",
-		Message:      p.Message,
-		ProgressType: p.ProgressType,
-		Phase:        "active",
-		Status:       "start",
-		StartedAt:    p.StartedAt,
+	b, _ := json.Marshal(map[string]any{
+		"type":          "progress",
+		"session_id":    sessionID,
+		"message":       p.Message,
+		"progress_type": p.ProgressType,
+		"phase":         "active",
+		"status":        "start",
+		"started_at":    p.StartedAt,
 	})
 	conn.send <- b
 
 	// Replay buffered stdout.
 	if len(state.stdoutLines) > 0 {
-		b, _ := json.Marshal(wsEventToolStdout{
-			Type:  "tool_stdout",
-			Lines: state.stdoutLines,
+		b, _ := json.Marshal(map[string]any{
+			"type":       "tool_stdout",
+			"session_id": sessionID,
+			"lines":      state.stdoutLines,
 		})
 		conn.send <- b
 	}
@@ -265,19 +267,22 @@ func (s *Server) runAgentTurn(sess *agent.Session, content string) {
 
 	rCopy := reply
 	b, _ := json.Marshal(map[string]any{
-		"type":  "turn_done",
-		"reply": map[string]any{"content": rCopy.Content},
+		"type":       "turn_done",
+		"session_id": sess.ID,
+		"reply":      map[string]any{"content": rCopy.Content},
 	})
 	sw.sendRaw(b)
 
-	s.wsHub.broadcast(sess.ID, wsEventComplete{
-		Type:       "complete",
-		Iterations: 1,
+	s.wsHub.broadcast(sess.ID, map[string]any{
+		"type":       "complete",
+		"session_id": sess.ID,
+		"iterations": 1,
 	})
 
-	s.wsHub.broadcast(sess.ID, wsEventSessionUpdate{
-		Type:   "session_update",
-		Status: "idle",
+	s.wsHub.broadcast(sess.ID, map[string]any{
+		"type":       "session_update",
+		"session_id": sess.ID,
+		"status":     "idle",
 	})
 }
 
@@ -304,8 +309,9 @@ func (w *wsStreamWriter) sendRaw(data []byte) {
 
 func (w *wsStreamWriter) error(msg string) {
 	w.hub.broadcast(w.sessionID, map[string]string{
-		"type":  "tool_error",
-		"error": msg,
+		"type":       "tool_error",
+		"session_id": w.sessionID,
+		"error":      msg,
 	})
 }
 
@@ -318,8 +324,9 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 	switch ev.Kind {
 	case agent.EventTextDelta:
 		w.hub.broadcast(w.sessionID, map[string]string{
-			"type": "text_delta",
-			"text": ev.Text,
+			"type":       "text_delta",
+			"session_id": w.sessionID,
+			"text":       ev.Text,
 		})
 
 	case agent.EventToolStarted:
@@ -334,7 +341,13 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			Args:    ev.Input,
 			Summary: fmt.Sprintf("🔧 %s %s", ev.ToolName, inputJSON),
 		}
-		w.hub.broadcast(w.sessionID, tc)
+		w.hub.broadcast(w.sessionID, map[string]any{
+			"type":       tc.Type,
+			"session_id": w.sessionID,
+			"name":       tc.Name,
+			"args":       tc.Args,
+			"summary":    tc.Summary,
+		})
 
 		// Track as live state for replay.
 		w.server.liveStateMu.Lock()
@@ -351,9 +364,10 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 		w.server.liveStateMu.Unlock()
 
 	case agent.EventToolDone:
-		w.hub.broadcast(w.sessionID, wsEventToolResult{
-			Type:   "tool_result",
-			Result: ev.Output,
+		w.hub.broadcast(w.sessionID, map[string]any{
+			"type":       "tool_result",
+			"session_id": w.sessionID,
+			"result":     ev.Output,
 		})
 		// Clear live state on tool done.
 		w.server.liveStateMu.Lock()
@@ -364,9 +378,10 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 		w.server.liveStateMu.Unlock()
 
 	case agent.EventToolError:
-		w.hub.broadcast(w.sessionID, wsEventToolError{
-			Type:  "tool_error",
-			Error: ev.Err,
+		w.hub.broadcast(w.sessionID, map[string]any{
+			"type":       "tool_error",
+			"session_id": w.sessionID,
+			"error":      ev.Err,
 		})
 		w.server.liveStateMu.Lock()
 		delete(w.server.liveStates, w.sessionID)
@@ -374,15 +389,24 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 
 	case agent.EventThinkingDelta:
 		w.hub.broadcast(w.sessionID, map[string]string{
-			"type": "thinking_delta",
-			"text": ev.Text,
+			"type":       "thinking_delta",
+			"session_id": w.sessionID,
+			"text":       ev.Text,
 		})
 
 	case agent.EventTurnDone:
 		if ev.Reply != nil {
 			w.hub.broadcast(w.sessionID, map[string]any{
-				"type":  "turn_done",
-				"reply": map[string]any{"content": ev.Reply.Content},
+				"type":       "turn_done",
+				"session_id": w.sessionID,
+				"reply":      map[string]any{"content": ev.Reply.Content},
+			})
+			// Frontend expects a complete assistant_message event rather than
+			// streaming text_delta fragments. Emit it once the turn is done.
+			w.hub.broadcast(w.sessionID, map[string]any{
+				"type":       "assistant_message",
+				"session_id": w.sessionID,
+				"content":    ev.Reply.Content,
 			})
 		}
 		// Clear live state.

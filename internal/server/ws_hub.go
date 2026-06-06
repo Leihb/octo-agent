@@ -269,6 +269,9 @@ func (c *wsConn) dispatch(msgType string, raw []byte) {
 		}
 		c.hub.subscribe(c, msg.SessionID)
 		c.hub.s.SetSubscribed(c, msg.SessionID)
+		// Confirm subscription so the frontend can enable input.
+		b, _ := json.Marshal(map[string]any{"type": "subscribed", "session_id": msg.SessionID})
+		c.send <- b
 		// Replay any in-progress live state for this session.
 		c.hub.s.replayLiveState(msg.SessionID, c)
 
@@ -279,7 +282,7 @@ func (c *wsConn) dispatch(msgType string, raw []byte) {
 		}
 		c.hub.unsubscribe(c, msg.SessionID)
 
-	case "user_message":
+	case "user_message", "message":
 		var msg wsMsgUserMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			return

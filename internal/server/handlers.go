@@ -11,6 +11,7 @@ import (
 
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/app"
+	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/tasks"
 	"github.com/Leihb/octo-agent/internal/tools"
@@ -34,12 +35,22 @@ type turnRequest struct {
 	Message string `json:"message"`
 }
 
-type sessionSummary struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	Model     string    `json:"model"`
-	TurnCount int       `json:"turn_count"`
-	Title     string    `json:"title"`
+// sessionItem is the shape the Web UI expects for each session in listings
+// and after creation. It is a superset of the raw agent.Session fields.
+type sessionItem struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Title        string    `json:"title"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Model        string    `json:"model"`
+	ModelID      string    `json:"model_id,omitempty"`
+	Status       string    `json:"status"`
+	Source       string    `json:"source"`
+	AgentProfile string    `json:"agent_profile"`
+	Pinned       bool      `json:"pinned"`
+	TotalTasks   int       `json:"total_tasks"`
+	TurnCount    int       `json:"turn_count"`
 }
 
 type sessionDetail struct {
@@ -47,6 +58,49 @@ type sessionDetail struct {
 	CreatedAt time.Time       `json:"created_at"`
 	Model     string          `json:"model"`
 	Messages  []agent.Message `json:"messages"`
+}
+
+// sessionListResponse matches the Ruby frontend's expected list envelope.
+type sessionListResponse struct {
+	Sessions  []sessionItem `json:"sessions"`
+	HasMore   bool          `json:"has_more"`
+	CronCount int           `json:"cron_count"`
+}
+
+// sessionCreateRequest matches POST /api/sessions bodies from the Web UI.
+type sessionCreateRequest struct {
+	Name         string `json:"name"`
+	AgentProfile string `json:"agent_profile"`
+	Source       string `json:"source"`
+	Model        string `json:"model,omitempty"`
+}
+
+// toSessionItem builds a frontend-friendly session descriptor.
+func toSessionItem(s *agent.Session, source, agentProfile string) sessionItem {
+	updated := s.CreatedAt
+	if p, err := s.SavePath(); err == nil {
+		if st, err := os.Stat(p); err == nil {
+			updated = st.ModTime()
+		}
+	}
+	name := s.Title
+	if name == "" {
+		name = s.DisplayTitle()
+	}
+	return sessionItem{
+		ID:           s.ID,
+		Name:         name,
+		Title:        s.Title,
+		CreatedAt:    s.CreatedAt,
+		UpdatedAt:    updated,
+		Model:        s.Model,
+		Status:       "idle",
+		Source:       source,
+		AgentProfile: agentProfile,
+		Pinned:       false,
+		TotalTasks:   0,
+		TurnCount:    s.TurnCount(),
+	}
 }
 
 type toolInfo struct {
@@ -165,17 +219,108 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := make([]sessionSummary, 0, len(sessions))
+	out := make([]sessionItem, 0, len(sessions))
+	cronCount := 0
 	for _, sess := range sessions {
-		out = append(out, sessionSummary{
-			ID:        sess.ID,
-			CreatedAt: sess.CreatedAt,
-			Model:     sess.Model,
-			TurnCount: sess.TurnCount(),
-			Title:     sess.DisplayTitle(),
-		})
+		// Source and agent_profile are not persisted on the session itself in
+		// the Go rewrite; default to "manual" / "general" so the UI renders.
+		item := toSessionItem(sess, "manual", "general")
+		out = append(out, item)
+		if item.Source == "cron" {
+			cronCount++
+		}
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, sessionListResponse{
+		Sessions:  out,
+		HasMore:   false,
+		CronCount: cronCount,
+	})
+}
+
+// ─── POST /api/sessions ─────────────────────────────────────────────────────
+
+func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	var req sessionCreateRequest
+	if err := readBodyJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	model := s.model
+	if req.Model != "" {
+		model = req.Model
+	}
+	if model == "" {
+		// Fall back to the user's configured default model.
+		if cfg, err := config.Load(); err == nil && cfg.Model != "" {
+			model = cfg.Model
+		}
+	}
+	if model == "" {
+		writeError(w, http.StatusBadRequest, "no default model configured")
+		return
+	}
+
+	agentProfile := req.AgentProfile
+	if agentProfile == "" {
+		agentProfile = "general"
+	}
+	source := req.Source
+	if source == "" {
+		source = "manual"
+	}
+
+	sess := agent.NewSession(model, "")
+	if req.Name != "" {
+		sess.Title = req.Name
+	}
+	if err := sess.Save(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save session: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"session": toSessionItem(sess, source, agentProfile)})
+}
+
+// ─── GET /api/sessions/:id/messages ─────────────────────────────────────────
+
+func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing session id")
+		return
+	}
+
+	sess, err := agent.LoadSession(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// The Web UI expects an event stream that mirrors the live WS traffic.
+	// For now we translate the persisted message list into user/assistant
+	// events; tool calls are not reconstructed from the transcript.
+	events := make([]map[string]any, 0, len(sess.Messages))
+	for _, m := range sess.Messages {
+		switch m.Role {
+		case agent.RoleUser:
+			events = append(events, map[string]any{
+				"type":       "history_user_message",
+				"content":    m.Content,
+				"created_at": sess.CreatedAt,
+			})
+		case agent.RoleAssistant:
+			events = append(events, map[string]any{
+				"type":    "assistant_message",
+				"content": m.Content,
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"has_more": false,
+		"events":   events,
+	})
 }
 
 // ─── GET /api/sessions/:id ──────────────────────────────────────────────────
@@ -275,7 +420,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 			Source:      sk.Source,
 		})
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, map[string]any{"skills": out})
 }
 
 // ─── GET /api/health ────────────────────────────────────────────────────────

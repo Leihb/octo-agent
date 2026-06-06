@@ -39,7 +39,7 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 		info := platformToInfo(name, pc)
 		out = append(out, info)
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, map[string]any{"channels": out})
 }
 
 // handleGetChannel returns a single platform's config.
@@ -202,7 +202,7 @@ func (s *Server) handleAvailableChannels(w http.ResponseWriter, r *http.Request)
 		}
 		out = append(out, availInfo{Platform: p, Label: label, Fields: fields})
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, map[string]any{"channels": out})
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

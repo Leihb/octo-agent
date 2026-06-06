@@ -7,8 +7,19 @@ import (
 // ─── GET /api/cron-tasks ────────────────────────────────────────────────────
 
 func (s *Server) handleListCronTasks(w http.ResponseWriter, r *http.Request) {
-	// Delegate to the existing scheduler-backed task list.
-	s.handleListTasks(w, r)
+	// Delegate to the existing scheduler-backed task list and wrap the
+	// bare array into the envelope the Web UI expects.
+	s.initScheduler()
+	if s.scheduler == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"cron_tasks": []taskResponse{}})
+		return
+	}
+	tasks := s.scheduler.List()
+	out := make([]taskResponse, 0, len(tasks))
+	for _, t := range tasks {
+		out = append(out, taskToResponse(t))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"cron_tasks": out})
 }
 
 // ─── POST /api/cron-tasks/{name}/run ────────────────────────────────────────
