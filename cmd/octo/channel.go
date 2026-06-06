@@ -12,6 +12,8 @@ import (
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/channel"
+	_ "github.com/Leihb/octo-agent/internal/channel/adapters/dingtalk"
+	_ "github.com/Leihb/octo-agent/internal/channel/adapters/feishu"
 	_ "github.com/Leihb/octo-agent/internal/channel/adapters/weixin"
 	"github.com/Leihb/octo-agent/internal/channel/adapters/weixin/ilink"
 	"github.com/Leihb/octo-agent/internal/config"
