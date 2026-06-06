@@ -116,3 +116,36 @@ const Auth = (() => {
     get passed() { return _passed; },
   };
 })();
+
+// ── api — authenticated fetch wrapper ──────────────────────────────────────
+//
+// Automatically appends the access_key query param to every request.
+// Use this for all REST API calls from the Web UI.
+// ─────────────────────────────────────────────────────────────────────────
+const api = {
+  fetch(url, options = {}) {
+    const key = Auth.getKey();
+    let fullUrl = url;
+    if (key) {
+      const sep = url.includes('?') ? '&' : '?';
+      fullUrl = `${url}${sep}access_key=${encodeURIComponent(key)}`;
+    }
+    return window.fetch(fullUrl, options);
+  },
+
+  get(url) {
+    return this.fetch(url, { method: 'GET' });
+  },
+
+  post(url, body) {
+    return this.fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
+
+  delete(url) {
+    return this.fetch(url, { method: 'DELETE' });
+  },
+};

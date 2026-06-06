@@ -31,13 +31,13 @@ const Profile = (() => {
     const container = $("profile-soul-body");
     if (!container) return;
     try {
-      const res = await fetch("/api/profile/soul");
+      const res = await api.get("/api/profile/soul");
       if (!res.ok) {
         container.textContent = "SOUL.md not found. Run onboarding to create one.";
         return;
       }
       const data = await res.json();
-      container.textContent = data.content || "";
+      container.innerHTML = renderMarkdown(data.content || "");
     } catch (e) {
       container.textContent = "Failed to load SOUL.md";
     }
@@ -47,13 +47,13 @@ const Profile = (() => {
     const container = $("profile-user-body");
     if (!container) return;
     try {
-      const res = await fetch("/api/profile/user");
+      const res = await api.get("/api/profile/user");
       if (!res.ok) {
         container.textContent = "USER.md not found. Run onboarding to create one.";
         return;
       }
       const data = await res.json();
-      container.textContent = data.content || "";
+      container.innerHTML = renderMarkdown(data.content || "");
     } catch (e) {
       container.textContent = "Failed to load USER.md";
     }
@@ -63,7 +63,7 @@ const Profile = (() => {
     const container = $("memories-list");
     if (!container) return;
     try {
-      const res = await fetch("/api/memories");
+      const res = await api.get("/api/memories");
       if (!res.ok) {
         container.textContent = "No memories yet.";
         return;

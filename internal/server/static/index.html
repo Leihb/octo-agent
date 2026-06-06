@@ -104,7 +104,7 @@
               <button id="btn-new-session-inline" class="btn-split-main" title="New Session">+ New Session</button>
               <button id="btn-new-session-arrow" class="btn-split-arrow" title="Options">▾</button>
               <div id="new-session-dropdown" class="new-session-dropdown" hidden>
-                <div class="dropdown-item" id="btn-new-session-modal">More Options</div>
+                <div class="dropdown-item" id="btn-new-session-more">More Options</div>
               </div>
             </div>
           </div>
@@ -318,8 +318,21 @@
     <div id="channels-panel" style="display:none">
       <div id="channels-body">
         <div class="channels-page-header">
-          <h2 class="channels-page-title">Channels</h2>
-          <p class="channels-page-subtitle">Connect IM platforms so your users can chat with the assistant</p>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+              <h2 class="channels-page-title">Channels</h2>
+              <p class="channels-page-subtitle">Connect IM platforms so your users can chat with the assistant</p>
+            </div>
+            <div style="position:relative">
+              <button id="btn-add-channel" class="btn-create-task" style="white-space:nowrap">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 12h14"/><path d="M12 5v14"/>
+                </svg>
+                <span>Add Platform</span>
+              </button>
+              <div id="add-channel-dropdown" class="new-session-dropdown" hidden style="right:0;min-width:220px"></div>
+            </div>
+          </div>
         </div>
         <div id="channels-list"></div>
       </div>

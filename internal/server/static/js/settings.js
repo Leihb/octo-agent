@@ -6,8 +6,8 @@
 const Settings = (() => {
   let _models = [];
 
-  function init() {
-    renderModels();
+  async function init() {
+    await loadModels();
     wireEvents();
   }
 
@@ -48,8 +48,29 @@ const Settings = (() => {
         const idx = parseInt(btn.dataset.idx);
         _models.splice(idx, 1);
         renderModels();
+        syncModelSelect();
       });
     });
+
+    syncModelSelect();
+  }
+
+  // Sync the new-session modal's model select with the current model list.
+  function syncModelSelect() {
+    const select = $("new-session-model");
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = "";
+    _models.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m.model;
+      opt.textContent = `${escapeHtml(m.model)} (${escapeHtml(m.provider)})`;
+      select.appendChild(opt);
+    });
+    // Restore previous selection if still valid.
+    if (currentVal && _models.find(m => m.model === currentVal)) {
+      select.value = currentVal;
+    }
   }
 
   function wireEvents() {

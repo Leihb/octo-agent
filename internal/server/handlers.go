@@ -14,12 +14,15 @@ import (
 	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/tasks"
 	"github.com/Leihb/octo-agent/internal/tools"
+	"github.com/Leihb/octo-agent/internal/version"
 )
 
 // ─── Request/Response types ─────────────────────────────────────────────────
 
 type createChatRequest struct {
 	Message string `json:"message"`
+	Model   string `json:"model,omitempty"`
+	Name    string `json:"name,omitempty"`
 }
 
 type createChatResponse struct {
@@ -71,7 +74,14 @@ func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := agent.NewSession(s.model, s.system)
+	model := s.model
+	if req.Model != "" {
+		model = req.Model
+	}
+	sess := agent.NewSession(model, s.system)
+	if req.Name != "" {
+		_ = sess.SetTitle(req.Name)
+	}
 
 	mu := s.sessionTurnLock(sess.ID)
 	mu.Lock()
@@ -272,6 +282,12 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// ─── GET /api/version ───────────────────────────────────────────────────────
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"version": version.Version})
 }
 
 // ─── Turn execution ─────────────────────────────────────────────────────────

@@ -249,6 +249,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/tools", s.requireAuth(s.handleListTools))
 	s.mux.HandleFunc("GET /api/skills", s.requireAuth(s.handleListSkills))
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
+	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("GET /api/channels", s.requireAuth(s.handleListChannels))
 	s.mux.HandleFunc("GET /api/channels/available", s.requireAuth(s.handleAvailableChannels))
 	s.mux.HandleFunc("GET /api/channels/{platform}", s.requireAuth(s.handleGetChannel))

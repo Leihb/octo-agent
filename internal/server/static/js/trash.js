@@ -27,7 +27,7 @@ const Trash = (() => {
 
   async function loadFiles() {
     try {
-      const res = await fetch("/api/trash");
+      const res = await api.get("/api/trash");
       if (!res.ok) {
         _files = [];
       } else {
@@ -41,11 +41,7 @@ const Trash = (() => {
 
   async function emptyTrash(mode) {
     try {
-      await fetch("/api/trash/empty", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
-      });
+      await api.post("/api/trash/empty", { mode });
       await loadFiles();
     } catch (e) {
       console.error(e);
@@ -89,7 +85,7 @@ const Trash = (() => {
         const id = btn.dataset.id;
         if (!id) return;
         try {
-          const res = await fetch(`/api/trash/${encodeURIComponent(id)}/restore`, { method: "POST" });
+          const res = await api.post(`/api/trash/${encodeURIComponent(id)}/restore`);
           if (res.ok) {
             await loadFiles();
           } else {

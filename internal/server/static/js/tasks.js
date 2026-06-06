@@ -19,7 +19,7 @@ const Tasks = (() => {
 
   async function load() {
     try {
-      const res = await fetch("/api/tasks");
+      const res = await api.get("/api/tasks");
       if (!res.ok) return;
       _tasks = await res.json();
     } catch (e) {
@@ -67,7 +67,7 @@ const Tasks = (() => {
       btn.addEventListener("click", async () => {
         const id = btn.dataset.id;
         try {
-          await fetch(`/api/tasks/${id}/run`, { method: "POST" });
+          await api.post(`/api/tasks/${id}/run`);
         } catch (e) {
           console.error(e);
         }
@@ -78,7 +78,7 @@ const Tasks = (() => {
         const id = btn.dataset.id;
         if (!confirm("Delete this task?")) return;
         try {
-          const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+          const res = await api.delete(`/api/tasks/${id}`);
           if (res.ok) { await load(); render(); }
         } catch (e) {
           console.error(e);
@@ -100,11 +100,7 @@ const Tasks = (() => {
 
   async function createTask(name, cronExpr, prompt) {
     try {
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, cron: cronExpr, prompt }),
-      });
+      const res = await api.post("/api/tasks", { name, cron: cronExpr, prompt });
       if (res.ok) { await load(); render(); }
     } catch (e) {
       console.error(e);

@@ -11,7 +11,7 @@ const Version = (() => {
 
   async function loadVersion() {
     try {
-      const res = await fetch("/api/version");
+      const res = await api.get("/api/version");
       if (!res.ok) return;
       const data = await res.json();
 

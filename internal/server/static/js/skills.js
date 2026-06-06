@@ -46,7 +46,7 @@ const Skills = (() => {
 
   async function loadSkills() {
     try {
-      const res = await fetch("/api/skills");
+      const res = await api.get("/api/skills");
       if (!res.ok) return;
       _skills = await res.json();
       render();

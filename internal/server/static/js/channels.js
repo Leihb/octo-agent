@@ -20,14 +20,14 @@ const Channels = (() => {
 
   async function loadAvailable() {
     try {
-      const res = await fetch("/api/channels/available");
+      const res = await api.get("/api/channels/available");
       if (res.ok) _available = await res.json();
     } catch (e) { /* ignore */ }
   }
 
   async function loadChannels() {
     try {
-      const res = await fetch("/api/channels");
+      const res = await api.get("/api/channels");
       if (res.ok) _channels = await res.json();
     } catch (e) { /* ignore */ }
     render();
@@ -46,41 +46,17 @@ const Channels = (() => {
     const container = document.getElementById("channels-body");
     if (!container) return;
 
-    // Only render header once.
-    let header = container.querySelector(".channels-page-header");
-    if (!header) {
-      header = document.createElement("div");
-      header.className = "channels-page-header";
-      header.id = "channels-custom-header";
-      header.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div>
-            <h2 class="channels-page-title">Channels</h2>
-            <p class="channels-page-subtitle">Connect IM platforms so your users can chat with the assistant via DingTalk, Feishu, or WeChat.</p>
-          </div>
-          <div style="position:relative">
-            <button id="btn-add-channel" class="btn-create-task" style="white-space:nowrap">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M5 12h14"/><path d="M12 5v14"/>
-              </svg>
-              <span>Add Platform</span>
-            </button>
-            <div id="add-channel-dropdown" class="new-session-dropdown" hidden style="right:0;min-width:220px"></div>
-          </div>
-        </div>`;
-      container.insertBefore(header, container.firstChild);
-
-      // Wire add button dropdown.
-      const addBtn = document.getElementById("btn-add-channel");
-      const dropdown = document.getElementById("add-channel-dropdown");
-      if (addBtn && dropdown) {
-        addBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          buildAddDropdown(dropdown);
-          dropdown.hidden = !dropdown.hidden;
-        });
-        document.addEventListener("click", () => { dropdown.hidden = true; });
-      }
+    // Wire add button dropdown (idempotent — safe to call multiple times).
+    const addBtn = document.getElementById("btn-add-channel");
+    const dropdown = document.getElementById("add-channel-dropdown");
+    if (addBtn && dropdown && !addBtn._wired) {
+      addBtn._wired = true;
+      addBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        buildAddDropdown(dropdown);
+        dropdown.hidden = !dropdown.hidden;
+      });
+      document.addEventListener("click", () => { dropdown.hidden = true; });
     }
 
     // Update title if needed.
@@ -255,11 +231,7 @@ const Channels = (() => {
     });
 
     try {
-      const res = await fetch(`/api/channels/${platform}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled, fields }),
-      });
+      const res = await api.post(`/api/channels/${platform}`, { enabled, fields });
       if (res.ok) {
         closeEditor();
         await loadChannels();
@@ -288,11 +260,7 @@ const Channels = (() => {
     }
 
     try {
-      const res = await fetch(`/api/channels/${platform}/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fields }),
-      });
+      const res = await api.post(`/api/channels/${platform}/test`, { fields });
       const data = await res.json();
       if (resultEl) {
         resultEl.textContent = data.ok ? "✅ " + (data.message || "OK") : "❌ " + (data.error || "Failed");
@@ -310,7 +278,7 @@ const Channels = (() => {
     if (!confirm(`Remove ${platform} configuration? This cannot be undone.`)) return;
 
     try {
-      const res = await fetch(`/api/channels/${platform}`, { method: "DELETE" });
+      const res = await api.delete(`/api/channels/${platform}`);
       if (res.ok) {
         await loadChannels();
       }

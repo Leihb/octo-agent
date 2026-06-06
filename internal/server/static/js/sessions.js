@@ -90,7 +90,7 @@ const Sessions = (() => {
 
     // Load message history from REST API.
     try {
-      const res = await fetch(`/api/sessions/${id}`);
+      const res = await api.get(`/api/sessions/${id}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const sess = await res.json();
 
@@ -247,11 +247,7 @@ const Sessions = (() => {
 
   async function createSessionAndSend(content) {
     try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: content }),
-      });
+      const res = await api.post("/api/chat", { message: content });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       _activeId = data.session_id;
@@ -367,6 +363,16 @@ const Sessions = (() => {
     WSDispatcher.on("turn_done", (ev) => {
       setSendEnabled(true);
       updateInfoBar();
+      // Re-render Markdown on the last bot bubble now that streaming is done.
+      if (ev.reply && ev.reply.content) {
+        const msgs = $("messages");
+        if (msgs) {
+          const last = msgs.querySelector(".message.bot:last-of-type .content");
+          if (last) {
+            last.innerHTML = renderMarkdown(ev.reply.content);
+          }
+        }
+      }
     });
 
     WSDispatcher.on("complete", (ev) => {
@@ -416,7 +422,7 @@ const Sessions = (() => {
     });
 
     // Load initial session list from REST as fallback.
-    fetch("/api/sessions")
+    api.get("/api/sessions")
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data) && _sessions.length === 0) {
@@ -548,7 +554,7 @@ const Sessions = (() => {
     });
 
     // New session modal.
-    const newSessionModalBtn = $("btn-new-session-modal");
+    const newSessionModalBtn = $("btn-new-session-more");
     const modalOverlay = $("new-session-modal");
     const modalCancel = $("new-session-cancel");
     const modalCreate = $("new-session-create");
@@ -566,13 +572,10 @@ const Sessions = (() => {
       modalCreate.addEventListener("click", async () => {
         const name = $("new-session-name")?.value || "";
         const model = $("new-session-model")?.value || "";
+        const dir = $("new-session-directory")?.value || "";
         modalOverlay.style.display = "none";
         try {
-          const res = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: "/help" }),
-          });
+          const res = await api.post("/api/chat", { message: "/help", model, name });
           if (res.ok) {
             const data = await res.json();
             Sessions.select(data.session_id);
