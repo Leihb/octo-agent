@@ -471,6 +471,164 @@ func (s *recordingSender) StreamMessagesWithTools(_ context.Context, _, _ string
 	return agent.Reply{Content: "ok"}, nil
 }
 
+// ─── New API tests ──────────────────────────────────────────────────────────
+
+func TestHandleOnboardStatus(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	req := httptest.NewRequest(http.MethodGet, "/api/onboard/status?access_key="+srv.AccessKey(), nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["needs_onboard"] == nil {
+		t.Fatal("expected needs_onboard field")
+	}
+}
+
+func TestHandleListProviders(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	req := httptest.NewRequest(http.MethodGet, "/api/providers?access_key="+srv.AccessKey(), nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	providers, ok := body["providers"].([]any)
+	if !ok || len(providers) == 0 {
+		t.Fatal("expected non-empty providers list")
+	}
+}
+
+func TestHandleGetConfig(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	req := httptest.NewRequest(http.MethodGet, "/api/config?access_key="+srv.AccessKey(), nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var body configResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Language != "en" {
+		t.Fatalf("language = %q, want en", body.Language)
+	}
+}
+
+func TestHandleTestConfig(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	payload, _ := json.Marshal(testConfigRequest{Model: "gpt-4", BaseURL: "https://api.openai.com/v1"})
+	req := httptest.NewRequest(http.MethodPost, "/api/config/test?access_key="+srv.AccessKey(), bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	// Without an API key in env, this returns ok=false because we require a key for validation.
+	if body["ok"] != false {
+		t.Fatalf("ok = %v, want false", body["ok"])
+	}
+}
+
+func TestHandleSaveModelConfig(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	payload, _ := json.Marshal(saveModelRequest{Type: "default", Model: "gpt-4", BaseURL: "https://api.openai.com/v1", APIKey: "sk-test"})
+	req := httptest.NewRequest(http.MethodPost, "/api/config/models?access_key="+srv.AccessKey(), bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["ok"] != true {
+		t.Fatalf("ok = %v, want true", body["ok"])
+	}
+}
+
+func TestHandleToggleSkill(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	req := httptest.NewRequest(http.MethodPatch, "/api/skills/test-skill/toggle?access_key="+srv.AccessKey(), nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["enabled"] != true {
+		t.Fatalf("enabled = %v, want true", body["enabled"])
+	}
+}
+
+func TestHandleGetMemory_NotFound(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	req := httptest.NewRequest(http.MethodGet, "/api/memories/nonexistent.md?access_key="+srv.AccessKey(), nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleBrowserStatus(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	req := httptest.NewRequest(http.MethodGet, "/api/browser/status?access_key="+srv.AccessKey(), nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["enabled"] != false {
+		t.Fatalf("enabled = %v, want false", body["enabled"])
+	}
+}
+
+func TestHandleVersionUpgrade(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	req := httptest.NewRequest(http.MethodPost, "/api/version/upgrade?access_key="+srv.AccessKey(), nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["ok"] != false {
+		t.Fatalf("ok = %v, want false", body["ok"])
+	}
+}
+
 // TestRunTurnForwardsTools is the regression guard for the web-UI bug where the
 // server's sender only implemented the base Sender, so the agent loop fell back
 // to a tool-less Turn and every tool (web_search included) vanished.

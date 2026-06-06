@@ -266,6 +266,38 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/trash", s.requireAuth(s.handleGetTrash))
 	s.mux.HandleFunc("POST /api/trash/empty", s.requireAuth(s.handleEmptyTrash))
 	s.mux.HandleFunc("POST /api/trash/{id}/restore", s.requireAuth(s.handleRestoreTrash))
+
+	// Onboard & config
+	s.mux.HandleFunc("GET /api/onboard/status", s.requireAuth(s.handleOnboardStatus))
+	s.mux.HandleFunc("POST /api/onboard/complete", s.requireAuth(s.handleOnboardComplete))
+	s.mux.HandleFunc("GET /api/providers", s.requireAuth(s.handleListProviders))
+	s.mux.HandleFunc("GET /api/config", s.requireAuth(s.handleGetConfig))
+	s.mux.HandleFunc("POST /api/config/test", s.requireAuth(s.handleTestConfig))
+	s.mux.HandleFunc("POST /api/config/models", s.requireAuth(s.handleSaveModelConfig))
+
+	// Upload
+	s.mux.HandleFunc("POST /api/upload", s.requireAuth(s.handleUpload))
+
+	// Skill toggle
+	s.mux.HandleFunc("PATCH /api/skills/{name}/toggle", s.requireAuth(s.handleToggleSkill))
+
+	// Memory detail
+	s.mux.HandleFunc("GET /api/memories/{filename}", s.requireAuth(s.handleGetMemory))
+	s.mux.HandleFunc("DELETE /api/memories/{filename}", s.requireAuth(s.handleDeleteMemory))
+
+	// Cron tasks (alias for scheduler tasks)
+	s.mux.HandleFunc("GET /api/cron-tasks", s.requireAuth(s.handleListCronTasks))
+	s.mux.HandleFunc("POST /api/cron-tasks/{name}/run", s.requireAuth(s.handleRunCronTask))
+	s.mux.HandleFunc("PATCH /api/cron-tasks/{name}", s.requireAuth(s.handlePatchCronTask))
+
+	// Browser automation (stub)
+	s.mux.HandleFunc("GET /api/browser/status", s.requireAuth(s.handleBrowserStatus))
+	s.mux.HandleFunc("POST /api/browser/toggle", s.requireAuth(s.handleBrowserToggle))
+
+	// Version & restart
+	s.mux.HandleFunc("POST /api/version/upgrade", s.requireAuth(s.handleVersionUpgrade))
+	s.mux.HandleFunc("POST /api/restart", s.requireAuth(s.handleRestart))
+
 	s.mux.HandleFunc("GET /ws", s.requireAuth(s.handleWS))
 
 	// Static files (Web UI) — served from embedded filesystem.
