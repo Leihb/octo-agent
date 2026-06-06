@@ -18,12 +18,12 @@ import (
 
 // Entry describes a single trashed file.
 type Entry struct {
-	ID         string `json:"id"`
-	Original   string `json:"original"`
-	TrashPath  string `json:"trash_path"`
-	DeletedAt  string `json:"deleted_at"`
-	Project    string `json:"project"`
-	Size       int64  `json:"size"`
+	ID        string `json:"id"`
+	Original  string `json:"original"`
+	TrashPath string `json:"trash_path"`
+	DeletedAt string `json:"deleted_at"`
+	Project   string `json:"project"`
+	Size      int64  `json:"size"`
 }
 
 type meta struct {

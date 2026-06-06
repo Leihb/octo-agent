@@ -23,16 +23,16 @@ type taskRequest struct {
 }
 
 type taskResponse struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Cron      string  `json:"cron"`
-	Prompt    string  `json:"prompt"`
-	Model     string  `json:"model,omitempty"`
-	Agent     string  `json:"agent,omitempty"`
-	Enabled   bool    `json:"enabled"`
-	CreatedAt string  `json:"created_at,omitempty"`
-	LastRun   string  `json:"last_run,omitempty"`
-	SessionID string  `json:"session_id,omitempty"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Cron      string `json:"cron"`
+	Prompt    string `json:"prompt"`
+	Model     string `json:"model,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt string `json:"created_at,omitempty"`
+	LastRun   string `json:"last_run,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // initScheduler creates the scheduler if not already initialized.

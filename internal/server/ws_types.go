@@ -20,9 +20,9 @@ type wsMsgUnsubscribe struct {
 }
 
 type wsMsgUserMessage struct {
-	SessionID string             `json:"session_id"`
-	Content   json.RawMessage    `json:"content"`   // string or array (multipart)
-	Files     []wsUserFile       `json:"files,omitempty"`
+	SessionID string          `json:"session_id"`
+	Content   json.RawMessage `json:"content"` // string or array (multipart)
+	Files     []wsUserFile    `json:"files,omitempty"`
 }
 
 type wsUserFile struct {
@@ -61,18 +61,18 @@ type wsOutEvent struct {
 
 // wsEventSessionList carries the full session list sent on connect + refresh.
 type wsEventSessionList struct {
-	Type     string           `json:"type"`
-	Sessions []wsSessionInfo  `json:"sessions"`
+	Type     string          `json:"type"`
+	Sessions []wsSessionInfo `json:"sessions"`
 }
 
 type wsSessionInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Status    string `json:"status,omitempty"`     // "idle" | "working"
-	CreatedAt int64  `json:"created_at"`            // unix ms
-	Source    string `json:"source,omitempty"`      // "manual" | "cron" | "channel" | "setup"
-	Model     string `json:"model,omitempty"`
-	TotalTurns int   `json:"total_turns,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Status     string `json:"status,omitempty"` // "idle" | "working"
+	CreatedAt  int64  `json:"created_at"`       // unix ms
+	Source     string `json:"source,omitempty"` // "manual" | "cron" | "channel" | "setup"
+	Model      string `json:"model,omitempty"`
+	TotalTurns int    `json:"total_turns,omitempty"`
 }
 
 type wsEventHistoryUserMessage struct {
@@ -117,21 +117,21 @@ type wsEventOutput struct {
 }
 
 type wsEventProgress struct {
-	Type         string `json:"type"`
-	Message      string `json:"message,omitempty"`
-	ProgressType string `json:"progress_type,omitempty"`
-	Phase        string `json:"phase"` // "active" | "done"
-	Status       string `json:"status,omitempty"`
-	StartedAt    int64  `json:"started_at,omitempty"` // unix ms
+	Type         string  `json:"type"`
+	Message      string  `json:"message,omitempty"`
+	ProgressType string  `json:"progress_type,omitempty"`
+	Phase        string  `json:"phase"` // "active" | "done"
+	Status       string  `json:"status,omitempty"`
+	StartedAt    int64   `json:"started_at,omitempty"` // unix ms
 	Elapsed      float64 `json:"elapsed,omitempty"`
 }
 
 type wsEventComplete struct {
-	Type                 string `json:"type"`
-	Iterations           int    `json:"iterations"`
+	Type                 string  `json:"type"`
+	Iterations           int     `json:"iterations"`
 	Duration             float64 `json:"duration,omitempty"`
-	CacheStats           any    `json:"cache_stats,omitempty"`
-	AwaitingUserFeedback bool   `json:"awaiting_user_feedback,omitempty"`
+	CacheStats           any     `json:"cache_stats,omitempty"`
+	AwaitingUserFeedback bool    `json:"awaiting_user_feedback,omitempty"`
 }
 
 type wsEventSessionUpdate struct {
@@ -166,9 +166,9 @@ type wsEventRequestConfirmation struct {
 }
 
 type wsEventBackgroundTaskUpdate struct {
-	Type    string               `json:"type"`
-	Running int                  `json:"running"`
-	Tasks   []wsBackgroundTask   `json:"tasks"`
+	Type    string             `json:"type"`
+	Running int                `json:"running"`
+	Tasks   []wsBackgroundTask `json:"tasks"`
 }
 
 type wsBackgroundTask struct {

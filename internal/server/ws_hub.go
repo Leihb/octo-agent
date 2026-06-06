@@ -42,9 +42,9 @@ type wsEventEnvelope struct {
 
 // wsConn represents a single WebSocket connection.
 type wsConn struct {
-	hub       *wsHub
-	conn      *websocket.Conn
-	send      chan []byte
+	hub        *wsHub
+	conn       *websocket.Conn
+	send       chan []byte
 	subscribed map[string]struct{} // subscribed session IDs
 }
 

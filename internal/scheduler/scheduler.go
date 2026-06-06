@@ -27,7 +27,7 @@ type Task struct {
 	Cron      string    `json:"cron"`
 	Prompt    string    `json:"prompt"`
 	Model     string    `json:"model,omitempty"`
-	Agent     string    `json:"agent,omitempty"`     // "general" | "coding"
+	Agent     string    `json:"agent,omitempty"` // "general" | "coding"
 	Directory string    `json:"directory,omitempty"`
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
