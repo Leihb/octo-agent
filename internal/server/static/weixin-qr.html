@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>微信扫码登录</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 40px 48px;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      max-width: 360px;
+      width: 100%;
+    }
+    .logo {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, #2dc100, #1aad19);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin: 0 auto 16px;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111;
+      margin-bottom: 6px;
+    }
+    p {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+    #qrcode {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    #qrcode canvas, #qrcode img {
+      border-radius: 8px;
+      border: 1px solid #eee;
+    }
+    .hint {
+      font-size: 12px;
+      color: #bbb;
+    }
+    .error {
+      color: #e53e3e;
+      font-size: 13px;
+      padding: 12px;
+      background: #fff5f5;
+      border-radius: 8px;
+    }
+
+    /* Success overlay */
+    #success-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.92);
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      z-index: 100;
+    }
+    #success-overlay.show {
+      display: flex;
+    }
+    .success-icon {
+      width: 72px;
+      height: 72px;
+      background: linear-gradient(135deg, #2dc100, #1aad19);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      animation: pop 0.3s ease-out;
+    }
+    .success-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #111;
+    }
+    .success-sub {
+      font-size: 14px;
+      color: #888;
+    }
+    @keyframes pop {
+      0%   { transform: scale(0.5); opacity: 0; }
+      80%  { transform: scale(1.1); }
+      100% { transform: scale(1);   opacity: 1; }
+    }
+
+    /* Scanned state */
+    .scanned-hint {
+      display: none;
+      font-size: 13px;
+      color: #1aad19;
+      font-weight: 500;
+      margin-top: 8px;
+    }
+    .scanned-hint.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">微</div>
+    <h1>微信扫码登录</h1>
+    <p>使用微信扫描下方二维码<br>在手机上点击「确认登录」</p>
+    <div id="qrcode"></div>
+    <div class="hint">二维码有效期 5 分钟</div>
+    <div class="scanned-hint" id="scanned-hint">✅ 已扫码，请在手机上确认…</div>
+  </div>
+
+  <!-- Success overlay shown after polling detects token -->
+  <div id="success-overlay">
+    <div class="success-icon">✓</div>
+    <div class="success-title">登录成功</div>
+    <div class="success-sub">微信已连接，可以开始聊天了</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script>
+    const params  = new URLSearchParams(location.search);
+    const url     = params.get("url");
+    // since: Unix timestamp (seconds) passed by the setup skill when opening this page.
+    // We only show success if token_updated_at > since, preventing false positives
+    // when the user already had a token from a previous login.
+    const since   = parseInt(params.get("since") || "0", 10);
+    const el      = document.getElementById("qrcode");
+
+    if (!url) {
+      el.innerHTML = '<div class="error">缺少 url 参数</div>';
+    } else {
+      try {
+        new QRCode(el, {
+          text: url,
+          width: 220,
+          height: 220,
+          colorDark: "#111111",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      } catch (e) {
+        el.innerHTML = '<div class="error">二维码生成失败: ' + e.message + '</div>';
+      }
+    }
+
+    // Poll GET /api/channels every 2s; show success overlay once weixin has_token = true
+    const POLL_INTERVAL_MS = 2000;
+    const POLL_TIMEOUT_MS  = 5 * 60 * 1000; // 5 minutes — matches QR expiry
+    const startedAt        = Date.now();
+    let   pollTimer        = null;
+    let   prevHasToken     = false;
+
+    function showSuccess() {
+      clearTimeout(pollTimer);
+      document.getElementById("success-overlay").classList.add("show");
+    }
+
+    async function pollChannelStatus() {
+      if (Date.now() - startedAt > POLL_TIMEOUT_MS) return; // QR expired, stop quietly
+
+      try {
+        const res  = await fetch("/api/channels", { cache: "no-store" });
+        const data = await res.json();
+        const weixin = (data.channels || []).find(c => c.platform === "weixin");
+
+        if (weixin && weixin.has_token) {
+          const updatedAt = weixin.token_updated_at || 0;
+          if (updatedAt > since) {
+            showSuccess();
+            return;
+          }
+        }
+
+        // Show "scanned, waiting for confirm" hint once token appears in-progress
+        // (iLink doesn't expose a "scanned" state via this API, so we just keep polling)
+      } catch (_) {
+        // Server temporarily unreachable — keep polling
+      }
+
+      pollTimer = setTimeout(pollChannelStatus, POLL_INTERVAL_MS);
+    }
+
+    // Start polling only when QR code is actually shown
+    if (url) {
+      pollTimer = setTimeout(pollChannelStatus, POLL_INTERVAL_MS);
+    }
+  </script>
+</body>
+</html>
