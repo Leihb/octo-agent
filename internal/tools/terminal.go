@@ -15,7 +15,7 @@ import (
 
 // TerminalTimeout is the maximum time a single terminal command may run
 // synchronously before it is automatically promoted to a background process.
-var TerminalTimeout = 30 * time.Second
+var TerminalTimeout = 120 * time.Second
 
 // BgPollNotice is the model-facing instruction appended to a background-launch
 // tool result. It steers the model away from polling terminal_output and
@@ -52,7 +52,7 @@ func (t TerminalTool) manager() *BackgroundManager {
 func (TerminalTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name:        "terminal",
-		Description: "Run a shell command in the system shell (POSIX sh on macOS/Linux, PowerShell on Windows — see the Shell line in the environment context) and return stdout+stderr. Use for file operations, running programs, etc. Prefer dedicated tools (read_file, grep, glob) over raw shell commands when they exist.\n\nIMPORTANT — background mode:\n- ALWAYS set background:true for commands that may take more than a few seconds (compiling, testing, installing dependencies, linting, building, watching, servers).\n- Common examples that MUST use background:true: `go test ./...`, `npm install`, `make build`, `gh pr checks --watch`, `docker compose up`, any server or watcher.\n- background:true returns immediately with a process id (no 30s timeout).\n- After launching a background command, DO NOT poll terminal_output. The system will automatically notify you when the process finishes, carrying its final output.\n- While the background command runs, you can continue with other tasks (read files, run other commands, etc.).\n- Use terminal_output only if you explicitly want to check progress mid-run, or use kill_shell to stop the process early.",
+		Description: "Run a shell command in the system shell (POSIX sh on macOS/Linux, PowerShell on Windows — see the Shell line in the environment context) and return stdout+stderr. Use for file operations, running programs, etc. Prefer dedicated tools (read_file, grep, glob) over raw shell commands when they exist.\n\nIMPORTANT — background mode:\n- ALWAYS set background:true for commands that may take more than a few seconds (compiling, testing, installing dependencies, linting, building, watching, servers).\n- Common examples that MUST use background:true: `go test ./...`, `npm install`, `make build`, `gh pr checks --watch`, `docker compose up`, any server or watcher.\n- background:true returns immediately with a process id (no 120s timeout).\n- After launching a background command, DO NOT poll terminal_output. The system will automatically notify you when the process finishes, carrying its final output.\n- While the background command runs, you can continue with other tasks (read files, run other commands, etc.).\n- Use terminal_output only if you explicitly want to check progress mid-run, or use kill_shell to stop the process early.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -62,7 +62,7 @@ func (TerminalTool) Definition() agent.ToolDefinition {
 				},
 				"background": map[string]any{
 					"type":        "boolean",
-					"description": "Run detached in the background (no 30s timeout, non-blocking). Returns a process id. The system will automatically notify you when the process completes — you do not need to poll terminal_output unless you want mid-run progress.",
+					"description": "Run detached in the background (no 120s timeout, non-blocking). Returns a process id. The system will automatically notify you when the process completes — you do not need to poll terminal_output unless you want mid-run progress.",
 				},
 			},
 			"required": []string{"command"},
@@ -91,7 +91,7 @@ func (t TerminalTool) Execute(ctx context.Context, name string, input map[string
 // long line will get their final line truncated, but the more usual case of
 // many short lines is unaffected.
 //
-// Timeout promotion: if the command exceeds TerminalTimeout (30 s) the
+// Timeout promotion: if the command exceeds TerminalTimeout (120 s) the
 // original process continues running in the background (no restart). The
 // caller receives the output produced so far plus a background id and a
 // clear instruction to wait for the completion notification.
@@ -125,7 +125,7 @@ func (t TerminalTool) ExecuteStream(
 	// real time. The polling loop only checks status (exited/running).
 	//
 	// The collector is capped at maxBgOutputBytes: a command that floods stdout
-	// faster than the 30s timeout (e.g. a runaway `yes`) would otherwise grow an
+	// faster than the 120s timeout (e.g. a runaway `yes`) would otherwise grow an
 	// unbounded buffer and OOM the agent. Past the cap we keep the most recent
 	// bytes and flag that earlier output was dropped — the same tail-retention
 	// policy bgProcess.append uses for the background buffer.
