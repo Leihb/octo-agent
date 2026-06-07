@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -31,6 +32,11 @@ const (
 	providerAnthropic = "anthropic"
 	providerOpenAI    = "openai"
 )
+
+// errMissingAPIKey is returned by resolveAPIKey when no API key is available.
+// The caller (runChat) can detect this and auto-launch the config wizard on an
+// interactive terminal instead of failing silently.
+var errMissingAPIKey = errors.New("missing API key")
 
 // unattendedMaxTurns is the agentic-loop cap applied when --max-turns is left
 // at its auto-sentinel (0) and there's no interactive human to continue past
@@ -411,7 +417,33 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		showReasoning:   resolvedShowReasoning,
 	})
 	if err != nil {
-		return 1
+		// If the sender failed because of a missing API key and we're on an
+		// interactive terminal, run the config wizard automatically rather than
+		// leaving the user to figure out `octo config` on their own.
+		if errors.Is(err, errMissingAPIKey) && stdinIsTTY(stdin) {
+			fmt.Fprintln(stderr, "")
+			fmt.Fprintln(stderr, "No API key configured. Let's set up octo first.")
+			if runConfigWizard(stdin, stdout, stderr) != 0 {
+				return 1
+			}
+			// Reload config and retry sender construction.
+			cfg, _ = config.Load()
+			provName, resolvedModel, ok = resolveProviderModel(*providerName, *model, cfg)
+			if !ok {
+				fmt.Fprintf(stderr, "octo chat: unknown provider %q\n", provName)
+				return 2
+			}
+			llmSender, err = buildSender(provName, cfg, stderr, senderTuning{
+				thinkingBudget:  anthropicThinkingBudget(resolvedEffort),
+				reasoningEffort: resolvedEffort,
+				showReasoning:   resolvedShowReasoning,
+			})
+			if err != nil {
+				return 1
+			}
+		} else {
+			return 1
+		}
 	}
 
 	// Verbose: surface the resolved provider / model / endpoint so a
@@ -812,7 +844,7 @@ func resolveAPIKey(name string, cfg config.Config, stderr io.Writer) (string, er
 		fmt.Fprintln(stderr, "")
 		fmt.Fprintln(stderr, "Or run `octo config` to save a default provider/key.")
 		fmt.Fprintln(stderr, "")
-		return "", fmt.Errorf("missing %s", envVar)
+		return "", fmt.Errorf("%w: %s", errMissingAPIKey, envVar)
 	}
 	return apiKey, nil
 }

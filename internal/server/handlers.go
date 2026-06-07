@@ -121,6 +121,11 @@ type skillInfo struct {
 // ─── POST /api/chat ─────────────────────────────────────────────────────────
 
 func (s *Server) handleCreateChat(w http.ResponseWriter, r *http.Request) {
+	if err := s.ensureSender(); err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+
 	var req createChatRequest
 	if err := readBodyJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -173,6 +178,11 @@ func (s *Server) handleTurnOrSSE(w http.ResponseWriter, r *http.Request) {
 // ─── POST /api/chat/:id/turn ────────────────────────────────────────────────
 
 func (s *Server) handleTurn(w http.ResponseWriter, r *http.Request) {
+	if err := s.ensureSender(); err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing session id")

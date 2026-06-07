@@ -26,6 +26,11 @@ type benchmarkResult struct {
 // ─── POST /api/sessions/{id}/benchmark ──────────────────────────────────────
 
 func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
+	if err := s.ensureSender(); err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+
 	sessionID := r.PathValue("id")
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session id")

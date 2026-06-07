@@ -43,6 +43,11 @@ func (s *Server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.ensureSender(); err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+
 	mu := s.sessionTurnLock(sess.ID)
 	mu.Lock()
 	defer mu.Unlock()

@@ -114,6 +114,10 @@ type Server struct {
 
 	// accessKey is the shared secret for Web UI / API authentication.
 	accessKey string
+
+	// senderMu serialises lazy initialisation of sender when the server starts
+	// in onboarding mode (API key missing) and the user completes setup later.
+	senderMu sync.Mutex
 }
 
 // New builds a Server. It resolves provider/model, discovers skills, and
@@ -155,7 +159,9 @@ func New(cfg Config) (*Server, error) {
 
 	s.registerRoutes()
 	s.initWS()
-	s.enableSubAgentTools()
+	if sender != nil {
+		s.enableSubAgentTools()
+	}
 	s.enableMCP()
 	s.initChannels()
 
@@ -428,6 +434,12 @@ func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, stri
 	if err != nil {
 		return nil, "", err
 	}
+	if apiKey == "" {
+		// No API key configured yet — server starts in onboarding mode.
+		// Chat endpoints will retry on every request until the user completes
+		// setup via the Web UI.
+		return nil, model, nil
+	}
 	sender, err := app.NewSender(app.SenderOptions{
 		Provider: provName,
 		APIKey:   apiKey,
@@ -440,8 +452,9 @@ func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, stri
 }
 
 // resolveAPIKey returns the API key for the vendor: the provider's env var,
-// else cfg.APIKey when the stored config targets the same provider. Errors with
-// the same "X is not set" message the server reported before.
+// else cfg.APIKey when the stored config targets the same provider. An empty
+// key is returned (not an error) so the server can start in onboarding mode
+// and retry once the user completes setup via the Web UI.
 func resolveAPIKey(name string, cfg config.Config) (string, error) {
 	if !app.IsKnownVendor(name) {
 		return "", fmt.Errorf("unknown provider %q", name)
@@ -450,9 +463,6 @@ func resolveAPIKey(name string, cfg config.Config) (string, error) {
 	apiKey := os.Getenv(envVar)
 	if apiKey == "" && cfg.Provider == name {
 		apiKey = cfg.APIKey
-	}
-	if apiKey == "" {
-		return "", fmt.Errorf("%s is not set", envVar)
 	}
 	return apiKey, nil
 }
@@ -502,6 +512,34 @@ func buildEnvContext(cwd string) string {
 	return b.String()
 }
 
+// ensureSender lazily initialises the sender when the server started in
+// onboarding mode (nil sender). It re-reads config on every call so that
+// once the user completes onboard and saves the API key, the next chat
+// request picks it up without a server restart. Thread-safe via senderMu.
+func (s *Server) ensureSender() error {
+	if s.sender != nil {
+		return nil
+	}
+	s.senderMu.Lock()
+	defer s.senderMu.Unlock()
+	if s.sender != nil {
+		return nil
+	}
+	sender, model, err := resolveProviderAndModel(s.cfg.Provider, s.cfg.Model)
+	if err != nil {
+		return err
+	}
+	if sender == nil {
+		return fmt.Errorf("server not configured: complete setup via the Web UI")
+	}
+	s.sender = sender
+	s.model = model
+	if s.cfg.Tools {
+		s.enableSubAgentTools()
+	}
+	return nil
+}
+
 // validateAccessKey is a no-op: access-key authentication was removed in
 // v0.16.0. Kept as a placeholder so callers do not need to change.
 func (s *Server) validateAccessKey(r *http.Request) bool {
@@ -549,6 +587,12 @@ func validateBindAddr(addr string) error {
 // configured and not disabled via --no-channel.
 func (s *Server) initChannels() {
 	if s.cfg.NoChannel {
+		return
+	}
+	if s.sender == nil {
+		// Skip channel init when the server is in onboarding mode (no API key
+		// yet). Channels will be started on the next server restart after the
+		// user completes setup.
 		return
 	}
 	chCfg, err := channel.LoadConfig()

@@ -229,6 +229,11 @@ func joinNonEmpty(parts []string, sep string) string {
 func (s *Server) runAgentTurn(sess *agent.Session, content string) {
 	sw := s.newWSStreamWriter(sess.ID)
 
+	if err := s.ensureSender(); err != nil {
+		sw.error(err.Error())
+		return
+	}
+
 	// Set up progress tracking for this session.
 	s.liveStateMu.Lock()
 	s.liveStates[sess.ID] = &sessionLiveState{}
