@@ -243,6 +243,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	maxTurns := fs.Int("max-turns", 0, "Max provider round-trips per message in the agentic loop (0 = auto: 100 interactive, unlimited unattended/--prompt-file)")
 	compactThreshold := fs.Int("compact-threshold", 0, "Compact older history once a turn's input crosses this many tokens; 0 = auto (percentage of the model's context window, settable via --compact-auto-pct or config), <0 = disabled")
 	compactAutoPct := fs.Int("compact-auto-pct", 0, "Auto-compaction threshold as a percentage of the model's context window (0 = use `octo config` or built-in default 75). Only used when --compact-threshold=0.")
+	compactBatchThreshold := fs.Int("compact-batch-threshold", 0, "Batch-level compaction: compact after a tool batch when context exceeds this many tokens; 0 = auto (~85% of the model's context window), <0 = disabled between batches")
 	reasoningEffort := fs.String("reasoning-effort", "", "Reasoning intensity: low | medium | high (empty = off). OpenAI → reasoning_effort; Anthropic → mapped thinking budget. Also from `octo config`.")
 	showReasoning := fs.Bool("show-reasoning", true, "Stream the reasoning/thinking trace to the terminal (dimmed). Use --show-reasoning=false to hide it. Also from `octo config`.")
 	useSandbox := fs.Bool("sandbox", false, "Confine terminal commands to the project dir + tmp with no network (OS-enforced; macOS/Linux). Fails closed if unavailable.")
@@ -473,6 +474,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if autoPct > 0 {
 		a.CompactAutoFraction = float64(autoPct) / 100.0
+	}
+	// Resolve batch-level compaction threshold: explicit flag > config > follow between-turns.
+	if *compactBatchThreshold != 0 {
+		a.CompactBatchThreshold = *compactBatchThreshold
+	} else if cfg.CompactBatchThreshold != 0 {
+		a.CompactBatchThreshold = cfg.CompactBatchThreshold
 	}
 
 	// Build the tool executor up-front (REPL mode only — single-turn mode

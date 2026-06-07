@@ -149,6 +149,13 @@ type Agent struct {
 	// the built-in default (0.75). Values outside 0–1 are clamped.
 	CompactAutoFraction float64
 
+	// CompactBatchThreshold controls compaction after a tool batch, before the
+	// next LLM call. Semantics mirror CompactThreshold:
+	//   < 0  → disabled (never compact between batches)
+	//   == 0 → follow compactTriggerTokens (the default)
+	//   > 0  → that explicit token count
+	CompactBatchThreshold int
+
 	// overflow handles "context too long" 400 errors by compressing history
 	// and retrying. Aligned with Ruby's perform_context_overflow_compression.
 	overflow overflowRecovery

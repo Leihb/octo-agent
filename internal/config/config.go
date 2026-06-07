@@ -50,6 +50,10 @@ type Config struct {
 	// compacts once the context exceeds this share of the window. Zero means
 	// the built-in default (75%).
 	CompactAutoPct int `yaml:"compact_auto_pct,omitempty"`
+	// CompactBatchThreshold controls compaction after a tool batch. Semantics
+	// mirror CompactThreshold: <0 disables, 0 follows the between-turns trigger,
+	// >0 is an explicit token count.
+	CompactBatchThreshold int `yaml:"compact_batch_threshold,omitempty"`
 	// Tools holds opt-in tooling behaviour (Tool Search for MCP, etc.). A
 	// missing block leaves the built-in defaults.
 	Tools ToolsConfig `yaml:"tools,omitempty"`
