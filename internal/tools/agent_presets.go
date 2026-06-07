@@ -56,10 +56,18 @@ var builtInPresets = []agentPreset{
 }
 
 // lookupAgentPreset resolves a subagent_type name to its preset.
-// Built-ins are checked first; user-defined agents (loaded from ~/.octo/agents)
-// override built-ins when names collide.
+// User-defined agents (loaded from ~/.octo/agents/*.md) are checked first so
+// they override built-ins when names collide.
 func lookupAgentPreset(name string) (agentPreset, bool) {
-	// TODO: load user-defined agents from ~/.octo/agents/*.md
+	discoverAgents() // cheap: one directory scan, populated into cache
+
+	discoveredAgentsMu.RLock()
+	if p, ok := discoveredAgents[name]; ok {
+		discoveredAgentsMu.RUnlock()
+		return p, true
+	}
+	discoveredAgentsMu.RUnlock()
+
 	for _, p := range builtInPresets {
 		if p.name == name {
 			return p, true
@@ -69,10 +77,26 @@ func lookupAgentPreset(name string) (agentPreset, bool) {
 }
 
 // listPresetNames returns a comma-separated list of available preset names.
+// User-defined names are included alongside built-ins.
 func listPresetNames() string {
-	var names []string
+	discoverAgents()
+
+	discoveredAgentsMu.RLock()
+	names := make([]string, 0, len(discoveredAgents)+len(builtInPresets))
+	for n := range discoveredAgents {
+		names = append(names, n)
+	}
+	discoveredAgentsMu.RUnlock()
+
+	// Add built-ins that aren't already overridden by a user agent.
+	seen := make(map[string]bool, len(names))
+	for _, n := range names {
+		seen[n] = true
+	}
 	for _, p := range builtInPresets {
-		names = append(names, p.name)
+		if !seen[p.name] {
+			names = append(names, p.name)
+		}
 	}
 	return strings.Join(names, ", ")
 }
