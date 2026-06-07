@@ -2398,70 +2398,11 @@ body {
   flex-shrink: 0;
 }
 
-/* Session ID is the click-trigger for the session actions dropdown
-   (download, etc.). Give it affordance similar to #sib-dir / sib-model. */
+/* Session ID wrap */
 #sib-id-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
-}
-.sib-id-clickable {
-  cursor: pointer;
-  padding: 1px 0.25rem;
-  border-radius: 3px;
-  transition: all 0.15s ease;
-}
-.sib-id-clickable:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-accent-primary);
-  opacity: 1 !important;
-}
-
-/* Dropdown menu anchored above the session ID — same fixed-positioning
-   pattern as .sib-model-dropdown. */
-.sib-actions-dropdown {
-  position: fixed;
-  min-width: 13.75rem;
-  max-width: 20rem;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
-  padding: 0.25rem;
-}
-.sib-actions-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.625rem;
-  font-size: 0.75rem;
-  color: var(--color-text-primary);
-  cursor: pointer;
-  border-radius: 5px;
-  transition: background-color 0.15s ease;
-}
-.sib-actions-item:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-accent-primary);
-}
-.sib-actions-item .sib-actions-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1rem;
-  height: 1rem;
-  flex-shrink: 0;
-  opacity: 0.8;
-}
-.sib-actions-item .sib-actions-label {
-  flex: 1;
-  white-space: nowrap;
-}
-.sib-actions-item .sib-actions-hint {
-  font-size: 0.625rem;
-  opacity: 0.5;
-  flex-shrink: 0;
 }
 
 .sib-sep {

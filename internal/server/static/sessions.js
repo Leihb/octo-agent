@@ -2713,8 +2713,6 @@ const Sessions = (() => {
         });
         const sibIdEl = $("sib-id");
         if (sibIdEl) delete sibIdEl.dataset.sessionId;
-        const actionsDd = $("sib-actions-dropdown");
-        if (actionsDd) actionsDd.style.display = "none";
         const bar = $("session-info-bar");
         if (bar) bar.style.display = "none";
         return;
@@ -2727,8 +2725,7 @@ const Sessions = (() => {
         sibStatus.className = `sib-status-${s.status || "idle"}`;
       }
 
-      // Session ID (short — first 8 chars). The span itself is the click
-      // trigger for the session actions dropdown (download, etc.).
+      // Session ID (short — first 8 chars).
       const sibId = $("sib-id");
       if (sibId) {
         sibId.textContent = s.id ? s.id.slice(0, 8) : "";
@@ -4070,31 +4067,6 @@ const Sessions = (() => {
       }
     }
 
-    // Handle click on session ID — toggles a small actions dropdown with
-    // items like "Download session files (for debugging)". Designed to be
-    // extensible (more session-level actions can be added here later).
-    const sibIdEl = e.target.closest("#sib-id");
-    if (sibIdEl) {
-      e.stopPropagation();
-      const sessionId = sibIdEl.dataset.sessionId;
-      if (!sessionId) return;
-      _toggleSessionActionsDropdown(sibIdEl, sessionId);
-      return;
-    }
-
-    // Handle click on an item inside the actions dropdown.
-    const actionItem = e.target.closest(".sib-actions-item");
-    if (actionItem) {
-      e.stopPropagation();
-      const action = actionItem.dataset.action;
-      const sessionId = actionItem.dataset.sessionId;
-      _closeSessionActionsDropdown();
-      if (action === "download" && sessionId) {
-        _downloadSessionBundle(sessionId, actionItem);
-      }
-      return;
-    }
-
     // Toggle background-tasks popover when clicking the badge in the SIB.
     if (e.target.closest("#sib-bgtasks")) {
       e.stopPropagation();
@@ -4102,24 +4074,16 @@ const Sessions = (() => {
       return;
     }
 
-    // Click outside — close both the actions dropdown and bg-tasks popover if open.
-    if (!e.target.closest("#sib-actions-dropdown")) {
-      _closeSessionActionsDropdown();
-    }
+    // Click outside — close bg-tasks popover if open.
     if (!e.target.closest("#sib-bgtasks-popover") && !e.target.closest("#sib-bgtasks")) {
       _closeBgTasksPopover();
     }
   });
 
-  // Close dropdown on Escape.
+  // Close popover on Escape.
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { _closeSessionActionsDropdown(); _closeBgTasksPopover(); }
+    if (e.key === "Escape") { _closeBgTasksPopover(); }
   });
-
-  function _closeSessionActionsDropdown() {
-    const dd = $("sib-actions-dropdown");
-    if (dd && dd.style.display !== "none") dd.style.display = "none";
-  }
 
   // ── Background-tasks popover ──────────────────────────────────────────
 
@@ -4189,103 +4153,6 @@ const Sessions = (() => {
       </div>`;
     }).join("");
     pop.innerHTML = rows;
-  }
-
-  function _toggleSessionActionsDropdown(anchorEl, sessionId) {
-    const dd = $("sib-actions-dropdown");
-    if (!dd) return;
-
-    // If already open for this session, close it (toggle behaviour).
-    if (dd.style.display !== "none" && dd.dataset.sessionId === sessionId) {
-      dd.style.display = "none";
-      return;
-    }
-
-    _populateSessionActionsDropdown(dd, sessionId);
-    dd.dataset.sessionId = sessionId;
-
-    // Position the dropdown above the session ID element (same pattern as
-    // the model switcher — fixed positioning, centered horizontally).
-    const rect = anchorEl.getBoundingClientRect();
-    dd.style.left = `${rect.left + rect.width / 2}px`;
-    dd.style.top = `${rect.top - 6}px`;
-    dd.style.transform = "translate(-50%, -100%)";
-    dd.style.display = "block";
-  }
-
-  function _populateSessionActionsDropdown(dd, sessionId) {
-    const t = (key, fallback) => {
-      const s = I18n.t(key);
-      return (s && s !== key) ? s : fallback;
-    };
-    dd.innerHTML = "";
-
-    // Download item
-    const item = document.createElement("div");
-    item.className = "sib-actions-item";
-    item.setAttribute("role", "menuitem");
-    item.dataset.action = "download";
-    item.dataset.sessionId = sessionId;
-
-    const icon = document.createElement("span");
-    icon.className = "sib-actions-icon";
-    icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
-
-    const label = document.createElement("span");
-    label.className = "sib-actions-label";
-    label.textContent = t("sessions.actions.download", "Download session files");
-
-    const hint = document.createElement("span");
-    hint.className = "sib-actions-hint";
-    hint.textContent = t("sessions.actions.downloadHint", "for debugging");
-
-    item.appendChild(icon);
-    item.appendChild(label);
-    item.appendChild(hint);
-    dd.appendChild(item);
-  }
-
-  async function _downloadSessionBundle(sessionId, btnEl) {
-    // btnEl may be a <button> (legacy) or a menu item <div> — guard accordingly.
-    const wasDisabled = btnEl && btnEl.disabled;
-    if (btnEl) {
-      try { btnEl.disabled = true; } catch (_) {}
-      btnEl.classList && btnEl.classList.add("is-loading");
-    }
-    try {
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/export`);
-      if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try { const data = await res.json(); if (data.error) msg = data.error; } catch (_) {}
-        alert(I18n.t("sessions.export.failed") + ": " + msg);
-        return;
-      }
-      const blob = await res.blob();
-
-      // Derive filename from Content-Disposition header, fall back to short id.
-      let filename = `octo-session-${sessionId.slice(0, 8)}.zip`;
-      const cd = res.headers.get("Content-Disposition") || "";
-      const m = cd.match(/filename="?([^"]+)"?/i);
-      if (m) filename = m[1];
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // Revoke on next tick so the browser has a chance to start the download.
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (err) {
-      console.error("Session export failed:", err);
-      alert(I18n.t("sessions.export.failed") + ": " + err.message);
-    } finally {
-      if (btnEl) {
-        try { btnEl.disabled = wasDisabled; } catch (_) {}
-        btnEl.classList && btnEl.classList.remove("is-loading");
-      }
-    }
   }
 
   // Change working directory via backend API
