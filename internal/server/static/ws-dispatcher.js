@@ -215,10 +215,27 @@ WS.onEvent(ev => {
       Sessions.renderPendingMessages(ev.messages || []);
       break;
 
+    case "text_delta":
+      // Streaming text fragment — append to the live assistant bubble in real time.
+      if (ev.session_id !== Sessions.activeId) break;
+      Sessions.appendTextDelta(ev.text);
+      break;
+
+    case "thinking_delta":
+      // Streaming reasoning-trace fragment — shown dimmed, like the TUI's
+      // thinkingStyle (dim + italic). Collected into a live thinking block.
+      if (ev.session_id !== Sessions.activeId) break;
+      Sessions.appendThinkingDelta(ev.text);
+      break;
+
     case "assistant_message":
+      // Final complete message (sent at turn_done). If we were streaming,
+      // this replaces the live bubble with the fully-rendered version.
+      // If no streaming happened (e.g. non-streaming provider), this is
+      // the first time the message appears.
       if (ev.session_id !== Sessions.activeId) break;
       Sessions.clearProgress();
-      Sessions.appendMsg("assistant", ev.content);
+      Sessions.finalizeAssistantMessage(ev.content);
       break;
 
     case "tool_call":

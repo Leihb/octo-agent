@@ -40,6 +40,10 @@ type bgProcess struct {
 
 	onLine func(string) // optional real-time callback for sync-mode streaming
 
+	// stdin is the write end of the pipe attached to the process's stdin.
+	// Set after Start for background processes that need interactive input.
+	stdin io.WriteCloser
+
 	// visible controls whether the process appears in ListRunning /
 	// RunningBackground. Sync-started processes are hidden until they time
 	// out and become true background tasks, so the TUI "background (N)"
@@ -188,16 +192,27 @@ func (m *BackgroundManager) Start(command string, opts ...StartOption) (string, 
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
+	// Stdin pipe: allows the agent to send input to interactive background
+	// processes (REPLs, configuration wizards, etc.) via terminal_input.
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		cancel()
+		_ = pw.Close()
+		return "", fmt.Errorf("terminal: create stdin pipe: %w", err)
+	}
+	cmd.Stdin = stdinR
+
 	if err := cmd.Start(); err != nil {
 		cancel()
 		_ = pw.Close()
+		_ = stdinW.Close()
 		return "", fmt.Errorf("terminal: start background: %w", err)
 	}
 
 	m.mu.Lock()
 	m.seq++
 	id := fmt.Sprintf("bg_%d", m.seq)
-	p := &bgProcess{id: id, command: command, cancel: cancel, proc: cmd.Process, start: time.Now(), visible: true}
+	p := &bgProcess{id: id, command: command, cancel: cancel, proc: cmd.Process, start: time.Now(), visible: true, stdin: stdinW}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -227,7 +242,8 @@ func (m *BackgroundManager) Start(command string, opts ...StartOption) (string, 
 	go func() {
 		err := cmd.Wait()
 		_ = pw.Close()
-		<-readerDone // ensures reader flushed all pipe data
+		_ = stdinW.Close() // close stdin so any blocked reads on the process side get EOF
+		<-readerDone       // ensures reader flushed all pipe data
 		p.finish(err)
 
 		m.mu.Lock()
@@ -340,6 +356,29 @@ func (m *BackgroundManager) KillWithSignal(id string, sigName string) bool {
 		_ = killProcessGroup(p.proc, sigName)
 	}
 	return true
+}
+
+// WriteStdin sends text to the stdin of a running background process.
+// Returns an error if the process is unknown or has already exited.
+func (m *BackgroundManager) WriteStdin(id string, input string) error {
+	m.mu.Lock()
+	p := m.procs[id]
+	m.mu.Unlock()
+	if p == nil {
+		return fmt.Errorf("no background process %q", id)
+	}
+	p.mu.Lock()
+	done := p.done
+	stdin := p.stdin
+	p.mu.Unlock()
+	if done {
+		return fmt.Errorf("background process %q has already exited", id)
+	}
+	if stdin == nil {
+		return fmt.Errorf("background process %q does not accept input", id)
+	}
+	_, err := stdin.Write([]byte(input))
+	return err
 }
 
 // Remove drops a process from the tracking map, releasing its retained output

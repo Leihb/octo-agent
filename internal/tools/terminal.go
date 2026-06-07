@@ -266,6 +266,57 @@ func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[strin
 	return agent.ToolResult{Text: header + "\n" + MaybeSpillOutput(id, out)}, nil
 }
 
+// TerminalInputTool sends text to the stdin of a running background process
+// started by TerminalTool with run_in_background:true. Use to interact with
+// long-running interactive applications (REPLs, configuration wizards, servers
+// that accept commands via stdin).
+type TerminalInputTool struct{ mgr *BackgroundManager }
+
+func (t TerminalInputTool) manager() *BackgroundManager {
+	if t.mgr != nil {
+		return t.mgr
+	}
+	return defaultBg
+}
+
+// Definition describes the required "id" and "input".
+func (TerminalInputTool) Definition() agent.ToolDefinition {
+	return agent.ToolDefinition{
+		Name:        "terminal_input",
+		Description: "Send text input to the stdin of a running background process started by terminal with run_in_background:true. Use to interact with long-running interactive applications (e.g., REPLs, configuration wizards, servers that accept commands via stdin). The input is written verbatim — include a trailing newline (\\n) if the process expects line-based input.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The background process id (e.g. \"bg_1\").",
+				},
+				"input": map[string]any{
+					"type":        "string",
+					"description": "The text to send to the process's stdin. Include a trailing \\n if the process reads line-by-line.",
+				},
+			},
+			"required": []string{"id", "input"},
+		},
+	}
+}
+
+// Execute writes input to the process's stdin. Unknown or exited id is an error.
+func (t TerminalInputTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
+	id, _ := input["id"].(string)
+	if id == "" {
+		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_input: id is required")
+	}
+	text, _ := input["input"].(string)
+	if text == "" {
+		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_input: input is required")
+	}
+	if err := t.manager().WriteStdin(id, text); err != nil {
+		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_input: %w", err)
+	}
+	return agent.ToolResult{Text: fmt.Sprintf("Sent to %s.", id)}, nil
+}
+
 // KillShellTool terminates a background process started by TerminalTool with
 // run_in_background:true and returns its final output — the counterpart to
 // terminal_output, which only reads. Split out from terminal_output's old

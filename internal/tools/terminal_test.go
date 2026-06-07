@@ -2,6 +2,9 @@ package tools
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -220,3 +223,149 @@ func TestTerminalTool_ContextCancel_KillsChild(t *testing.T) {
 // Compile-time assertion that TerminalTool satisfies StreamingToolExecutor —
 // catches a regression at build time, not runtime.
 var _ agent.StreamingToolExecutor = TerminalTool{}
+
+// ─── TerminalInputTool tests ────────────────────────────────────────────────
+
+func TestTerminalInputTool_Definition(t *testing.T) {
+	def := TerminalInputTool{}.Definition()
+	if def.Name != "terminal_input" {
+		t.Errorf("Name = %q, want terminal_input", def.Name)
+	}
+	req, ok := def.Parameters["required"].([]string)
+	if !ok {
+		t.Fatal("required is not []string")
+	}
+	if len(req) != 2 || req[0] != "id" || req[1] != "input" {
+		t.Errorf("required = %v, want [id input]", req)
+	}
+}
+
+func TestTerminalInputTool_SendInput(t *testing.T) {
+	mgr := NewBackgroundManager()
+	inputTool := TerminalInputTool{mgr: mgr}
+	killTool := KillShellTool{mgr: mgr}
+
+	// Use a small Go program as the test subject so it works on every OS
+	// (Windows CI doesn't have head/sed). The program reads a line from
+	// stdin and prints it back with a prefix.
+	tmpDir := t.TempDir()
+	prog := filepath.Join(tmpDir, "stdin_echo.go")
+	src := `package main
+import (
+	"bufio"
+	"fmt"
+	"os"
+)
+func main() {
+	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	fmt.Printf("got: %s", line)
+}
+`
+	if err := os.WriteFile(prog, []byte(src), 0644); err != nil {
+		t.Fatalf("write helper: %v", err)
+	}
+
+	id, err := mgr.Start(fmt.Sprintf("go run %s", prog))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Give the Go runtime a moment to start the program.
+	time.Sleep(200 * time.Millisecond)
+
+	// Send input including a newline so the scanner can proceed.
+	res, err := inputTool.Execute(context.Background(), "terminal_input", map[string]any{
+		"id":    id,
+		"input": "hello-world\n",
+	})
+	if err != nil {
+		t.Fatalf("terminal_input: %v", err)
+	}
+	if !strings.Contains(res.Text, "Sent to") {
+		t.Errorf("unexpected result: %q", res.Text)
+	}
+
+	// Wait for the process to finish, accumulating output as we poll.
+	var out string
+	for i := 0; i < 100; i++ {
+		var status string
+		out, status, _, _ = mgr.Read(id)
+		if strings.HasPrefix(status, "exited") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if !strings.Contains(out, "got: hello-world") {
+		t.Errorf("output should contain 'got: hello-world'; got: %q", out)
+	}
+
+	// Clean up (no-op if already exited).
+	killTool.Execute(context.Background(), "kill_shell", map[string]any{"id": id})
+}
+
+func TestTerminalInputTool_ExitedProcess(t *testing.T) {
+	mgr := NewBackgroundManager()
+	inputTool := TerminalInputTool{mgr: mgr}
+
+	// Start a trivial command that exits immediately.
+	id, err := mgr.Start("echo done")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Wait for it to exit.
+	for i := 0; i < 50; i++ {
+		_, status, _, _ := mgr.Read(id)
+		if strings.HasPrefix(status, "exited") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Sending input to an exited process should error.
+	_, err = inputTool.Execute(context.Background(), "terminal_input", map[string]any{
+		"id":    id,
+		"input": "too late\n",
+	})
+	if err == nil {
+		t.Error("expected error when writing to exited process")
+	}
+	if !strings.Contains(err.Error(), "already exited") {
+		t.Errorf("error should mention 'already exited'; got: %v", err)
+	}
+}
+
+func TestTerminalInputTool_UnknownID(t *testing.T) {
+	inputTool := TerminalInputTool{}
+	_, err := inputTool.Execute(context.Background(), "terminal_input", map[string]any{
+		"id":    "bg_99999",
+		"input": "hello\n",
+	})
+	if err == nil {
+		t.Error("expected error for unknown id")
+	}
+	if !strings.Contains(err.Error(), "no background process") {
+		t.Errorf("error should mention 'no background process'; got: %v", err)
+	}
+}
+
+func TestTerminalInputTool_EmptyInput(t *testing.T) {
+	inputTool := TerminalInputTool{}
+	_, err := inputTool.Execute(context.Background(), "terminal_input", map[string]any{
+		"id":    "bg_1",
+		"input": "",
+	})
+	if err == nil {
+		t.Error("expected error for empty input")
+	}
+}
+
+func TestTerminalInputTool_MissingID(t *testing.T) {
+	inputTool := TerminalInputTool{}
+	_, err := inputTool.Execute(context.Background(), "terminal_input", map[string]any{
+		"input": "hello\n",
+	})
+	if err == nil {
+		t.Error("expected error for missing id")
+	}
+}

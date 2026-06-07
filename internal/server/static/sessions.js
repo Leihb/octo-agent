@@ -241,6 +241,8 @@ const Sessions = (() => {
     }
     // Reset scroll tracking when switching sessions
     _userScrolledUp = false;
+    // Clear any stale live assistant state for this session
+    Sessions._clearLiveAssistant(id);
   }
 
   // ── Auto-scroll helper ─────────────────────────────────────────────────
@@ -3265,6 +3267,156 @@ const Sessions = (() => {
         messages.appendChild(sub);
       }
       _scrollToBottomIfNeeded(messages);
+    },
+
+    // ── Streaming text delta (mirrors TUI appendText) ─────────────────────
+    //
+    // Per-session live state: each session maintains its own streaming buffer
+    // so switching sessions and back does NOT lose the partial text.
+    // State: { [sessionId]: { el, rawText, thinkingRaw } }
+
+    _liveAssistant: {},
+
+    _getLiveAssistant(id) {
+      if (!id) return null;
+      if (!Sessions._liveAssistant[id]) {
+        Sessions._liveAssistant[id] = { el: null, rawText: "", thinkingRaw: "" };
+      }
+      return Sessions._liveAssistant[id];
+    },
+
+    _clearLiveAssistant(id) {
+      delete Sessions._liveAssistant[id];
+    },
+
+    // Flush any live streaming text bubble by finalizing it as-is.
+    // Called before tool events commit, matching the TUI's commitToolLine behaviour.
+    _flushLiveText() {
+      const sid = _activeId;
+      if (!sid) return;
+      const state = Sessions._getLiveAssistant(sid);
+      if (state.el && state.el.parentNode && state.rawText) {
+        // Convert the live bubble to a "committed" assistant message
+        state.el.classList.remove("msg-streaming");
+        state.el.innerHTML = _renderMarkdown(state.rawText);
+        _appendCopyButton(state.el);
+        Sessions._clearLiveAssistant(sid);
+      }
+      if (state.thinkingEl && state.thinkingEl.parentNode) {
+        state.thinkingEl.remove();
+      }
+    },
+
+    // Append a text delta to the live assistant bubble.
+    // Creates the bubble on first delta, then incrementally appends text.
+    // Mirrors the TUI's appendText() real-time streaming behaviour.
+    appendTextDelta(text) {
+      const sid = _activeId;
+      if (!sid) return;
+
+      const state = Sessions._getLiveAssistant(sid);
+      const messages = $("messages");
+      if (!messages) return;
+
+      // On first delta: create the live bubble with entrance animation
+      if (!state.el || !state.el.parentNode) {
+        Sessions.collapseToolGroup();
+        const el = document.createElement("div");
+        el.className = "msg msg-assistant msg-streaming";
+        el.dataset.raw = "";
+        // Insert before progress indicator if present
+        const progressEl = messages.querySelector(".progress-msg");
+        if (progressEl) {
+          messages.insertBefore(el, progressEl);
+        } else {
+          messages.appendChild(el);
+        }
+        state.el = el;
+        state.rawText = "";
+        state.thinkingRaw = "";
+      }
+
+      state.rawText += text;
+      state.el.dataset.raw = state.rawText;
+
+      // Render: escape the raw text and append as plain text nodes.
+      // We use a live text approach rather than full markdown re-render
+      // on every delta for performance. A typing cursor is shown at the end.
+      const contentEl = state.el;
+      // Simple streaming render: plain text with auto-linking, no full markdown
+      // (avoids re-parsing markdown on every 50ms delta).
+      // We render line-breaks as <br> and preserve whitespace.
+      const escaped = escapeHtml(state.rawText);
+      const withBreaks = escaped.replace(/\n/g, "<br>");
+      contentEl.innerHTML = withBreaks +
+        '<span class="stream-cursor" aria-hidden="true"></span>';
+
+      _scrollToBottomIfNeeded(messages);
+    },
+
+    // Append a thinking/reasoning trace delta.
+    // Shown dimmed and italic, matching the TUI's thinkingStyle.
+    // Thinking blocks are collected above the main answer.
+    appendThinkingDelta(text) {
+      const sid = _activeId;
+      if (!sid) return;
+
+      const state = Sessions._getLiveAssistant(sid);
+      const messages = $("messages");
+      if (!messages) return;
+
+      // On first thinking delta: create the thinking block
+      if (!state.thinkingEl || !state.thinkingEl.parentNode) {
+        const el = document.createElement("div");
+        el.className = "msg msg-thinking";
+        // Insert before the live assistant bubble (or at end if no bubble yet)
+        if (state.el && state.el.parentNode) {
+          messages.insertBefore(el, state.el);
+        } else {
+          messages.appendChild(el);
+        }
+        state.thinkingEl = el;
+        state.thinkingRaw = "";
+      }
+
+      state.thinkingRaw += text;
+      const escaped = escapeHtml(state.thinkingRaw);
+      const withBreaks = escaped.replace(/\n/g, "<br>");
+      state.thinkingEl.innerHTML = withBreaks +
+        '<span class="stream-cursor stream-cursor--thinking" aria-hidden="true"></span>';
+
+      _scrollToBottomIfNeeded(messages);
+    },
+
+    // Finalize the assistant message when the turn completes.
+    // Replaces the live streaming bubble with a fully-rendered markdown version.
+    // If no streaming happened, falls back to creating a new bubble.
+    finalizeAssistantMessage(content) {
+      const sid = _activeId;
+      if (!sid) return;
+
+      const state = Sessions._getLiveAssistant(sid);
+
+      // Remove any live thinking block (it will be re-rendered inside the
+      // final markdown if <think> tags are present).
+      if (state.thinkingEl && state.thinkingEl.parentNode) {
+        state.thinkingEl.remove();
+      }
+
+      // If we have a live bubble, replace it with the final rendered version
+      if (state.el && state.el.parentNode) {
+        state.el.classList.remove("msg-streaming");
+        state.el.dataset.raw = content || "";
+        state.el.innerHTML = _renderMarkdown(content || "");
+        _appendCopyButton(state.el);
+        _scrollToBottomIfNeeded($("messages"));
+        Sessions._clearLiveAssistant(sid);
+        return;
+      }
+
+      // No live bubble (non-streaming path or late subscribe) — create fresh
+      Sessions._clearLiveAssistant(sid);
+      Sessions.appendMsg("assistant", content);
     },
 
     /**
