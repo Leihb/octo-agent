@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -75,7 +74,7 @@ func resolveMaxTokensEscalate(flagVal int, provName string) int {
 			return n
 		}
 	}
-	if provName == providerOpenAI {
+	if app.VendorProtocol(provName) == "openai" {
 		return escalateMaxTokensOpenAI
 	}
 	return escalateMaxTokensAnthropic
@@ -200,9 +199,13 @@ func anthropicThinkingBudget(effort string) int {
 // supplied. Both defaults are the cheapest reasoning-capable model in the
 // respective vendor's catalogue at the time of writing — the right pick for
 // a scaffold whose primary purpose is verifying the wire end-to-end.
-var defaultModels = map[string]string{
-	providerAnthropic: "claude-haiku-4-5-20251001",
-	providerOpenAI:    "gpt-4o-mini",
+var defaultModels map[string]string
+
+func init() {
+	defaultModels = make(map[string]string, len(app.Registry))
+	for _, v := range app.Registry {
+		defaultModels[v.ID] = v.DefaultModel
+	}
 }
 
 // runChat handles `octo chat [flags] [message]`.
@@ -341,7 +344,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	provName, resolvedModel, ok := resolveProviderModel(*providerName, *model, cfg)
 	if !ok {
-		fmt.Fprintf(stderr, "octo chat: unknown provider %q (use 'anthropic' or 'openai')\n", provName)
+		fmt.Fprintf(stderr, "octo chat: unknown provider %q\n", provName)
 		return 2
 	}
 
@@ -788,53 +791,30 @@ func buildSender(name string, cfg config.Config, stderr io.Writer, tuning sender
 // a missing key it prints provider-specific setup help to stderr and returns a
 // non-nil error.
 func resolveAPIKey(name string, cfg config.Config, stderr io.Writer) (string, error) {
-	switch name {
-	case providerAnthropic:
-		apiKey := os.Getenv("ANTHROPIC_API_KEY")
-		if apiKey == "" && cfg.Provider == providerAnthropic {
-			apiKey = cfg.APIKey
-		}
-		if apiKey == "" {
-			fmt.Fprintln(stderr, "octo: ANTHROPIC_API_KEY is not set.")
-			fmt.Fprintln(stderr, "")
-			fmt.Fprintln(stderr, "To use Anthropic (default):")
-			fmt.Fprintln(stderr, "  1. Get a key at https://console.anthropic.com/")
-			fmt.Fprintln(stderr, "  2. export ANTHROPIC_API_KEY=sk-ant-...")
-			fmt.Fprintln(stderr, "")
-			fmt.Fprintln(stderr, "Or run `octo config` to save a default provider/key.")
-			fmt.Fprintln(stderr, "")
-			fmt.Fprintln(stderr, "Or use OpenAI:")
-			fmt.Fprintln(stderr, "  export OPENAI_API_KEY=sk-...")
-			fmt.Fprintln(stderr, "  octo chat --provider openai")
-			return "", errors.New("missing ANTHROPIC_API_KEY")
-		}
-		return apiKey, nil
-
-	case providerOpenAI:
-		apiKey := os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" && cfg.Provider == providerOpenAI {
-			apiKey = cfg.APIKey
-		}
-		if apiKey == "" {
-			fmt.Fprintln(stderr, "octo: OPENAI_API_KEY is not set.")
-			fmt.Fprintln(stderr, "")
-			fmt.Fprintln(stderr, "To use OpenAI:")
-			fmt.Fprintln(stderr, "  1. Get a key at https://platform.openai.com/api-keys")
-			fmt.Fprintln(stderr, "  2. export OPENAI_API_KEY=sk-...")
-			fmt.Fprintln(stderr, "")
-			fmt.Fprintln(stderr, "Or run `octo config` to save a default provider/key.")
-			fmt.Fprintln(stderr, "")
-			fmt.Fprintln(stderr, "Or use Anthropic (the default):")
-			fmt.Fprintln(stderr, "  export ANTHROPIC_API_KEY=sk-ant-...")
-			fmt.Fprintln(stderr, "  octo chat                 # no --provider flag needed")
-			return "", errors.New("missing OPENAI_API_KEY")
-		}
-		return apiKey, nil
-
-	default:
-		fmt.Fprintf(stderr, "octo chat: unknown provider %q (use 'anthropic' or 'openai')\n", name)
+	if !app.IsKnownVendor(name) {
+		fmt.Fprintf(stderr, "octo chat: unknown provider %q\n", name)
 		return "", fmt.Errorf("unknown provider %q", name)
 	}
+
+	envVar := app.VendorAPIKeyEnvVar(name)
+	apiKey := os.Getenv(envVar)
+	if apiKey == "" && cfg.Provider == name {
+		apiKey = cfg.APIKey
+	}
+	if apiKey == "" {
+		fmt.Fprintf(stderr, "octo: %s is not set.\n", envVar)
+		fmt.Fprintln(stderr, "")
+		fmt.Fprintf(stderr, "To use %s:\n", app.VendorDisplayName(name))
+		if url := app.VendorWebsiteURL(name); url != "" {
+			fmt.Fprintf(stderr, "  1. Get a key at %s\n", url)
+		}
+		fmt.Fprintf(stderr, "  2. export %s=sk-...\n", envVar)
+		fmt.Fprintln(stderr, "")
+		fmt.Fprintln(stderr, "Or run `octo config` to save a default provider/key.")
+		fmt.Fprintln(stderr, "")
+		return "", fmt.Errorf("missing %s", envVar)
+	}
+	return apiKey, nil
 }
 
 // newCacheKey returns a random hex token used as the prompt-cache key for one

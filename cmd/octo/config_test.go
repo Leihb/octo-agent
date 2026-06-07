@@ -57,7 +57,7 @@ func TestResolveProviderModel_ModelEnv(t *testing.T) {
 		t.Errorf("--model flag should beat env, got %q", m)
 	}
 	// The model env is per-provider: ANTHROPIC_MODEL must not leak onto openai.
-	if _, m, _ := resolveProviderModel(providerOpenAI, "", config.Config{}); m != "gpt-4o-mini" {
+	if _, m, _ := resolveProviderModel(providerOpenAI, "", config.Config{}); m != "gpt-5.4" {
 		t.Errorf("ANTHROPIC_MODEL must not affect openai, got %q (want default)", m)
 	}
 	// OPENAI_MODEL drives the openai default slot.
@@ -83,10 +83,10 @@ func TestResolveProviderModel_Precedence(t *testing.T) {
 	}{
 		{"flag beats config", "anthropic", "flag-model", cfg, "anthropic", "flag-model", true},
 		{"config beats default", "", "", cfg, "openai", "cfg-model", true},
-		{"flag provider, default model", "openai", "", config.Config{}, "openai", "gpt-4o-mini", true},
-		{"empty everything → anthropic default", "", "", config.Config{}, "anthropic", "claude-haiku-4-5-20251001", true},
-		{"config provider, builtin model", "", "", config.Config{Provider: "openai"}, "openai", "gpt-4o-mini", true},
-		{"flag provider overrides config provider — no model contamination", "anthropic", "", cfg, "anthropic", "claude-haiku-4-5-20251001", true},
+		{"flag provider, default model", "openai", "", config.Config{}, "openai", "gpt-5.4", true},
+		{"empty everything → anthropic default", "", "", config.Config{}, "anthropic", "claude-sonnet-4-6", true},
+		{"config provider, builtin model", "", "", config.Config{Provider: "openai"}, "openai", "gpt-5.4", true},
+		{"flag provider overrides config provider — no model contamination", "anthropic", "", cfg, "anthropic", "claude-sonnet-4-6", true},
 		{"unknown provider, no model → not ok", "bogus", "", config.Config{}, "bogus", "", false},
 		{"unknown provider WITH model → ok (buildProvider rejects later)", "bogus", "m", config.Config{}, "bogus", "m", true},
 	}

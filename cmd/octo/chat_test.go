@@ -47,13 +47,11 @@ func TestRunChat_MissingAPIKey(t *testing.T) {
 		t.Errorf("exit code = %d, want 1", code)
 	}
 	// New (UX-3) actionable error: identifies the missing env var AND points
-	// the user at the signup URL + alternative provider so the first-run
-	// experience isn't a dead-end.
+	// the user at the signup URL so the first-run experience isn't a dead-end.
 	out := stderr.String()
 	for _, want := range []string{
 		"ANTHROPIC_API_KEY",
 		"console.anthropic.com",
-		"--provider openai",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stderr should mention %q; got:\n%s", want, out)
@@ -301,13 +299,11 @@ func TestRunChat_OpenAI_MissingAPIKey(t *testing.T) {
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
-	// New (UX-3) actionable error: points the user at the OpenAI signup
-	// URL plus the Anthropic fallback so a missing key has a path forward.
+	// New (UX-3) actionable error: points the user at the OpenAI signup URL.
 	out := stderr.String()
 	for _, want := range []string{
 		"OPENAI_API_KEY",
 		"platform.openai.com",
-		"ANTHROPIC_API_KEY",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stderr should mention %q; got:\n%s", want, out)

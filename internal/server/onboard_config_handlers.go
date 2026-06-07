@@ -15,7 +15,7 @@ import (
 
 // ─── Provider Presets ───────────────────────────────────────────────────────
 
-// endpointVariant is a regional endpoint alternative for a provider.
+// endpointVariant is the JSON shape the frontend expects for regional endpoints.
 type endpointVariant struct {
 	Label    string `json:"label"`
 	LabelKey string `json:"label_key,omitempty"`
@@ -23,7 +23,7 @@ type endpointVariant struct {
 	Region   string `json:"region,omitempty"`
 }
 
-// providerPreset is a built-in provider configuration template.
+// providerPreset is the JSON shape returned by GET /api/providers.
 type providerPreset struct {
 	ID               string            `json:"id"`
 	Name             string            `json:"name"`
@@ -36,136 +36,40 @@ type providerPreset struct {
 	WebsiteURL       string            `json:"website_url,omitempty"`
 }
 
-var providerPresets = []providerPreset{
-	{
-		ID:           "openrouter",
-		Name:         "OpenRouter",
-		BaseURL:      "https://openrouter.ai/api/v1",
-		API:          "openai-responses",
-		DefaultModel: "anthropic/claude-sonnet-4-6",
-		Models: []string{
-			"anthropic/claude-sonnet-4-6",
-			"anthropic/claude-opus-4-7",
-			"anthropic/claude-opus-4-6",
-			"anthropic/claude-haiku-4-5",
-			"openai/gpt-5.5",
-			"openai/gpt-5.4",
-			"openai/gpt-5.4-mini",
-		},
-		WebsiteURL: "https://openrouter.ai/keys",
-	},
-	{
-		ID:           "deepseekv4",
-		Name:         "DeepSeek V4",
-		BaseURL:      "https://api.deepseek.com",
-		API:          "openai-completions",
-		DefaultModel: "deepseek-v4-pro",
-		Models:       []string{"deepseek-v4-flash", "deepseek-v4-pro"},
-		LiteModel:    "deepseek-v4-flash",
-		WebsiteURL:   "https://platform.deepseek.com/api_keys",
-	},
-	{
-		ID:           "minimax",
-		Name:         "Minimax",
-		BaseURL:      "https://api.minimaxi.com/v1",
-		API:          "openai-completions",
-		DefaultModel: "MiniMax-M2.7",
-		Models:       []string{"MiniMax-M2.5", "MiniMax-M2.7"},
-		EndpointVariants: []endpointVariant{
-			{Label: "Mainland China", LabelKey: "settings.models.baseurl.variant.mainland_cn", BaseURL: "https://api.minimaxi.com/v1", Region: "cn"},
-			{Label: "International", LabelKey: "settings.models.baseurl.variant.international", BaseURL: "https://api.minimax.io/v1", Region: "intl"},
-		},
-		WebsiteURL: "https://www.minimaxi.com/user-center/basic-information/interface-key",
-	},
-	{
-		ID:           "kimi",
-		Name:         "Kimi (Moonshot)",
-		BaseURL:      "https://api.moonshot.cn/v1",
-		API:          "openai-completions",
-		DefaultModel: "kimi-k2.6",
-		Models:       []string{"kimi-k2.6", "kimi-k2.5"},
-		EndpointVariants: []endpointVariant{
-			{Label: "Mainland China", LabelKey: "settings.models.baseurl.variant.mainland_cn", BaseURL: "https://api.moonshot.cn/v1", Region: "cn"},
-			{Label: "International", LabelKey: "settings.models.baseurl.variant.international", BaseURL: "https://api.moonshot.ai/v1", Region: "intl"},
-		},
-		WebsiteURL: "https://platform.moonshot.cn/console/api-keys",
-	},
-	{
-		ID:           "kimi-coding",
-		Name:         "Kimi Coding",
-		BaseURL:      "https://api.kimi.com/coding",
-		API:          "openai-completions",
-		DefaultModel: "kimi-for-coding",
-		Models:       []string{"kimi-for-coding"},
-		WebsiteURL:   "https://platform.moonshot.cn/console/api-keys",
-	},
-	{
-		ID:           "glm",
-		Name:         "GLM (Zhipu)",
-		BaseURL:      "https://open.bigmodel.cn/api/paas/v4",
-		API:          "openai-completions",
-		DefaultModel: "glm-4.5",
-		Models:       []string{"glm-4.5", "glm-4.5-air", "glm-4.5-flash"},
-		LiteModel:    "glm-4.5-flash",
-		EndpointVariants: []endpointVariant{
-			{Label: "Mainland China", LabelKey: "settings.models.baseurl.variant.mainland_cn", BaseURL: "https://open.bigmodel.cn/api/paas/v4", Region: "cn"},
-			{Label: "International", LabelKey: "settings.models.baseurl.variant.international", BaseURL: "https://api.z.ai/v1", Region: "intl"},
-		},
-		WebsiteURL: "https://open.bigmodel.cn/usercenter/apikey",
-	},
-	{
-		ID:           "openai",
-		Name:         "OpenAI",
-		BaseURL:      "https://api.openai.com/v1",
-		API:          "openai-responses",
-		DefaultModel: "gpt-5.4",
-		Models:       []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini"},
-		LiteModel:    "gpt-5.4-mini",
-		WebsiteURL:   "https://platform.openai.com/api-keys",
-	},
-	{
-		ID:           "anthropic",
-		Name:         "Anthropic",
-		BaseURL:      "https://api.anthropic.com",
-		API:          "anthropic-messages",
-		DefaultModel: "claude-sonnet-4-6",
-		Models:       []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"},
-		LiteModel:    "claude-haiku-4-5",
-		WebsiteURL:   "https://console.anthropic.com/settings/keys",
-	},
-	{
-		ID:           "siliconflow",
-		Name:         "SiliconFlow",
-		BaseURL:      "https://api.siliconflow.cn/v1",
-		API:          "openai-completions",
-		DefaultModel: "deepseek-ai/DeepSeek-V3",
-		Models:       []string{"deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"},
-		WebsiteURL:   "https://cloud.siliconflow.cn/account/ak",
-	},
-	{
-		ID:           "mistral",
-		Name:         "Mistral",
-		BaseURL:      "https://api.mistral.ai/v1",
-		API:          "openai-completions",
-		DefaultModel: "mistral-large-latest",
-		Models:       []string{"mistral-large-latest", "mistral-medium-latest"},
-		WebsiteURL:   "https://console.mistral.ai/api-keys/",
-	},
-	{
-		ID:           "groq",
-		Name:         "Groq",
-		BaseURL:      "https://api.groq.com/openai/v1",
-		API:          "openai-completions",
-		DefaultModel: "llama-4-scout",
-		Models:       []string{"llama-4-scout", "llama-4-maverick"},
-		WebsiteURL:   "https://console.groq.com/keys",
-	},
+// buildProviderPresets builds the response for GET /api/providers from the
+// canonical app.Registry.  This is the single source of truth — a new vendor
+// only needs one line in internal/app/provider.go.
+func buildProviderPresets() []providerPreset {
+	presets := make([]providerPreset, 0, len(app.Registry))
+	for _, v := range app.Registry {
+		variants := make([]endpointVariant, len(v.EndpointVariants))
+		for i, ev := range v.EndpointVariants {
+			variants[i] = endpointVariant{
+				Label:    ev.Label,
+				LabelKey: ev.LabelKey,
+				BaseURL:  ev.BaseURL,
+				Region:   ev.Region,
+			}
+		}
+		presets = append(presets, providerPreset{
+			ID:               v.ID,
+			Name:             v.DisplayName,
+			BaseURL:          v.DefaultBaseURL,
+			API:              v.API,
+			DefaultModel:     v.DefaultModel,
+			Models:           v.Models,
+			LiteModel:        v.LiteModel,
+			EndpointVariants: variants,
+			WebsiteURL:       v.WebsiteURL,
+		})
+	}
+	return presets
 }
 
 // ─── GET /api/providers ─────────────────────────────────────────────────────
 
 func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"providers": providerPresets})
+	writeJSON(w, http.StatusOK, map[string]any{"providers": buildProviderPresets()})
 }
 
 // ─── GET /api/onboard/status ────────────────────────────────────────────────
@@ -192,8 +96,8 @@ func detectOnboardPhase() string {
 		hasKey = true
 	}
 	if !hasKey {
-		for _, env := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OCTO_API_KEY"} {
-			if os.Getenv(env) != "" {
+		for _, v := range app.Registry {
+			if os.Getenv(v.APIKeyEnvVar) != "" {
 				hasKey = true
 				break
 			}
@@ -237,6 +141,7 @@ type modelConfig struct {
 	Model           string `json:"model"`
 	BaseURL         string `json:"base_url"`
 	APIKey          string `json:"api_key,omitempty"`
+	Provider        string `json:"provider,omitempty"`
 	AnthropicFormat bool   `json:"anthropic_format"`
 }
 
@@ -253,7 +158,8 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 			Model:           cfg.Model,
 			BaseURL:         cfg.BaseURL,
 			APIKey:          maskKey(cfg.APIKey),
-			AnthropicFormat: cfg.Provider == "anthropic",
+			Provider:        cfg.Provider,
+			AnthropicFormat: app.IsAnthropicProtocol(cfg.Provider),
 		})
 	}
 
@@ -332,6 +238,7 @@ type saveModelRequest struct {
 	Model           string `json:"model"`
 	BaseURL         string `json:"base_url"`
 	APIKey          string `json:"api_key"`
+	Provider        string `json:"provider,omitempty"`
 	AnthropicFormat bool   `json:"anthropic_format"`
 }
 
@@ -348,7 +255,9 @@ func (s *Server) handleSaveModelConfig(w http.ResponseWriter, r *http.Request) {
 	if req.APIKey != "" {
 		cfg.APIKey = req.APIKey
 	}
-	if req.AnthropicFormat {
+	if req.Provider != "" {
+		cfg.Provider = req.Provider
+	} else if req.AnthropicFormat {
 		cfg.Provider = "anthropic"
 	} else {
 		cfg.Provider = "openai"
@@ -382,7 +291,9 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 	if req.APIKey != "" {
 		cfg.APIKey = req.APIKey
 	}
-	if req.AnthropicFormat {
+	if req.Provider != "" {
+		cfg.Provider = req.Provider
+	} else if req.AnthropicFormat {
 		cfg.Provider = "anthropic"
 	} else {
 		cfg.Provider = "openai"

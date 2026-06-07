@@ -19,9 +19,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/provider/openai"
 )
 
-// Provider name constants accepted by NewSender. They match the vendor strings
-// the CLI/server already resolve, so callers can pass their resolved name
-// through unchanged.
+// Provider name constants (legacy).  New code should use vendor IDs directly.
 const (
 	ProviderAnthropic = "anthropic"
 	ProviderOpenAI    = "openai"
@@ -31,7 +29,7 @@ const (
 // Key resolution and any user-facing help text stay with the caller (a CLI
 // prints setup hints; a server returns an error) — this layer only constructs.
 type SenderOptions struct {
-	Provider string // ProviderAnthropic | ProviderOpenAI
+	Provider string // vendor ID, e.g. "kimi", "deepseek", "anthropic", "openai"
 	APIKey   string
 	BaseURL  string // optional endpoint override; empty uses the vendor default
 
@@ -39,10 +37,11 @@ type SenderOptions struct {
 	// conversation's turns so the backend routes them to the same cache.
 	CacheKey string
 	// ThinkingBudget > 0 enables Anthropic extended thinking with this trace
-	// budget; ignored by OpenAI.
+	// budget; ignored by OpenAI-protocol vendors.
 	ThinkingBudget int
-	// ReasoningEffort ("low"|"medium"|"high") is forwarded to OpenAI as
-	// reasoning_effort; ignored by Anthropic (which uses ThinkingBudget).
+	// ReasoningEffort ("low"|"medium"|"high") is forwarded to OpenAI-protocol
+	// vendors as reasoning_effort; ignored by Anthropic-protocol vendors
+	// (which use ThinkingBudget).
 	ReasoningEffort string
 	// ShowReasoning gates whether the reasoning/thinking trace is surfaced to
 	// the agent event stream.
@@ -66,23 +65,24 @@ func NewSender(opts SenderOptions) (agent.Sender, error) {
 }
 
 // DefaultBaseURL returns the vendor's built-in API endpoint for the given
-// provider, or "" for an unknown one. Exposed so callers can show the
+// provider ID, or "" for an unknown one. Exposed so callers can show the
 // effective endpoint without importing the vendor packages themselves.
+//
+// Deprecated: prefer VendorBaseURL(id) from provider.go.
 func DefaultBaseURL(providerName string) string {
-	switch providerName {
-	case ProviderAnthropic:
-		return anthropic.DefaultBaseURL
-	case ProviderOpenAI:
-		return openai.DefaultBaseURL
-	}
-	return ""
+	return VendorBaseURL(providerName)
 }
 
 // buildClient constructs the vendor client and applies an optional base-URL
 // override. The caller is responsible for having resolved a non-empty key.
 func buildClient(name, apiKey, baseURL string) (provider.Provider, error) {
-	switch name {
-	case ProviderAnthropic:
+	v := vendorByID(name)
+	if v == nil {
+		return nil, fmt.Errorf("unknown provider %q", name)
+	}
+
+	switch v.Protocol {
+	case "anthropic":
 		client, err := anthropic.New(apiKey)
 		if err != nil {
 			return nil, err
@@ -91,7 +91,7 @@ func buildClient(name, apiKey, baseURL string) (provider.Provider, error) {
 			client.BaseURL = baseURL
 		}
 		return client, nil
-	case ProviderOpenAI:
+	case "openai":
 		client, err := openai.New(apiKey)
 		if err != nil {
 			return nil, err
@@ -101,7 +101,7 @@ func buildClient(name, apiKey, baseURL string) (provider.Provider, error) {
 		}
 		return client, nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q", name)
+		return nil, fmt.Errorf("unknown protocol %q for provider %q", v.Protocol, name)
 	}
 }
 

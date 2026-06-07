@@ -26,7 +26,7 @@ func firstNonEmpty(vals ...string) string {
 // model (i.e. an unknown provider with no explicit model) — the caller prints
 // an error and exits.
 func resolveProviderModel(flagProvider, flagModel string, cfg config.Config) (provider, model string, ok bool) {
-	provider = firstNonEmpty(flagProvider, os.Getenv("OCTO_PROVIDER"), cfg.Provider, providerAnthropic)
+	provider = firstNonEmpty(flagProvider, os.Getenv("OCTO_PROVIDER"), cfg.Provider, app.ProviderAnthropic)
 	// Precedence: --model flag > env (ANTHROPIC_MODEL / OPENAI_MODEL) > config
 	// (same-provider only) > built-in default. The env tier mirrors how the
 	// base URL and key resolve env-first, so a third-party Claude-/OpenAI-
@@ -59,30 +59,17 @@ func providerBaseURL(provider string, cfg config.Config) string {
 }
 
 // modelFromEnv returns the per-provider model env override, or "" if unset.
-// Named to match the BASE_URL / API_KEY env vars so a third-party endpoint can
-// be configured purely through the environment.
 func modelFromEnv(provider string) string {
-	switch provider {
-	case providerAnthropic:
-		return os.Getenv("ANTHROPIC_MODEL")
-	case providerOpenAI:
-		return os.Getenv("OPENAI_MODEL")
-	}
-	return ""
+	envVar := strings.ToUpper(provider) + "_MODEL"
+	return os.Getenv(envVar)
 }
 
 // resolveBaseURL returns the base-URL override for the provider, env-first
-// (ANTHROPIC_BASE_URL / OPENAI_BASE_URL) then the persisted config. "" means no
-// override — the provider uses its built-in default endpoint. This is the
-// single source of truth shared by buildProvider and the verbose endpoint line.
+// (<PROVIDER>_BASE_URL) then the persisted config. "" means no
+// override — the provider uses its built-in default endpoint.
 func resolveBaseURL(provider string, cfg config.Config) string {
-	switch provider {
-	case providerAnthropic:
-		return firstNonEmpty(os.Getenv("ANTHROPIC_BASE_URL"), providerBaseURL(provider, cfg))
-	case providerOpenAI:
-		return firstNonEmpty(os.Getenv("OPENAI_BASE_URL"), providerBaseURL(provider, cfg))
-	}
-	return ""
+	envVar := strings.ToUpper(provider) + "_BASE_URL"
+	return firstNonEmpty(os.Getenv(envVar), providerBaseURL(provider, cfg))
 }
 
 // effectiveEndpoint is resolveBaseURL for display: it substitutes the
@@ -218,9 +205,9 @@ func runConfigShow(stdout, stderr io.Writer) int {
 // apiKeyStatus reports where a key for the given provider would come from,
 // without revealing it. Env always wins over a config-stored key.
 func apiKeyStatus(provider string, cfg config.Config) string {
-	envVar := "ANTHROPIC_API_KEY"
-	if provider == providerOpenAI {
-		envVar = "OPENAI_API_KEY"
+	envVar := app.VendorAPIKeyEnvVar(provider)
+	if envVar == "" {
+		envVar = strings.ToUpper(provider) + "_API_KEY"
 	}
 	if os.Getenv(envVar) != "" {
 		return "set via $" + envVar
@@ -252,10 +239,10 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, "Press Enter to keep the shown default. CLI flags and env vars still override per run.")
 	fmt.Fprintln(stdout)
 
-	provider := promptDefault(reader, stdout, "Provider (anthropic | openai)", firstNonEmpty(existing.Provider, providerAnthropic))
+	provider := promptDefault(reader, stdout, "Provider (anthropic | openai | kimi | deepseek | ...)", firstNonEmpty(existing.Provider, app.ProviderAnthropic))
 	provider = strings.ToLower(strings.TrimSpace(provider))
-	if provider != providerAnthropic && provider != providerOpenAI {
-		fmt.Fprintf(stderr, "octo config: unknown provider %q (use 'anthropic' or 'openai')\n", provider)
+	if !app.IsKnownVendor(provider) {
+		fmt.Fprintf(stderr, "octo config: unknown provider %q\n", provider)
 		return 2
 	}
 
@@ -302,9 +289,9 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 
 	// API key: env is the recommended home for it. Offer to store it only if
 	// the env var is empty, and make declining the obvious default.
-	envVar := "ANTHROPIC_API_KEY"
-	if provider == providerOpenAI {
-		envVar = "OPENAI_API_KEY"
+	envVar := app.VendorAPIKeyEnvVar(provider)
+	if envVar == "" {
+		envVar = strings.ToUpper(provider) + "_API_KEY"
 	}
 	// Prompt for key when env is empty AND (no stored key OR switching provider —
 	// a key stored for a different provider doesn't help the new one).

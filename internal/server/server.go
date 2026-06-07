@@ -443,28 +443,18 @@ func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, stri
 // else cfg.APIKey when the stored config targets the same provider. Errors with
 // the same "X is not set" message the server reported before.
 func resolveAPIKey(name string, cfg config.Config) (string, error) {
-	switch name {
-	case "anthropic":
-		apiKey := os.Getenv("ANTHROPIC_API_KEY")
-		if apiKey == "" && cfg.Provider == "anthropic" {
-			apiKey = cfg.APIKey
-		}
-		if apiKey == "" {
-			return "", fmt.Errorf("ANTHROPIC_API_KEY is not set")
-		}
-		return apiKey, nil
-	case "openai":
-		apiKey := os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" && cfg.Provider == "openai" {
-			apiKey = cfg.APIKey
-		}
-		if apiKey == "" {
-			return "", fmt.Errorf("OPENAI_API_KEY is not set")
-		}
-		return apiKey, nil
-	default:
+	if !app.IsKnownVendor(name) {
 		return "", fmt.Errorf("unknown provider %q", name)
 	}
+	envVar := app.VendorAPIKeyEnvVar(name)
+	apiKey := os.Getenv(envVar)
+	if apiKey == "" && cfg.Provider == name {
+		apiKey = cfg.APIKey
+	}
+	if apiKey == "" {
+		return "", fmt.Errorf("%s is not set", envVar)
+	}
+	return apiKey, nil
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -477,23 +467,12 @@ func firstNonEmpty(vals ...string) string {
 }
 
 func modelFromEnv(provider string) string {
-	switch provider {
-	case "anthropic":
-		return os.Getenv("ANTHROPIC_MODEL")
-	case "openai":
-		return os.Getenv("OPENAI_MODEL")
-	}
-	return ""
+	envVar := strings.ToUpper(provider) + "_MODEL"
+	return os.Getenv(envVar)
 }
 
 func defaultModelFor(provider string) string {
-	switch provider {
-	case "anthropic":
-		return "claude-haiku-4-5-20251001"
-	case "openai":
-		return "gpt-4o-mini"
-	}
-	return ""
+	return app.VendorDefaultModel(provider)
 }
 
 func resolveBaseURL(provider string, cfg config.Config) string {

@@ -390,12 +390,13 @@ const Onboard = (() => {
     btn.textContent = I18n.t("onboard.key.testing");
     _setResult(null, "");
 
-    // Determine provider preset and anthropic_format
+    // Determine provider preset and protocol
     const valueSpan = $("setup-provider-wrapper")?.querySelector(".custom-select-value");
     const providerValue = valueSpan?.dataset.value || '';
     const preset = providerValue && providerValue !== '__custom__'
       ? _providers.find(p => p.id === providerValue)
       : null;
+    const providerID = preset ? preset.id : 'openai';
     const anthropicFormat = preset && preset.api === 'anthropic-messages';
 
     // Step 1: test connection
@@ -425,7 +426,7 @@ const Onboard = (() => {
       const res  = await fetch("/api/config/models", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ type: "default", model, base_url: baseUrl, api_key: apiKey, anthropic_format: false })
+        body:    JSON.stringify({ type: "default", model, base_url: baseUrl, api_key: apiKey, provider: providerID, anthropic_format: anthropicFormat })
       });
       const data = await res.json();
       if (!data.ok) {
