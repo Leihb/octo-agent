@@ -59,15 +59,14 @@
 
 ## P2 — 中影响、需要一定设计
 
-### 3. 用户自定义 Agent 预设
+### 3. 用户自定义 Agent 预设 ✅
 
 - **位置**：`internal/tools/agent_presets.go:62`
 - **现状**：`lookupAgentPreset` 只有 4 个硬编码预设（explore / plan / general / code-review），代码里留了 TODO：
   ```go
   // TODO: load user-defined agents from ~/.octo/agents/*.md
   ```
-- **影响**：用户无法扩展自己的 sub-agent 类型（如 "security-review"、"docs-writer"）
-- **建议**：复用 SKILL.md 的 YAML frontmatter 格式（`name` / `description` / `persona` / `read_only`），扫描 `~/.octo/agents/*.md`，在 `lookupAgentPreset` 中优先查用户定义、再回退内置。
+- **已完成**：新增 `internal/tools/agents.go`，扫描 `~/.octo/agents/*.md`，YAML frontmatter 格式（`name` / `description` / `read_only`），正文为 persona。`lookupAgentPreset` 优先用户定义、再回退内置；`listPresetNames` 合并两者去重。
 
 ### 4. 微信 CDN 文件上传
 
