@@ -129,13 +129,14 @@ type AgentEvent struct {
 	Compact    *CompactStats  `json:"compact,omitempty"`
 }
 
-// CompactStats carries the numbers behind the compaction events. All counts
-// are heuristic token estimates (see estimateMessages), not exact provider
-// counts — they exist for a human-readable progress indicator, nothing more.
+// CompactStats carries the numbers behind the compaction events. BeforeTokens
+// and AfterTokens prefer the provider's real input token count when available
+// (lastInputTokens) and fall back to a heuristic estimate otherwise. They exist
+// for a human-readable progress indicator, nothing more.
 type CompactStats struct {
-	// BeforeTokens is the estimated context size before compaction.
+	// BeforeTokens is the context size before compaction (real when available).
 	BeforeTokens int `json:"before_tokens,omitempty"`
-	// AfterTokens is the estimated context size after compaction (done only).
+	// AfterTokens is the context size after compaction (real when available, done only).
 	AfterTokens int `json:"after_tokens,omitempty"`
 	// FoldedMsgs is how many leading messages were folded into the summary.
 	FoldedMsgs int `json:"folded_msgs,omitempty"`

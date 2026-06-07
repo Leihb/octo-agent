@@ -45,6 +45,11 @@ type Config struct {
 	// When empty, `octo serve` falls back to OCTO_ACCESS_KEY env var or
 	// generates a random key on startup.
 	AccessKey string `yaml:"access_key,omitempty"`
+	// CompactAutoPct is the auto-compaction threshold as a percentage of the
+	// model's context window (0–100). When CompactThreshold == 0, the agent
+	// compacts once the context exceeds this share of the window. Zero means
+	// the built-in default (75%).
+	CompactAutoPct int `yaml:"compact_auto_pct,omitempty"`
 	// Tools holds opt-in tooling behaviour (Tool Search for MCP, etc.). A
 	// missing block leaves the built-in defaults.
 	Tools ToolsConfig `yaml:"tools,omitempty"`

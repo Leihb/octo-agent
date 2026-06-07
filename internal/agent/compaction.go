@@ -145,17 +145,40 @@ func contextWindow(model string) int {
 // CompactThreshold:
 //
 //	< 0  → disabled (0)
-//	== 0 → auto: a fraction of the model's context window
+//	== 0 → auto: a fraction of the model's context window (settable via
+//	       CompactAutoFraction, default compactThresholdFraction)
 //	> 0  → that explicit token count
 func (a *Agent) compactTriggerTokens() int {
 	switch {
 	case a.CompactThreshold < 0:
 		return 0
 	case a.CompactThreshold == 0:
-		return int(float64(contextWindow(a.Model)) * compactThresholdFraction)
+		frac := a.CompactAutoFraction
+		if frac <= 0 {
+			frac = compactThresholdFraction
+		}
+		if frac > 1 {
+			frac = 1
+		}
+		return int(float64(contextWindow(a.Model)) * frac)
 	default:
 		return a.CompactThreshold
 	}
+}
+
+// historyTokens returns the best available token count for the given messages.
+// When the provider has reported a real input token count (lastInputTokens > 0),
+// it returns that value; otherwise it falls back to the heuristic estimate.
+// The real count is more accurate because it reflects exactly how the provider's
+// tokenizer counted the prompt, including any format overhead the estimate misses.
+func (a *Agent) historyTokens(msgs []Message) int {
+	a.usageMu.Lock()
+	real := a.lastInputTokens
+	a.usageMu.Unlock()
+	if real > 0 {
+		return real
+	}
+	return estimateMessages(msgs)
 }
 
 // summarizeMaxTokens caps the summary length. A summary is meant to be a
@@ -198,13 +221,15 @@ Focus on:
 
 Begin your response NOW. Remember: PURE TEXT only, starting with <topics> then <summary>.`
 
-// maybeCompact summarizes the older portion of history when the estimated
-// total context size (from History.Snapshot) crosses CompactThreshold. It runs
-// only at a safe boundary — between turns, splitting on a plain user message —
-// so tool_use/tool_result pairs are never severed. A nil return means either
-// "compaction disabled / not needed" or "compacted successfully"; an error
-// means the summarization side-call failed (the caller logs and proceeds with
-// uncompacted history rather than aborting the turn).
+// maybeCompact summarizes the older portion of history when the total context
+// size crosses CompactThreshold. It prefers the real token count reported by
+// the provider (lastInputTokens) and falls back to a heuristic estimate when no
+// real data is available yet. It runs only at a safe boundary — between turns,
+// splitting on a plain user message — so tool_use/tool_result pairs are never
+// severed. A nil return means either "compaction disabled / not needed" or
+// "compacted successfully"; an error means the summarization side-call failed
+// (the caller logs and proceeds with uncompacted history rather than aborting
+// the turn).
 //
 // handler may be nil (the non-streaming Run path); when set, maybeCompact
 // emits EventCompactStarted/Progress/Done around the summarization so the UI
@@ -218,7 +243,7 @@ func (a *Agent) maybeCompact(ctx context.Context, handler EventHandler) error {
 	}
 
 	msgs := a.History.Snapshot()
-	before := estimateMessages(msgs)
+	before := a.historyTokens(msgs)
 	if before < trigger {
 		return nil
 	}
@@ -279,9 +304,10 @@ func emitCompactDone(handler EventHandler, before, after, folded int) {
 // alternation holds), and the LLM returns a summary. The caller is responsible
 // for rebuilding history with the summary.
 //
-// Overflow protection: if the estimated token count of msgs exceeds the model's
-// context window, messages are popped from the head until it fits. This
-// prevents the compression call itself from 400-ing.
+// Overflow protection: if the token count of msgs exceeds the model's context
+// window, messages are popped from the head until it fits. This prevents the
+// compression call itself from 400-ing. The count prefers the provider's real
+// lastInputTokens and falls back to a heuristic estimate.
 //
 // When the Sender implements StreamingSender and a handler is attached, the
 // summary is streamed so the caller can surface EventCompactProgress as it
@@ -293,7 +319,7 @@ func (a *Agent) summarize(ctx context.Context, msgs []Message, handler EventHand
 	// (e.g. a single huge tool_result tipped it over).
 	window := contextWindow(a.Model)
 	for {
-		est := estimateMessages(msgs)
+		est := a.historyTokens(msgs)
 		if est < window {
 			break
 		}
@@ -379,18 +405,20 @@ func hasToolResult(m Message) bool {
 // tool batch, before the next LLM call. This catches history growth within a
 // turn that lastInputTokens (from the previous provider call) doesn't reflect.
 //
-// The heuristic is aggressive: if the estimated token count exceeds 90% of the
-// model's context window, we compact. This prevents the next send() from 400-ing.
+// The check is aggressive: if the token count exceeds 90% of the model's
+// context window, we compact. This prevents the next send() from 400-ing. The
+// count prefers the provider's real lastInputTokens and falls back to a
+// heuristic estimate.
 func (a *Agent) shouldCompactBetweenBatches() bool {
 	trigger := a.compactTriggerTokens()
 	if trigger <= 0 {
 		return false
 	}
-	est := estimateMessages(a.History.Snapshot())
+	tokens := a.historyTokens(a.History.Snapshot())
 	window := contextWindow(a.Model)
 	// Compact if we're within 10% of the window (more aggressive than the
 	// between-turns trigger, which uses compactThresholdFraction = 75%).
-	return est > int(float64(window)*0.9)
+	return tokens > int(float64(window)*0.9)
 }
 
 // ── Token estimation (fast heuristic) ──────────────────────────────────────

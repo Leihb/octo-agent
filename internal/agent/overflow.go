@@ -143,7 +143,7 @@ func (a *Agent) tryOverflowCompact(ctx context.Context, pullBackMode int, handle
 		return false
 	}
 
-	before := estimateMessages(msgs)
+	before := a.historyTokens(msgs)
 	if handler != nil {
 		handler(AgentEvent{Kind: EventCompactStarted, Compact: &CompactStats{
 			BeforeTokens: before,
@@ -173,7 +173,7 @@ func (a *Agent) tryOverflowCompact(ctx context.Context, pullBackMode int, handle
 	}
 
 	a.resetContextTrigger() // reset trigger so we don't immediately re-compact
-	emitCompactDone(handler, before, estimateMessages(a.History.Snapshot()), split)
+	emitCompactDone(handler, before, a.historyTokens(a.History.Snapshot()), split)
 	return true
 }
 

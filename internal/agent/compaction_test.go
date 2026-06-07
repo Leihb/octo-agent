@@ -105,6 +105,21 @@ func TestCompactTriggerTokens(t *testing.T) {
 	if got := a.compactTriggerTokens(); got != 4242 {
 		t.Errorf("explicit trigger = %d, want 4242", got)
 	}
+
+	// Custom auto fraction (50%).
+	a.CompactThreshold = 0
+	a.CompactAutoFraction = 0.5
+	want50 := int(float64(defaultContextWindow) * 0.5)
+	if got := a.compactTriggerTokens(); got != want50 {
+		t.Errorf("custom 50%% trigger = %d, want %d", got, want50)
+	}
+
+	// Fraction clamped to 1.0 when > 1.
+	a.CompactAutoFraction = 2.0
+	want100 := defaultContextWindow
+	if got := a.compactTriggerTokens(); got != want100 {
+		t.Errorf("clamped 200%% trigger = %d, want %d", got, want100)
+	}
 }
 
 // TestMaybeCompact_AutoDefaultTriggers proves the C6 flip: with CompactThreshold

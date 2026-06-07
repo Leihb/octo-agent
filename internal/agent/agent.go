@@ -144,6 +144,11 @@ type Agent struct {
 	// default); >0 is an explicit token count. See compactTriggerTokens.
 	CompactThreshold int
 
+	// CompactAutoFraction is the share (0.0–1.0) of the model's context window
+	// at which auto-compaction triggers when CompactThreshold == 0. Zero uses
+	// the built-in default (0.75). Values outside 0–1 are clamped.
+	CompactAutoFraction float64
+
 	// overflow handles "context too long" 400 errors by compressing history
 	// and retrying. Aligned with Ruby's perform_context_overflow_compression.
 	overflow overflowRecovery
