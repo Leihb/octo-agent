@@ -110,12 +110,63 @@ en:
 
 Parse freely. Store the user's name as `user.name` (default `"老大"` for zh, `"Boss"` for en if blank).
 
-### A.6. Learn from links (if any)
+### A.6. Collect behaviour preferences
+
+These three settings are saved to `~/.octo/config.yaml` and affect every session.
+All have sensible defaults — the user can hit Enter to skip any prompt.
+
+**Permission mode** — how the assistant handles sensitive tool calls (file writes, shell commands, etc.).
+
+zh:
+> **权限模式** — 遇到文件修改、命令执行等敏感操作时：
+> - 🙋 **interactive**（默认）— 每次问我确认
+> - ✅ **auto** — 自动允许，不弹窗打扰
+
+en:
+> **Permission mode** — when file edits, shell commands, or other sensitive operations come up:
+> - 🙋 **interactive** (default) — ask me for confirmation each time
+> - ✅ **auto** — auto-approve, no interruptions
+
+Store as `prefs.permission_mode` (default `"interactive"`).
+
+**Reasoning effort** — extended-thinking depth for supported models (Claude 3.7, o3, etc.).
+
+zh:
+> **推理强度** — 支持扩展思考的模型（Claude 3.7 / o3 等）的思考深度：
+> - 空（默认关闭）— 标准模式
+> - **low** — 轻量思考，响应快
+> - **medium** — 平衡
+> - **high** — 深度思考，响应慢但质量更高
+
+en:
+> **Reasoning effort** — how deeply supported models think (Claude 3.7, o3, etc.):
+> - empty (default off) — standard mode
+> - **low** — light thinking, faster responses
+> - **medium** — balanced
+> - **high** — deep thinking, slower but higher quality
+
+Store as `prefs.reasoning_effort` (default `""`). If the user gives an invalid value, silently fall back to `""`.
+
+**Show reasoning trace** — whether to stream the model's thinking chain to the terminal.
+
+zh:
+> **显示推理过程** — 流式输出时是否显示模型的思考链：
+> - **Y**（默认）— 显示
+> - **n** — 隐藏
+
+en:
+> **Show reasoning trace** — display the model's thinking chain while streaming:
+> - **Y** (default) — show it
+> - **n** — hide it
+
+Store as `prefs.show_reasoning` boolean (default `true`).
+
+### A.7. Learn from links (if any)
 
 For each URL, use `web_fetch` to gather bio / projects / interests / writing style.
 Silently skip unreachable links.
 
-### A.7. Write SOUL.md
+### A.8. Write SOUL.md
 
 Write to `~/.octo/SOUL.md`. Shape by `ai.name` + `ai.personality`.
 Write in the chosen language. If `zh`, add a line near the top of Identity:
@@ -152,7 +203,7 @@ I am [AI Name], a personal assistant and technical co-founder.
 [2–3 sentences about how I approach tasks, matching the personality.]
 ```
 
-### A.8. Write USER.md
+### A.9. Write USER.md
 
 Write to `~/.octo/USER.md`.
 
@@ -188,7 +239,29 @@ zh template:
 [1–2 句话，根据用户目标和背景量身定制。]
 ```
 
-### A.9. Confirm and close
+### A.10. Update config.yaml
+
+Read `~/.octo/config.yaml` (it already exists — the setup panel wrote provider/model/base_url/api_key earlier).
+Use `write_file` to rewrite it with the behaviour-preference fields appended:
+
+- `permission_mode` — `prefs.permission_mode` (or omit if default `"interactive"`)
+- `show_reasoning` — `prefs.show_reasoning` boolean (or omit if default `true`)
+- `reasoning_effort` — `prefs.reasoning_effort` (or omit if empty)
+
+Preserve every existing field (provider, model, base_url, api_key, etc.). Do NOT change or remove anything already in the file. Only add the three new keys.
+
+Example diff:
+```yaml
+provider: anthropic
+model: claude-sonnet-4-5
+base_url: https://api.anthropic.com
+api_key: sk-xxx
++ permission_mode: auto
++ show_reasoning: true
++ reasoning_effort: medium
+```
+
+### A.11. Confirm and close
 
 Speak as [ai.name]. This is the AI's first moment of truly being alive — it has a soul,
 it knows its person, and it just did its first real thing in the world.
@@ -208,7 +281,7 @@ en:
 
 Do NOT open a new session — the UI handles navigation after the skill finishes.
 
-### A.10. First-run notes
+### A.12. First-run notes
 
 - Keep both files under 300 words each.
 - Do not ask follow-up questions beyond the cards above.
