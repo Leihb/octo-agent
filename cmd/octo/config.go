@@ -88,23 +88,6 @@ func effectiveEndpoint(provider string, cfg config.Config) string {
 // runConfig handles `octo config [show|path]` and, with no subcommand, an
 // interactive setup wizard that writes ~/.octo/config.yaml.
 func runConfig(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	// Check for --access-key flag before subcommand dispatch.
-	for i, a := range args {
-		if a == "--access-key" || strings.HasPrefix(a, "--access-key=") {
-			var key string
-			if strings.HasPrefix(a, "--access-key=") {
-				key = strings.TrimPrefix(a, "--access-key=")
-			} else if i+1 < len(args) {
-				key = args[i+1]
-				args = append(args[:i], args[i+2:]...)
-			} else {
-				fmt.Fprintln(stderr, "octo config: --access-key requires a value")
-				return 2
-			}
-			return runConfigSetAccessKey(key, stdout, stderr)
-		}
-	}
-
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -180,14 +163,6 @@ func runConfigShow(stdout, stderr io.Writer) int {
 		effortStatus = cfg.ReasoningEffort + " (config)"
 	}
 	fmt.Fprintf(stdout, "  reasoning: %s\n", effortStatus)
-	accessKeyStatus := "not set"
-	if cfg.AccessKey != "" {
-		accessKeyStatus = "set (config)"
-	}
-	if os.Getenv("OCTO_ACCESS_KEY") != "" {
-		accessKeyStatus = "set via $OCTO_ACCESS_KEY"
-	}
-	fmt.Fprintf(stdout, "  access key: %s\n", accessKeyStatus)
 	showStatus := "on (default)"
 	if cfg.ShowReasoning != nil {
 		if *cfg.ShowReasoning {
@@ -322,23 +297,6 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintln(stdout, "Run `octo chat` to start.")
 	}
-	return 0
-}
-
-// runConfigSetAccessKey writes the access key to the config file without
-// disturbing other fields.
-func runConfigSetAccessKey(key string, stdout, stderr io.Writer) int {
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(stderr, "octo config: %v\n", err)
-		return 1
-	}
-	cfg.AccessKey = key
-	if err := cfg.Save(); err != nil {
-		fmt.Fprintf(stderr, "octo config: %v\n", err)
-		return 1
-	}
-	fmt.Fprintln(stdout, "Access key saved.")
 	return 0
 }
 
