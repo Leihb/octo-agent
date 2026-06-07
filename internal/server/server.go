@@ -624,9 +624,9 @@ func (s *Server) initChannels() {
 	fmt.Fprintf(os.Stderr, "octo serve: channels enabled: %s\n", strings.Join(platforms, ", "))
 }
 
-// buildChannelGate creates a strict-mode permission gate for the IM bridge.
+// buildChannelGate creates a non-interactive permission gate for the IM bridge.
 func (s *Server) buildChannelGate() (agent.PermissionGate, error) {
-	engine, err := permission.New(permissionConfigPath(), s.cwd, permission.ModeStrict)
+	engine, err := permission.New(permissionConfigPath(), s.cwd, permission.ModeInteractive)
 	if err != nil {
 		return nil, fmt.Errorf("permission engine: %w", err)
 	}

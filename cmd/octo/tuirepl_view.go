@@ -171,15 +171,12 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.pasteClipboardImage()
 
 	case tea.KeyShiftTab:
-		// Cycle permission mode: interactive → strict → auto → interactive.
+		// Cycle permission mode: interactive → auto → interactive.
 		if m.cfg.permEngine != nil {
 			var next permission.Mode
-			switch m.cfg.permEngine.GetMode() {
-			case permission.ModeInteractive:
-				next = permission.ModeStrict
-			case permission.ModeStrict:
+			if m.cfg.permEngine.GetMode() == permission.ModeInteractive {
 				next = permission.ModeAutoApprove
-			default:
+			} else {
 				next = permission.ModeInteractive
 			}
 			m.cfg.permEngine.SetMode(next)

@@ -493,7 +493,7 @@ func (s *Server) runTurn(ctx context.Context, sess *agent.Session, userInput str
 func (s *Server) prepareToolTurn(ctx context.Context, a *agent.Agent) (context.Context, agent.ToolExecutor, error) {
 	executor := tools.NewDefaultRegistry()
 
-	engine, err := permission.New(permissionConfigPath(), s.cwd, permission.ModeStrict)
+	engine, err := permission.New(permissionConfigPath(), s.cwd, permission.ModeInteractive)
 	if err != nil {
 		return ctx, nil, fmt.Errorf("permission engine: %w", err)
 	}

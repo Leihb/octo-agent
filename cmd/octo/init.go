@@ -46,8 +46,8 @@ func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *permMode != string(permission.ModeInteractive) && *permMode != string(permission.ModeStrict) && *permMode != string(permission.ModeAutoApprove) {
-		fmt.Fprintf(stderr, "octo init: invalid --permission-mode %q (want 'interactive', 'strict', or 'auto')\n", *permMode)
+	if *permMode != string(permission.ModeInteractive) && *permMode != string(permission.ModeAutoApprove) {
+		fmt.Fprintf(stderr, "octo init: invalid --permission-mode %q (want 'interactive' or 'auto')\n", *permMode)
 		return 2
 	}
 

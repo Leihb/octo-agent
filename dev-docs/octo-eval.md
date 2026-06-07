@@ -82,7 +82,7 @@ standalone.
 octo-eval run
   for each task:
     copy repo/ → <workdir>/<task>/work
-    octo chat --tools --permission-mode strict --no-save --plain
+    octo chat --tools --permission-mode auto --no-save --plain
          --prompt-file <task.prompt> --sandbox --max-turns N   (cwd = work)
     copy hidden/ → work          # inject judging files
     sh verify.sh                 # cwd = work; exit 0 == resolved

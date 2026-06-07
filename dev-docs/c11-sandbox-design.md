@@ -26,7 +26,7 @@ local privilege escalation. The boundary is the arbitrary-command surface: the
 `terminal` tool (foreground + background).
 
 The sandbox is **opt-in** (`--sandbox`, default off); the permission engine +
-strict mode are the always-on backstop. It is not default-on because the network
+interactive mode is the always-on backstop. It is not default-on because the network
 story is an all-or-nothing toggle (§5), so a default sandbox would break every
 network-needing command (`go mod download`, `git fetch`).
 

@@ -289,7 +289,7 @@ func handleAgentMessage(ctx context.Context, mgr *channel.Manager, ad channel.Ad
 // back to the built-in defaults otherwise — the same engine the CLI and HTTP
 // server use.
 func newChannelGate(cwd string) (agent.PermissionGate, error) {
-	engine, err := permission.New(permissionConfigPath(), cwd, permission.ModeStrict)
+	engine, err := permission.New(permissionConfigPath(), cwd, permission.ModeInteractive)
 	if err != nil {
 		return nil, fmt.Errorf("permission engine: %w", err)
 	}

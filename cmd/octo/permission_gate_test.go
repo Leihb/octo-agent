@@ -93,22 +93,6 @@ func TestCLIGate_AskPromptAlwaysRemembers(t *testing.T) {
 	}
 }
 
-func TestCLIGate_StrictModeNeverPrompts(t *testing.T) {
-	// In strict mode the engine collapses ask → deny, so a command that
-	// would normally prompt is denied without reading stdin.
-	g, out := newGate(t, permission.ModeStrict, "y\n") // stdin "y" must be ignored
-	ok, reason := g.Check(context.Background(), "terminal", map[string]any{"command": "sudo apt update"})
-	if ok {
-		t.Error("strict mode must deny ask-class commands")
-	}
-	if out.Len() != 0 {
-		t.Errorf("strict mode must not prompt; got %q", out.String())
-	}
-	if !strings.Contains(reason, "permission_denied") {
-		t.Errorf("expected denial reason, got %q", reason)
-	}
-}
-
 func TestCLIGate_AutoApproveModeNeverPrompts(t *testing.T) {
 	// In auto-approve mode the engine collapses ask → allow, so a command
 	// that would normally prompt is allowed without reading stdin.
@@ -140,18 +124,17 @@ func TestCLIGate_UnwrapsToolCallToRealName(t *testing.T) {
 }
 
 func TestResolvePermissionMode(t *testing.T) {
-	if resolvePermissionMode("strict") != permission.ModeStrict {
-		t.Error("strict should map to ModeStrict")
-	}
 	if resolvePermissionMode("interactive") != permission.ModeInteractive {
 		t.Error("interactive should map to ModeInteractive")
 	}
 	if resolvePermissionMode("auto") != permission.ModeAutoApprove {
 		t.Error("auto should map to ModeAutoApprove")
 	}
-	// Unknown falls back to interactive (chat.go validates before this is
-	// reached, but the helper itself defaults safely).
+	// Unknown values (including the former "strict") fall back to interactive.
 	if resolvePermissionMode("garbage") != permission.ModeInteractive {
 		t.Error("unknown should fall back to ModeInteractive")
+	}
+	if resolvePermissionMode("strict") != permission.ModeInteractive {
+		t.Error("deprecated strict should fall back to ModeInteractive")
 	}
 }

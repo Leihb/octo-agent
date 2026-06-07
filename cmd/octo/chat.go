@@ -343,8 +343,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	// Validate up front. Fail closed on a typo rather than silently falling
 	// back to the more-permissive interactive mode.
-	if resolvedPermMode != string(permission.ModeInteractive) && resolvedPermMode != string(permission.ModeStrict) && resolvedPermMode != string(permission.ModeAutoApprove) {
-		fmt.Fprintf(stderr, "octo chat: invalid --permission-mode %q (want 'interactive', 'strict', or 'auto')\n", resolvedPermMode)
+	if resolvedPermMode != string(permission.ModeInteractive) && resolvedPermMode != string(permission.ModeAutoApprove) {
+		fmt.Fprintf(stderr, "octo chat: invalid --permission-mode %q (want 'interactive' or 'auto')\n", resolvedPermMode)
 		return 2
 	}
 

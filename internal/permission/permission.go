@@ -46,13 +46,12 @@ const (
 // Mode selects how the engine resolves Ask decisions.
 //
 // Interactive (CLI default) returns Ask as-is so the caller can prompt the
-// user. Strict (M8 / M9 default) converts Ask → Deny, so a non-interactive
-// caller never blocks. Allow / Deny pass through unchanged in both modes.
+// user. AutoApprove converts Ask → Allow, so no interactive prompt is shown.
+// Allow / Deny pass through unchanged in both modes.
 type Mode string
 
 const (
 	ModeInteractive Mode = "interactive"
-	ModeStrict      Mode = "strict"
 	ModeAutoApprove Mode = "auto"
 )
 
@@ -160,13 +159,13 @@ func New(configPath string, cwd string, mode Mode, allowWriteRoots ...string) (*
 }
 
 // Check evaluates the rules for one tool invocation. Returns Allow,
-// Deny, or Ask. In ModeStrict, Ask is converted to Deny.
+// Deny, or Ask.
 //
 // Resolution order:
 //  1. Session-remembered decision (set by Remember) short-circuits.
 //  2. Rules for the tool are scanned in order; first match wins.
 //  3. No match → implicit Ask.
-//  4. Mode adjustment: ModeStrict turns Ask into Deny.
+//  4. Mode adjustment: ModeAutoApprove turns Ask into Allow.
 func (e *Engine) Check(toolName string, input map[string]any) Decision {
 	sig := signature(toolName, input)
 
@@ -189,9 +188,7 @@ func (e *Engine) Check(toolName string, input map[string]any) Decision {
 
 // Remember stores a session-level decision so a subsequent Check for the
 // same (toolName, input-signature) pair short-circuits. Use this when the
-// user answers "always allow this turn / this session". Mode adjustment
-// still applies on the read side — a remembered Ask in ModeStrict will
-// still resolve to Deny.
+// user answers "always allow this turn / this session".
 func (e *Engine) Remember(toolName string, input map[string]any, decision Decision) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -214,27 +211,15 @@ func (e *Engine) DenialReason(toolName string, input map[string]any) string {
 			return formatRuleReason(toolName, r)
 		}
 	}
-	if e.mode == ModeStrict {
-		return fmt.Sprintf("permission_denied: %s — no matching rule in strict mode (implicit ask → deny). "+
-			"Add an allow rule to ~/.octo/permissions.yml to enable this tool/input.", toolName)
-	}
 	return fmt.Sprintf("permission_denied: %s — user declined the interactive prompt.", toolName)
 }
 
 // applyMode adjusts Ask decisions based on the engine mode:
-//   - ModeStrict:      Ask → Deny
 //   - ModeAutoApprove: Ask → Allow
 //   - ModeInteractive: Ask passes through unchanged
 func (e *Engine) applyMode(d Decision) Decision {
-	switch e.mode {
-	case ModeStrict:
-		if d == Ask {
-			return Deny
-		}
-	case ModeAutoApprove:
-		if d == Ask {
-			return Allow
-		}
+	if e.mode == ModeAutoApprove && d == Ask {
+		return Allow
 	}
 	return d
 }

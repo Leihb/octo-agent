@@ -170,24 +170,6 @@ func TestDefaultRules_ReadFile(t *testing.T) {
 
 // ─── Mode behaviour ───────────────────────────────────────────────────────
 
-func TestStrictMode_TurnsAskIntoDeny(t *testing.T) {
-	e, err := New("", "/work", ModeStrict)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := e.Check("terminal", map[string]any{"command": "rm -rf node_modules"}); got != Deny {
-		t.Errorf("strict ask→deny: got %s, want Deny", got)
-	}
-	// Explicit allows still allow.
-	if got := e.Check("terminal", map[string]any{"command": "ls"}); got != Allow {
-		t.Errorf("strict still allows allow rules: got %s", got)
-	}
-	// Explicit denies still deny.
-	if got := e.Check("terminal", map[string]any{"command": "rm -rf /"}); got != Deny {
-		t.Errorf("strict still denies deny rules: got %s", got)
-	}
-}
-
 func TestInteractiveMode_PreservesAsk(t *testing.T) {
 	e := newDefaultEngine(t)
 	if got := e.Check("terminal", map[string]any{"command": "sudo apt install"}); got != Ask {
@@ -306,17 +288,6 @@ func TestDenialReason_IncludesRuleContext(t *testing.T) {
 	reason := e.DenialReason("terminal", map[string]any{"command": "rm -rf /"})
 	if !strings.Contains(reason, "permission_denied") || !strings.Contains(reason, "rm -rf /") {
 		t.Errorf("denial reason should reference pattern: %q", reason)
-	}
-}
-
-func TestDenialReason_StrictNoMatchExplainsTheMode(t *testing.T) {
-	e, err := New("", "/work", ModeStrict)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reason := e.DenialReason("terminal", map[string]any{"command": "totally-unknown"})
-	if !strings.Contains(reason, "strict") {
-		t.Errorf("strict-mode denial should mention strict mode: %q", reason)
 	}
 }
 

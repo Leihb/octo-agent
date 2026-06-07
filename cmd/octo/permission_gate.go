@@ -13,8 +13,7 @@ import (
 // newCLIGate builds the shared app permission gate wired to an interactive
 // prompter: ask-class verdicts raise a KindPermission prompt through the view
 // (stdin line today, modal in the TUI) and map the structured answer. A nil
-// prompter yields a non-interactive gate (ask → deny). In strict mode the
-// engine has already collapsed ask → deny, so the prompt path is never reached.
+// prompter yields a non-interactive gate (ask → deny).
 func newCLIGate(engine *permission.Engine, ask userPrompter) agent.PermissionGate {
 	return app.NewPermissionGate(engine, permissionAskFrom(ask))
 }
@@ -49,12 +48,8 @@ func permissionConfigPath() string {
 // permission.Mode. Unknown values fall back to interactive (the safe,
 // CLI-friendly default) and the caller is expected to have validated.
 func resolvePermissionMode(s string) permission.Mode {
-	switch s {
-	case string(permission.ModeStrict):
-		return permission.ModeStrict
-	case string(permission.ModeAutoApprove):
+	if s == string(permission.ModeAutoApprove) {
 		return permission.ModeAutoApprove
-	default:
-		return permission.ModeInteractive
 	}
+	return permission.ModeInteractive
 }
