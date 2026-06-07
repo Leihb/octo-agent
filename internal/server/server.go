@@ -686,10 +686,15 @@ func (s *Server) startChannels() {
 
 // handleChannelMessage runs an agent turn for a channel inbound event.
 func (s *Server) handleChannelMessage(ctx context.Context, ad channel.Adapter, ev channel.InboundEvent) {
-	// Handle slash commands (e.g. /bind, /sessions).
-	if reply := s.channelMgr.CommandRouter(ev); reply != "" {
-		ad.SendText(ev.ChatID, reply, ev.MessageID)
-		return
+	// Handle slash commands (e.g. /bind, /sessions) — only when the message
+	// starts with "/". Without this guard, plain text like "你好" is parsed
+	// as an unknown command and never reaches the agent.
+	text := strings.TrimSpace(ev.Text)
+	if strings.HasPrefix(text, "/") {
+		if reply := s.channelMgr.CommandRouter(ev); reply != "" {
+			ad.SendText(ev.ChatID, reply, ev.MessageID)
+			return
+		}
 	}
 
 	sess := s.channelMgr.GetOrCreateSession(ev)
