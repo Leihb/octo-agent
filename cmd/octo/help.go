@@ -210,20 +210,16 @@ Environment:
 func serveHelp(w io.Writer) {
 	fmt.Fprintln(w, `octo serve — start the HTTP server (REST API + SSE + Web UI).
 
-The server binds to localhost:8080 by default. All API and WebSocket routes
-require an access key; /api/health is public (used by the Web UI to validate
-the key before storing it).
+The server binds to localhost:8080 by default.
 
 Examples:
-  octo serve                           Start on :8080 with auto-generated key
+  octo serve                           Start on :8080
   octo serve --addr 127.0.0.1:3000     Bind to a specific address
-  octo serve --access-key my-secret    Use a fixed key (printed on startup)
   octo serve --no-channel              Skip IM platform bridges
   octo serve --no-tools                Disable the agentic tool loop
 
 Common flags:
   --addr <host:port>       Bind address (default :8080)
-  --access-key <key>       Shared secret for Web UI / API auth
   --provider <name>        anthropic (default) | openai
   --model <name>           Override the default model
   --system <text>          Custom system prompt
@@ -234,14 +230,10 @@ Common flags:
   --no-channel             Disable IM channel startup
 
 Environment:
-  OCTO_ACCESS_KEY          Override the config access_key, per run
   ANTHROPIC_API_KEY        Required when --provider=anthropic
   OPENAI_API_KEY           Required when --provider=openai
   ANTHROPIC_BASE_URL       Override the Anthropic endpoint
   OPENAI_BASE_URL          Override the OpenAI endpoint
-
-Key resolution (highest first):
-  --access-key flag > OCTO_ACCESS_KEY env > config file > auto-generated 64-char hex
 
 Run "octo serve --help" for the full flag list.`)
 }
@@ -259,15 +251,11 @@ Usage:
   octo config show                 Print the effective provider/model and where each
                                    comes from (never prints the key itself)
   octo config path                 Print the config file path
-  octo config --access-key <key>   Set the Web UI / API access key
-
 File (~/.octo/config.yaml):
   provider: openai
   model: gpt-4o-mini
   base_url: https://api.deepseek.com   # optional, for compatible 3rd parties
-  access_key: my-secret-key            # optional, for octo serve auth
 
 Environment:
-  ANTHROPIC_API_KEY / OPENAI_API_KEY    Override any stored key, per run.
-  OCTO_ACCESS_KEY                       Override the config access_key, per run.`)
+  ANTHROPIC_API_KEY / OPENAI_API_KEY    Override any stored key, per run.`)
 }
