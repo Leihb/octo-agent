@@ -93,6 +93,11 @@ type Server struct {
 	steerQueues map[string][]string
 	steerMu     sync.Mutex
 
+	// sessionAgents tracks the currently-running Agent per session so that
+	// mid-turn steer messages can be injected directly into its Inbox.
+	sessionAgents   map[string]*agent.Agent
+	sessionAgentsMu sync.Mutex
+
 	// WebSocket hub for real-time browser communication.
 	wsHub *wsHub
 
@@ -169,6 +174,7 @@ func New(cfg Config) (*Server, error) {
 		turnLocks:      map[string]*sync.Mutex{},
 		turnRunning:    make(map[string]bool),
 		steerQueues:    make(map[string][]string),
+		sessionAgents:  make(map[string]*agent.Agent),
 		accessKey:      accessKey,
 		questionChans:  make(map[string]chan tools.AskResponse),
 	}

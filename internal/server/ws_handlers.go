@@ -115,6 +115,13 @@ func (s *Server) handleWSUserMessage(conn *wsConn, msg *wsMsgUserMessage) {
 	if s.turnRunning[sess.ID] {
 		mu.Unlock()
 		s.enqueueSteer(sess.ID, content)
+		// Also inject into the running Agent's Inbox so the runLoop can
+		// drain it between tool-call iterations.
+		s.sessionAgentsMu.Lock()
+		if a := s.sessionAgents[sess.ID]; a != nil {
+			a.Inbox.Enqueue(content)
+		}
+		s.sessionAgentsMu.Unlock()
 		// The frontend already rendered a ghost bubble in _sendMessage;
 		// history_user_message (broadcast when the turn drains steer) will
 		// replace it.  No need for a separate pending_user_messages event.
@@ -346,6 +353,26 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string) {
 
 	a := s.buildAgent(sess)
 
+	// Flush any steer messages that arrived before the Agent was built into
+	// the Agent's Inbox so the runLoop can drain them between iterations.
+	s.steerMu.Lock()
+	steerBacklog := s.steerQueues[sess.ID]
+	s.steerQueues[sess.ID] = nil
+	s.steerMu.Unlock()
+	for _, m := range steerBacklog {
+		a.Inbox.Enqueue(m)
+	}
+
+	// Register this Agent so concurrent mid-turn messages can reach its Inbox.
+	s.sessionAgentsMu.Lock()
+	s.sessionAgents[sess.ID] = a
+	s.sessionAgentsMu.Unlock()
+	defer func() {
+		s.sessionAgentsMu.Lock()
+		delete(s.sessionAgents, sess.ID)
+		s.sessionAgentsMu.Unlock()
+	}()
+
 	var toolDefs []agent.ToolDefinition
 	var executor agent.ToolExecutor
 	if s.cfg.Tools {
@@ -397,7 +424,8 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string) {
 	}
 
 	// Drain inbox (steer/queued messages that arrived mid-turn). Surface them
-	// as user bubbles so they don't vanish from the transcript.
+	// as user bubbles so they don't vanish from the transcript, and persist
+	// them into session history so they survive a page reload.
 	if items := a.Inbox.Drain(); len(items) > 0 {
 		for _, it := range items {
 			s.wsHub.broadcast(sess.ID, map[string]any{
@@ -406,7 +434,9 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string) {
 				"content":    it.Text,
 				"created_at": time.Now().UnixMilli(),
 			})
+			sess.Messages = append(sess.Messages, agent.NewUserMessage(it.Text))
 		}
+		_ = sess.Save()
 	}
 
 	s.wsHub.broadcast(sess.ID, map[string]any{
@@ -535,6 +565,16 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			"session_id": w.sessionID,
 			"text":       ev.Text,
 		})
+
+	case agent.EventSteerInjected:
+		for _, msg := range ev.Messages {
+			w.hub.broadcast(w.sessionID, map[string]any{
+				"type":       "history_user_message",
+				"session_id": w.sessionID,
+				"content":    msg,
+				"created_at": time.Now().UnixMilli(),
+			})
+		}
 
 	case agent.EventTurnDone:
 		if ev.Reply != nil {
