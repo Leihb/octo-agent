@@ -1404,7 +1404,7 @@ const Sessions = (() => {
     const n    = body ? body.children.length : 0;
     // Only hide the body (collapse) when there are multiple tools with a visible header.
     // A single-tool group has no header, so we keep its body visible forever.
-    if (n > 1) group.classList.add("expanded");
+    if (n > 1) group.classList.remove("expanded");
   }
 
   // Render a single history event into a target container.
@@ -1479,10 +1479,10 @@ const Sessions = (() => {
       }
 
       case "assistant_message": {
-        // Collapse tool group before assistant reply
-        if (historyCtx.group) { _collapseToolGroup(historyCtx.group); historyCtx.group = null; }
         const content = (ev.content || "").trim();
         if (!content) break; // skip empty assistant messages
+        // Collapse tool group before assistant reply
+        if (historyCtx.group) { _collapseToolGroup(historyCtx.group); historyCtx.group = null; }
         const el = document.createElement("div");
         el.className = "msg msg-assistant";
         el.dataset.raw = content;
@@ -3169,6 +3169,9 @@ const Sessions = (() => {
     },
 
     appendMsg(type, html, { time } = {}) {
+      // Skip empty assistant messages — don't render an air bubble.
+      if (type === "assistant" && (!html || !html.trim())) return;
+
       // Starting a new assistant/user/info message: close any open tool group
       if (type !== "tool") Sessions.collapseToolGroup();
 
@@ -3178,9 +3181,6 @@ const Sessions = (() => {
       if (type === "error") {
         messages.querySelectorAll(".msg-error").forEach(el => el.remove());
       }
-
-      // Skip empty assistant messages — don't render an air bubble.
-      if (type === "assistant" && (!html || !html.trim())) return;
 
       const el = document.createElement("div");
       el.className = `msg msg-${type}`;
