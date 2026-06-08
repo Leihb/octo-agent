@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -351,17 +350,10 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 			// Emit tool_call events for any tool_use blocks.
 			for _, b := range m.Blocks {
 				if b.Type == "tool_use" {
-					inputJSON := ""
-					if b.Input != nil {
-						if jb, err := json.Marshal(b.Input); err == nil {
-							inputJSON = string(jb)
-						}
-					}
 					events = append(events, map[string]any{
-						"type":    "tool_call",
-						"name":    b.Name,
-						"args":    b.Input,
-						"summary": fmt.Sprintf("🔧 %s %s", b.Name, inputJSON),
+						"type": "tool_call",
+						"name": b.Name,
+						"args": b.Input,
 					})
 				}
 			}

@@ -1306,7 +1306,7 @@ const Sessions = (() => {
   function _summariseArgs(toolName, args) {
     if (!args || typeof args !== "object") return String(args || "");
     // Pick the most informative single field as a short summary
-    const pick = args.path || args.command || args.query || args.url ||
+    const pick = args.path || args.command || args.pattern || args.query || args.url ||
                  args.task || args.content || args.question || args.message;
     if (pick) return String(pick).slice(0, 80);
     // Fallback: first string value

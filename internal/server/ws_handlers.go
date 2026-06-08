@@ -457,23 +457,16 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 		})
 
 	case agent.EventToolStarted:
-		inputJSON := ""
-		if ev.Input != nil {
-			b, _ := json.Marshal(ev.Input)
-			inputJSON = string(b)
-		}
 		tc := wsEventToolCall{
-			Type:    "tool_call",
-			Name:    ev.ToolName,
-			Args:    ev.Input,
-			Summary: fmt.Sprintf("🔧 %s %s", ev.ToolName, inputJSON),
+			Type: "tool_call",
+			Name: ev.ToolName,
+			Args: ev.Input,
 		}
 		w.hub.broadcast(w.sessionID, map[string]any{
 			"type":       tc.Type,
 			"session_id": w.sessionID,
 			"name":       tc.Name,
 			"args":       tc.Args,
-			"summary":    tc.Summary,
 		})
 
 		// Track as live state for replay.
