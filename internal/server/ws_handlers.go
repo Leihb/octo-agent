@@ -463,6 +463,24 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string) {
 		"permission_mode":  pm,
 		"reasoning_effort": re,
 	})
+
+	// After-turn follow-up suggestion (matches TUI suggestCmd behaviour).
+	// Fire-and-forget: the frontend shows it as ghost text; failures are silent.
+	if err == nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			text, serr := a.Suggest(ctx, toolDefs)
+			if serr != nil || strings.TrimSpace(text) == "" {
+				return
+			}
+			s.wsHub.broadcast(sess.ID, map[string]any{
+				"type":       "next_message_suggestion",
+				"session_id": sess.ID,
+				"text":       text,
+			})
+		}()
+	}
 }
 
 // ─── wsStreamWriter ────────────────────────────────────────────────────────
