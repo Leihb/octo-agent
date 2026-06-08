@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Leihb/octo-agent/internal/tools"
@@ -21,6 +22,12 @@ func cardVerbFor(toolName string) string {
 		return "Update"
 	case "terminal":
 		return "Run"
+	case "terminal_output":
+		return "Check"
+	case "kill_shell":
+		return "Kill"
+	case "terminal_input":
+		return "Input"
 	case "grep":
 		return "Grep"
 	case "web_search":
@@ -44,6 +51,13 @@ func cardTargetFor(toolName string, input map[string]any) string {
 	switch toolName {
 	case "terminal":
 		key = "command"
+	case "terminal_output", "kill_shell", "terminal_input":
+		if id, ok := input["id"].(string); ok && id != "" {
+			if cmd, found := tools.BgCommand(id); found && cmd != "" {
+				return fmt.Sprintf("%s (%s)", id, truncate1Line(cmd))
+			}
+			return id
+		}
 	case "grep", "glob":
 		key = "pattern"
 	case "web_search":
@@ -87,6 +101,11 @@ func renderToolCard(toolName string, input map[string]any, output string, isErr 
 		// instruction appended after a blank line. It's noise for the human, so
 		// drop it from the card — the "Started background process N" line stays.
 		output = strings.TrimRight(strings.TrimSuffix(output, tools.BgPollNotice), "\n")
+	}
+	if toolName == "terminal_output" {
+		// terminal_output can carry a model-only "STOP POLLING" notice when the
+		// process is still running with no new output. Strip it from the card.
+		output = strings.TrimRight(strings.TrimSuffix(output, tools.TerminalOutputStopPolling), "\n")
 	}
 	if toolName == "write_file" {
 		// write_file's own output is already a human-readable summary

@@ -29,6 +29,11 @@ const BgPollNotice = "DO NOT poll terminal_output. The system will automatically
 // terminal_output.
 const ServiceModeNotice = "After launching a long-running service, verify it with an external check (e.g., `curl http://localhost:PORT` or `pgrep`) rather than polling terminal_output. terminal_output is for inspecting startup logs or diagnosing issues — do not call it in a tight loop."
 
+// TerminalOutputStopPolling is the model-facing instruction appended to a
+// terminal_output result when the process is still running with no new output.
+// Like BgPollNotice, it is noise for the human so the TUI strips it from cards.
+const TerminalOutputStopPolling = "STOP POLLING. The system will automatically notify you when this background process finishes. Do NOT call terminal_output again unless you need to check progress mid-run."
+
 // TerminalTool is an agent.ToolExecutor that runs shell commands through the
 // system shell (`sh -c` on macOS/Linux, PowerShell on Windows; see
 // shellCommand). Stdout and stderr are combined and returned as the tool
@@ -259,7 +264,7 @@ func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[strin
 	header := "[status: " + status + "]"
 	if out == "" {
 		if status == "running" {
-			return agent.ToolResult{Text: header + "\n(no new output)\n\nSTOP POLLING. The system will automatically notify you when this background process finishes. Do NOT call terminal_output again unless you need to check progress mid-run."}, nil
+			return agent.ToolResult{Text: header + "\n(no new output)\n\n" + TerminalOutputStopPolling}, nil
 		}
 		return agent.ToolResult{Text: header + "\n(no new output)"}, nil
 	}

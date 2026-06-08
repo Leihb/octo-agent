@@ -381,6 +381,18 @@ func (m *BackgroundManager) WriteStdin(id string, input string) error {
 	return err
 }
 
+// Command returns the original command string for a background process id,
+// or ("", false) if the id is unknown or has been removed.
+func (m *BackgroundManager) Command(id string) (string, bool) {
+	m.mu.Lock()
+	p := m.procs[id]
+	m.mu.Unlock()
+	if p == nil {
+		return "", false
+	}
+	return p.command, true
+}
+
 // Remove drops a process from the tracking map, releasing its retained output
 // buffer. Used by the synchronous terminal path to reap a hidden command once
 // it has exited and its output has been returned to the caller — otherwise
@@ -426,3 +438,7 @@ func SetBackgroundOnExit(fn func(BgExit)) { defaultBg.SetOnExit(fn) }
 // RunningBackground lists the still-running processes on the default manager,
 // for the TUI's live "background (N running)" panel.
 func RunningBackground() []BgInfo { return defaultBg.ListRunning() }
+
+// BgCommand returns the original command string for a background process id
+// on the default manager, or ("", false) if unknown.
+func BgCommand(id string) (string, bool) { return defaultBg.Command(id) }

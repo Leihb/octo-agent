@@ -3,19 +3,25 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/Leihb/octo-agent/internal/tools"
 )
 
 func TestCardVerbFor(t *testing.T) {
 	cases := map[string]string{
-		"edit_file":  "Update",
-		"terminal":   "Run",
-		"grep":       "Grep",
-		"web_search": "Search",
-		"glob":       "Glob",
-		"read_file":  "Read",
-		"web_fetch":  "Fetch",
-		"sub_agent":  "", // not a card tool → one-liner
-		"remember":   "",
+		"edit_file":       "Update",
+		"terminal":        "Run",
+		"terminal_output": "Check",
+		"kill_shell":      "Kill",
+		"terminal_input":  "Input",
+		"grep":            "Grep",
+		"web_search":      "Search",
+		"glob":            "Glob",
+		"read_file":       "Read",
+		"write_file":      "Write",
+		"web_fetch":       "Fetch",
+		"sub_agent":       "", // not a card tool → one-liner
+		"remember":        "",
 	}
 	for tool, want := range cases {
 		if got := cardVerbFor(tool); got != want {
@@ -58,6 +64,13 @@ func TestRenderToolCard_Dispatch(t *testing.T) {
 		t.Errorf("terminal should render an output card; got:\n%s", run)
 	}
 
+	// terminal_output strips the STOP POLLING notice.
+	pollOut := "[status: running]\n(no new output)\n\n" + tools.TerminalOutputStopPolling
+	check := renderToolCard("terminal_output", map[string]any{"id": "bg_1"}, pollOut, false)
+	if strings.Contains(check, "STOP POLLING") {
+		t.Errorf("terminal_output card should strip STOP POLLING; got:\n%s", check)
+	}
+
 	// non-card tool → "".
 	if got := renderToolCard("sub_agent", map[string]any{}, "x", false); got != "" {
 		t.Errorf("non-card tool should return \"\"; got %q", got)
@@ -72,6 +85,10 @@ func TestRendersCard_PlainDisablesCards(t *testing.T) {
 	plainOn := &tuiModel{cfg: replConfig{plain: true}}
 	if plainOn.rendersCard("edit_file") {
 		t.Error("with --plain on, no tool should render as a card")
+	}
+	// terminal_output is now a card tool.
+	if !plainOff.rendersCard("terminal_output") {
+		t.Error("with --plain off, terminal_output should render as a card")
 	}
 	// A non-card tool is never a card regardless of --plain.
 	if plainOff.rendersCard("sub_agent") {
