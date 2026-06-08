@@ -183,7 +183,7 @@ octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatabl
 | Skills | done | Claude Code-compatible SKILL.md loader (`--list-skills`, `/skills`, `/<name>`) |
 | Sandbox | done | OS-enforced `--sandbox` (macOS / Linux) |
 | MCP client | done | `mcp.json` stdio + Streamable HTTP servers, tools/resources/prompts, device-flow OAuth |
-| Memory | done | Persistent cross-session memory under `~/.octo/memory/`, auto extract/consolidate |
+| Memory | done | Persistent cross-session memory under `~/.octo/memories/`, auto extract/consolidate |
 | Sub-agents | done | `launch_agent` fan-out, async + resumable (`send_message`, `agent_status`, `kill_agent`) |
 | Orchestration | done | `octo conduct` — plan a goal into a subtask DAG, run it via sub-agents, resume after crash |
 | Web server | done | `octo serve` — REST + SSE, embedded dashboard UI (bind localhost) |

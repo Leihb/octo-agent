@@ -13,7 +13,7 @@ separate and described in `identity-files-design.md`.
 ## Layout
 
 ```
-~/.octo/memory/<repo-slug>/
+~/.octo/memories/<repo-slug>/
   MEMORY.md      index, injected into the system prompt every session
   <topic>.md     detail files the agent creates and reads on demand
 ```

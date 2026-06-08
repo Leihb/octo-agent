@@ -16,7 +16,7 @@
 | 内置工具集 | terminal、read/write/edit_file、glob、grep、web_fetch/search |
 | Agentic Loop | 多轮工具调用、权限 gate、历史压缩、Ctrl-C 优雅中断 |
 | MCP Client | stdio + Streamable HTTP、OAuth Device Flow |
-| 跨会话记忆 | `~/.octo/memory/`、自动提取/合并、memory nudge |
+| 跨会话记忆 | `~/.octo/memories/`、自动提取/合并、memory nudge |
 | Skills | Claude Code 格式 SKILL.md、默认 skills 嵌入 + materialize |
 | Sandbox | macOS Seatbelt / Linux Landlock + seccomp |
 | Sub-agent (`sub_agent`) | 统一工具（fork / fresh / background）、异步通知 |

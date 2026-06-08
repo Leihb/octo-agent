@@ -16,8 +16,8 @@ func TestDir_PerRepoUnderHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(d, filepath.Join(home, ".octo", "memory")) {
-		t.Errorf("dir %q not under ~/.octo/memory", d)
+	if !strings.HasPrefix(d, filepath.Join(home, ".octo", "memories")) {
+		t.Errorf("dir %q not under ~/.octo/memories", d)
 	}
 	if !strings.Contains(filepath.Base(d), "myrepo") {
 		t.Errorf("dir slug %q should carry the repo basename", filepath.Base(d))
@@ -81,7 +81,7 @@ func TestIsMemoryPath(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
-	prefix := filepath.Join(home, ".octo", "memory", "some-repo")
+	prefix := filepath.Join(home, ".octo", "memories", "some-repo")
 
 	cases := []struct {
 		path string
@@ -91,7 +91,7 @@ func TestIsMemoryPath(t *testing.T) {
 		{filepath.Join(prefix, "preferences.md"), true},
 		{filepath.Join(prefix, "deep", "nested.md"), true},
 		{filepath.Join(home, ".octo", "config.yaml"), false},
-		{filepath.Join(home, ".octo", "memory-stuff.md"), false}, // not under memory/
+		{filepath.Join(home, ".octo", "memory-stuff.md"), false}, // not under memories/
 		{"/etc/passwd", false},
 		{"", false},
 	}

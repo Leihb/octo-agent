@@ -129,7 +129,7 @@ func TestDefaultRules_WriteFileSensitive(t *testing.T) {
 }
 
 func TestExtraWriteRoots_AllowedOutsideCWD(t *testing.T) {
-	memDir := "/home/user/.octo/memory/myrepo-deadbeef"
+	memDir := "/home/user/.octo/memories/myrepo-deadbeef"
 	e, err := New("", "/work", ModeInteractive, memDir)
 	if err != nil {
 		t.Fatal(err)

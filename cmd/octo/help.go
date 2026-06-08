@@ -179,8 +179,8 @@ Commands:
   octo memory path     Print the project's memory directory
 
 Layout:
-  ~/.octo/memory/<repo-slug>/MEMORY.md   Index, injected every session
-  ~/.octo/memory/<repo-slug>/<topic>.md  Detail files the agent reads on demand
+  ~/.octo/memories/<repo-slug>/MEMORY.md   Index, injected every session
+  ~/.octo/memories/<repo-slug>/<topic>.md  Detail files the agent reads on demand
 
 The directory is keyed by git repo root, so each project has its own memory.
 To disable memory injection for a single session, run "octo chat --no-memory".`)

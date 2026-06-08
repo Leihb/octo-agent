@@ -1,7 +1,7 @@
 // Package memory implements octo's cross-session memory as plain markdown
 // files the agent manages with its own file tools — the Claude Code model.
 //
-// Layout: ~/.octo/memory/<repo-slug>/
+// Layout: ~/.octo/memories/<repo-slug>/
 //   - MEMORY.md      the index, loaded into the system prompt each session
 //     (first maxInjectLines lines / maxInjectBytes, whichever
 //     comes first)
@@ -48,13 +48,13 @@ func ProjectRoot(dir string) string {
 	return dir
 }
 
-// Dir returns the memory directory for repoRoot: ~/.octo/memory/<repo-slug>.
+// Dir returns the memory directory for repoRoot: ~/.octo/memories/<repo-slug>.
 func Dir(repoRoot string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return "", fmt.Errorf("memory: cannot resolve home dir: %w", err)
 	}
-	return filepath.Join(home, ".octo", "memory", repoSlug(repoRoot)), nil
+	return filepath.Join(home, ".octo", "memories", repoSlug(repoRoot)), nil
 }
 
 // repoSlug derives a stable, human-readable directory name from a repo root:
@@ -122,14 +122,14 @@ func RenderInjection(dir string) string {
 }
 
 // IsMemoryPath reports whether absPath is inside the per-repo memory
-// directory (~/.octo/memory/<repo-slug>/). Used by the file tools to
+// directory (~/.octo/memories/<repo-slug>/). Used by the file tools to
 // emit friendlier output when the agent reads or writes its own notes.
 func IsMemoryPath(absPath string) bool {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return false
 	}
-	prefix := filepath.Join(home, ".octo", "memory")
+	prefix := filepath.Join(home, ".octo", "memories")
 	return strings.HasPrefix(absPath, prefix+string(filepath.Separator))
 }
 
