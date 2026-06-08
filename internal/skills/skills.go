@@ -23,6 +23,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Leihb/octo-agent/internal/trash"
 	"gopkg.in/yaml.v3"
 )
 
@@ -303,10 +304,11 @@ func (r *Registry) Delete(name string) error {
 	delete(r.skills, name)
 	delete(r.disabled, name)
 
-	// Remove the on-disk directory
+	// Move to trash before permanently deleting.
 	if s.Dir != "" {
-		if err := os.RemoveAll(s.Dir); err != nil {
-			return fmt.Errorf("remove skill directory %s: %w", s.Dir, err)
+		projDir := filepath.Dir(s.Dir)
+		if err := trash.Move(s.Dir, projDir); err != nil {
+			return fmt.Errorf("trash skill directory %s: %w", s.Dir, err)
 		}
 	}
 	return nil

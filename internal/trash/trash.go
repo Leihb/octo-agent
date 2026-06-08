@@ -38,13 +38,22 @@ func Dir() string {
 	return filepath.Join(home, ".octo", "trash")
 }
 
-// Move moves a file to the trash, preserving its original path for later
-// restoration. It creates the project subdirectory under the trash root,
-// copies the file there, and writes a .meta.json sidecar. On success the
-// original file is removed.
+// ProjectDir returns the per-project trash subdirectory for projectDir.
+func ProjectDir(projectDir string) string {
+	return filepath.Join(Dir(), hashProject(projectDir))
+}
+
+// Move moves a file or directory to the trash, preserving its original path for
+// later restoration. It creates the project subdirectory under the trash root,
+// copies the item there, and writes a .meta.json sidecar. On success the
+// original is removed.
 func Move(originalPath, projectDir string) error {
-	if _, err := os.Stat(originalPath); os.IsNotExist(err) {
-		return fmt.Errorf("file not found: %s", originalPath)
+	fi, err := os.Stat(originalPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", originalPath)
+		}
+		return err
 	}
 
 	trashRoot := Dir()
@@ -61,23 +70,36 @@ func Move(originalPath, projectDir string) error {
 	trashPath := filepath.Join(targetDir, trashName)
 
 	// Copy.
-	if err := copyFile(originalPath, trashPath); err != nil {
-		return err
+	if fi.IsDir() {
+		if err := copyDir(originalPath, trashPath); err != nil {
+			return err
+		}
+	} else {
+		if err := copyFile(originalPath, trashPath); err != nil {
+			return err
+		}
 	}
 
 	// Write meta.
-	meta := meta{
+	m := meta{
 		Original:  originalPath,
 		DeletedAt: time.Now().UTC().Format(time.RFC3339),
 		Project:   projectDir,
 	}
-	metaData, _ := json.MarshalIndent(meta, "", "  ")
+	metaData, _ := json.MarshalIndent(m, "", "  ")
 	if err := os.WriteFile(trashPath+".meta.json", metaData, 0600); err != nil {
-		os.Remove(trashPath)
+		if fi.IsDir() {
+			os.RemoveAll(trashPath)
+		} else {
+			os.Remove(trashPath)
+		}
 		return err
 	}
 
 	// Remove original.
+	if fi.IsDir() {
+		return os.RemoveAll(originalPath)
+	}
 	return os.Remove(originalPath)
 }
 
@@ -128,7 +150,7 @@ func List() ([]Entry, error) {
 			continue
 		}
 		for _, f := range files {
-			if f.IsDir() || strings.HasSuffix(f.Name(), ".meta.json") {
+			if strings.HasSuffix(f.Name(), ".meta.json") {
 				continue
 			}
 			trashPath := filepath.Join(projDir, f.Name())
@@ -137,10 +159,13 @@ func List() ([]Entry, error) {
 			if err != nil {
 				continue
 			}
-			info, _ := f.Info()
 			size := int64(0)
-			if info != nil {
-				size = info.Size()
+			if info, err := os.Stat(trashPath); err == nil {
+				if info.IsDir() {
+					size = dirSize(trashPath)
+				} else {
+					size = info.Size()
+				}
 			}
 			entries = append(entries, Entry{
 				ID:        filepath.Base(trashPath),
@@ -185,7 +210,11 @@ func Empty(mode string) (int, int64, error) {
 			}
 		}
 		if remove {
-			os.Remove(e.TrashPath)
+			if info, err := os.Stat(e.TrashPath); err == nil && info.IsDir() {
+				os.RemoveAll(e.TrashPath)
+			} else {
+				os.Remove(e.TrashPath)
+			}
 			os.Remove(e.TrashPath + ".meta.json")
 			count++
 			freed += e.Size
@@ -216,6 +245,34 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		dstPath := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+		return copyFile(path, dstPath)
+	})
+}
+
+func dirSize(dir string) int64 {
+	var total int64
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
 }
 
 func readMeta(path string) (meta, error) {
