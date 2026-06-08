@@ -254,6 +254,7 @@ const Sessions = (() => {
   // faster than scrollTop can catch up, incorrectly triggering the "not at bottom" check.
 
   let _userScrolledUp = false;  // true if user manually scrolled away from bottom
+  let _scrollRafPending = false;
 
   function _isAtBottom(container) {
     if (!container) return false;
@@ -266,8 +267,17 @@ const Sessions = (() => {
     // Only auto-scroll if user hasn't manually scrolled up
     // Once they scroll up, stop auto-scrolling until they scroll back to bottom themselves
     if (!_userScrolledUp) {
-      container.scrollTop = container.scrollHeight;
-      _hideNewMessageBanner();
+      // Defer scroll to next animation frame so the browser has completed
+      // layout for newly-inserted content (prevents partial occlusion when
+      // scrollHeight is read before reflow).
+      if (!_scrollRafPending) {
+        _scrollRafPending = true;
+        requestAnimationFrame(() => {
+          _scrollRafPending = false;
+          container.scrollTop = container.scrollHeight;
+          _hideNewMessageBanner();
+        });
+      }
     } else {
       _showNewMessageBanner();
     }
@@ -2902,7 +2912,14 @@ const Sessions = (() => {
       }
 
       const bar = $("session-info-bar");
-      if (bar) bar.style.display = "flex";
+      if (bar) {
+        const wasHidden = bar.style.display === "none";
+        bar.style.display = "flex";
+        if (wasHidden) {
+          const messages = $("messages");
+          _scrollToBottomIfNeeded(messages);
+        }
+      }
     },
 
     /** Render the 4-bar latency signal next to the model name in the status bar.
@@ -3216,10 +3233,9 @@ const Sessions = (() => {
       // User messages: force scroll to bottom (user just sent a message)
       // Assistant/info: conditional scroll (preserve position if user is viewing history)
       if (type === "user") {
-        messages.scrollTop = messages.scrollHeight;
-      } else {
-        _scrollToBottomIfNeeded(messages);
+        _userScrolledUp = false; // reset so new user message is always visible
       }
+      _scrollToBottomIfNeeded(messages);
     },
 
     appendInfo(text, subline) {
