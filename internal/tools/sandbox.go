@@ -2,11 +2,14 @@ package tools
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"sync"
 
 	"github.com/Leihb/octo-agent/internal/sandbox"
+	"github.com/Leihb/octo-agent/internal/trash"
 )
 
 // activeSandbox, when non-nil, confines every terminal command (foreground and
@@ -26,6 +29,37 @@ func NetworkAllowed() bool {
 	}
 	return activeSandbox.AllowNetwork
 }
+
+// safeRmWrapper is injected before every POSIX shell command so that direct
+// `rm` invocations move files to the project-scoped trash instead of
+// permanently deleting them.  It reads $OCTO_TRASH_DIR (set by shellCommand)
+// and writes .meta.json sidecars compatible with the trash package.
+const safeRmWrapper = `__octo_safe_rm() {
+  local _trash_dir="$OCTO_TRASH_DIR"
+  [ -z "$_trash_dir" ] && return
+  local _arg
+  for _arg in "$@"; do
+    case "$_arg" in -*) continue ;; esac
+    if [ -e "$_arg" ] || [ -L "$_arg" ]; then
+      local _ts _base _dest _orig
+      _ts=$(date +%%Y%%m%%d-%%H%%M%%S)
+      _base=$(basename "$_arg")
+      _dest="$_trash_dir/${_ts}_${_base}"
+      _orig="$_arg"
+      case "$_orig" in /*) ;; *) _orig="$PWD/$_orig" ;; esac
+      mkdir -p "$_trash_dir"
+      cp -r "$PWD/$_arg" "$_dest" 2>/dev/null || continue
+      printf '{"original":"%%s","deleted_at":"%%s","project":"%%s"}\n' \
+        "$(printf '%%s' "$_orig" | sed 's/\\/\\\\/g; s/"/\\"/g')" \
+        "$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)" \
+        "$(printf '%%s' "$PWD" | sed 's/\\/\\\\/g; s/"/\\"/g')" \
+        > "$_dest.meta.json"
+    fi
+  done
+}
+rm() { __octo_safe_rm "$@"; command rm "$@"; }
+%s
+`
 
 // shellCommand builds the *exec.Cmd that runs `command` via the shell, wrapped
 // in the active sandbox when one is set. Both TerminalTool and the background
@@ -47,7 +81,18 @@ func shellCommand(ctx context.Context, command string) (*exec.Cmd, error) {
 		// -NonInteractive: never block on a PowerShell prompt mid-command.
 		cmd = exec.CommandContext(ctx, resolvePowerShell(), "-NoProfile", "-NonInteractive", "-Command", command)
 	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+		projectDir := WorkingDir(ctx)
+		if projectDir == "" {
+			projectDir, _ = os.Getwd()
+		}
+		if projectDir != "" {
+			trashDir := trash.ProjectDir(projectDir)
+			wrapped := fmt.Sprintf(safeRmWrapper, command)
+			cmd = exec.CommandContext(ctx, "sh", "-c", wrapped)
+			cmd.Env = append(os.Environ(), "OCTO_TRASH_DIR="+trashDir)
+		} else {
+			cmd = exec.CommandContext(ctx, "sh", "-c", command)
+		}
 	}
 	if attr := setProcessGroupOpts(); attr != nil {
 		cmd.SysProcAttr = attr

@@ -26,8 +26,8 @@ func TestShellCommand_PlatformShell(t *testing.T) {
 			t.Errorf("windows shell should be pwsh/powershell, got %q", args[0])
 		}
 	} else {
-		if len(args) != 3 || args[0] != "sh" || args[1] != "-c" || args[2] != "echo hi" {
-			t.Errorf("posix shell should be [sh -c \"echo hi\"], got %v", args)
+		if len(args) != 3 || args[0] != "sh" || args[1] != "-c" || !strings.Contains(args[2], "echo hi") {
+			t.Errorf("posix shell should be [sh -c ...echo hi...], got %v", args)
 		}
 	}
 }
