@@ -596,6 +596,110 @@ func TestHandleVersionUpgrade(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateSessionReasoningEffort(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	sess := agent.NewSession("stub-model", "")
+	if err := sess.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+
+	payload, _ := json.Marshal(updateSessionReasoningEffortRequest{ReasoningEffort: "high"})
+	req := httptest.NewRequest(http.MethodPatch, "/api/sessions/"+sess.ID+"/reasoning_effort?access_key="+srv.AccessKey(), bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["ok"] != true {
+		t.Fatalf("ok = %v, want true", body["ok"])
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ReasoningEffort != "high" {
+		t.Fatalf("reasoning_effort = %q, want high", cfg.ReasoningEffort)
+	}
+}
+
+func TestHandleUpdateSessionWorkingDir(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	sess := agent.NewSession("stub-model", "")
+	if err := sess.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+
+	payload, _ := json.Marshal(updateSessionWorkingDirRequest{WorkingDir: tmp})
+	req := httptest.NewRequest(http.MethodPatch, "/api/sessions/"+sess.ID+"/working_dir?access_key="+srv.AccessKey(), bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["ok"] != true {
+		t.Fatalf("ok = %v, want true", body["ok"])
+	}
+	if srv.cwd != tmp {
+		t.Fatalf("server cwd = %q, want %q", srv.cwd, tmp)
+	}
+}
+
+func TestHandleUpdateSessionModel(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	sess := agent.NewSession("stub-model", "")
+	if err := sess.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+
+	payload, _ := json.Marshal(updateSessionModelRequest{ModelID: "kimi-for-coding"})
+	req := httptest.NewRequest(http.MethodPatch, "/api/sessions/"+sess.ID+"/model?access_key="+srv.AccessKey(), bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["ok"] != true {
+		t.Fatalf("ok = %v, want true", body["ok"])
+	}
+	if srv.model != "kimi-for-coding" {
+		t.Fatalf("server model = %q, want kimi-for-coding", srv.model)
+	}
+}
+
 // TestRunTurnForwardsTools is the regression guard for the web-UI bug where the
 // server's sender only implemented the base Sender, so the agent loop fell back
 // to a tool-less Turn and every tool (web_search included) vanished.

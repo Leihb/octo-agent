@@ -664,3 +664,144 @@ func (s *Server) handleFileAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "unknown action")
 	}
 }
+
+// ─── PATCH /api/sessions/{id}/model ─────────────────────────────────────────
+
+type updateSessionModelRequest struct {
+	ModelID string `json:"model_id"`
+}
+
+// handleUpdateSessionModel updates the active model for the server's default
+// model config. The Web UI treats this as a per-session action (the user clicks
+// the model name in the session info bar), but the Go rewrite currently uses a
+// single global model configuration, so the change applies to all future turns.
+func (s *Server) handleUpdateSessionModel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing session id")
+		return
+	}
+
+	var req updateSessionModelRequest
+	if err := readBodyJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.ModelID == "" {
+		writeError(w, http.StatusBadRequest, "model_id is required")
+		return
+	}
+
+	cfg, _ := config.Load()
+	// Single-model system: model_id is the new default model name unless it
+	// matches the stable "default" id we expose in /api/config.
+	if req.ModelID != "default" {
+		cfg.Model = req.ModelID
+	} else if cfg.Model == "" {
+		// Edge case: frontend selected "default" but no model is configured.
+		writeError(w, http.StatusBadRequest, "no default model configured")
+		return
+	}
+
+	if err := cfg.Save(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
+		return
+	}
+
+	// Update the runtime default so the next agent turn uses the new model.
+	s.model = cfg.Model
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"model":    cfg.Model,
+		"model_id": req.ModelID,
+	})
+}
+
+// ─── PATCH /api/sessions/{id}/reasoning_effort ──────────────────────────────
+
+type updateSessionReasoningEffortRequest struct {
+	ReasoningEffort string `json:"reasoning_effort"`
+}
+
+// handleUpdateSessionReasoningEffort updates the global reasoning-effort tuning.
+// Valid levels: "off", "low", "medium", "high". Empty is normalised to "off".
+func (s *Server) handleUpdateSessionReasoningEffort(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing session id")
+		return
+	}
+
+	var req updateSessionReasoningEffortRequest
+	if err := readBodyJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	level := strings.ToLower(req.ReasoningEffort)
+	if level == "" {
+		level = "off"
+	}
+	if level != "off" && level != "low" && level != "medium" && level != "high" {
+		writeError(w, http.StatusBadRequest, "reasoning_effort must be off, low, medium, or high")
+		return
+	}
+
+	cfg, _ := config.Load()
+	cfg.ReasoningEffort = level
+	if err := cfg.Save(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":               true,
+		"reasoning_effort": level,
+	})
+}
+
+// ─── PATCH /api/sessions/{id}/working_dir ───────────────────────────────────
+
+type updateSessionWorkingDirRequest struct {
+	WorkingDir string `json:"working_dir"`
+}
+
+// handleUpdateSessionWorkingDir updates the server's working directory. The Web
+// UI exposes this in the session info bar; changing it affects the system
+// prompt, skill discovery, and tool cwd for future turns.
+func (s *Server) handleUpdateSessionWorkingDir(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing session id")
+		return
+	}
+
+	var req updateSessionWorkingDirRequest
+	if err := readBodyJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.WorkingDir == "" {
+		writeError(w, http.StatusBadRequest, "working_dir is required")
+		return
+	}
+
+	info, err := os.Stat(req.WorkingDir)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid working_dir: %v", err))
+		return
+	}
+	if !info.IsDir() {
+		writeError(w, http.StatusBadRequest, "working_dir is not a directory")
+		return
+	}
+
+	s.cwd = req.WorkingDir
+	s.envCtx = buildEnvContext(s.cwd)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":          true,
+		"working_dir": s.cwd,
+	})
+}
