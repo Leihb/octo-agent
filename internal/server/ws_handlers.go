@@ -28,17 +28,22 @@ func (s *Server) listSessionsBrief() []wsSessionInfo {
 	if err != nil {
 		return nil
 	}
+	wd, pm, re, ctxUsage := s.sessionStatusFields()
 	out := make([]wsSessionInfo, 0, len(sessions))
 	for _, sess := range sessions {
 		source := "manual"
 		out = append(out, wsSessionInfo{
-			ID:         sess.ID,
-			Name:       sess.DisplayTitle(),
-			Status:     "idle",
-			CreatedAt:  sess.CreatedAt.UnixMilli(),
-			Source:     source,
-			Model:      sess.Model,
-			TotalTurns: sess.TurnCount(),
+			ID:              sess.ID,
+			Name:            sess.DisplayTitle(),
+			Status:          "idle",
+			CreatedAt:       sess.CreatedAt.UnixMilli(),
+			Source:          source,
+			Model:           sess.Model,
+			TotalTurns:      sess.TurnCount(),
+			WorkingDir:      wd,
+			PermissionMode:  pm,
+			ReasoningEffort: re,
+			ContextUsage:    ctxUsage,
 		})
 	}
 	return out
@@ -366,11 +371,15 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string) {
 			// so turn_done + assistant_message were broadcast by the handler.
 			// Nothing more for the reply itself.
 		} else {
+			wd, pm, re, _ := s.sessionStatusFields()
 			sw.error(err.Error())
 			s.wsHub.broadcast(sess.ID, map[string]any{
-				"type":       "session_update",
-				"session_id": sess.ID,
-				"status":     "idle",
+				"type":             "session_update",
+				"session_id":       sess.ID,
+				"status":           "idle",
+				"working_dir":      wd,
+				"permission_mode":  pm,
+				"reasoning_effort": re,
 			})
 			return
 		}
@@ -414,11 +423,15 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string) {
 			ctxPct = 100
 		}
 	}
+	wd, pm, re, _ := s.sessionStatusFields()
 	s.wsHub.broadcast(sess.ID, map[string]any{
-		"type":          "session_update",
-		"session_id":    sess.ID,
-		"status":        "idle",
-		"context_usage": ctxPct,
+		"type":             "session_update",
+		"session_id":       sess.ID,
+		"status":           "idle",
+		"context_usage":    ctxPct,
+		"working_dir":      wd,
+		"permission_mode":  pm,
+		"reasoning_effort": re,
 	})
 }
 

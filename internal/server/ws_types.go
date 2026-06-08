@@ -73,13 +73,17 @@ type wsEventSessionList struct {
 }
 
 type wsSessionInfo struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Status     string `json:"status,omitempty"` // "idle" | "working"
-	CreatedAt  int64  `json:"created_at"`       // unix ms
-	Source     string `json:"source,omitempty"` // "manual" | "cron" | "channel" | "setup"
-	Model      string `json:"model,omitempty"`
-	TotalTurns int    `json:"total_turns,omitempty"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Status          string `json:"status,omitempty"` // "idle" | "working"
+	CreatedAt       int64  `json:"created_at"`       // unix ms
+	Source          string `json:"source,omitempty"` // "manual" | "cron" | "channel" | "setup"
+	Model           string `json:"model,omitempty"`
+	TotalTurns      int    `json:"total_turns,omitempty"`
+	WorkingDir      string `json:"working_dir,omitempty"`
+	PermissionMode  string `json:"permission_mode,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	ContextUsage    int    `json:"context_usage,omitempty"`
 }
 
 type wsEventHistoryUserMessage struct {
@@ -142,11 +146,14 @@ type wsEventComplete struct {
 }
 
 type wsEventSessionUpdate struct {
-	Type         string  `json:"type"`
-	Status       string  `json:"status,omitempty"`
-	Tasks        int     `json:"tasks,omitempty"`
-	Latency      float64 `json:"latency,omitempty"`
-	ContextUsage int     `json:"context_usage,omitempty"` // 0–100 context window %
+	Type            string  `json:"type"`
+	Status          string  `json:"status,omitempty"`
+	Tasks           int     `json:"tasks,omitempty"`
+	Latency         float64 `json:"latency,omitempty"`
+	ContextUsage    int     `json:"context_usage,omitempty"` // 0–100 context window %
+	WorkingDir      string  `json:"working_dir,omitempty"`
+	PermissionMode  string  `json:"permission_mode,omitempty"`
+	ReasoningEffort string  `json:"reasoning_effort,omitempty"`
 }
 
 type wsEventTodoUpdate struct {

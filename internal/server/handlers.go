@@ -40,19 +40,23 @@ type turnRequest struct {
 // sessionItem is the shape the Web UI expects for each session in listings
 // and after creation. It is a superset of the raw agent.Session fields.
 type sessionItem struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Title        string    `json:"title"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Model        string    `json:"model"`
-	ModelID      string    `json:"model_id,omitempty"`
-	Status       string    `json:"status"`
-	Source       string    `json:"source"`
-	AgentProfile string    `json:"agent_profile"`
-	Pinned       bool      `json:"pinned"`
-	TotalTasks   int       `json:"total_tasks"`
-	TurnCount    int       `json:"turn_count"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Title           string    `json:"title"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	Model           string    `json:"model"`
+	ModelID         string    `json:"model_id,omitempty"`
+	Status          string    `json:"status"`
+	Source          string    `json:"source"`
+	AgentProfile    string    `json:"agent_profile"`
+	Pinned          bool      `json:"pinned"`
+	TotalTasks      int       `json:"total_tasks"`
+	TurnCount       int       `json:"turn_count"`
+	WorkingDir      string    `json:"working_dir,omitempty"`
+	PermissionMode  string    `json:"permission_mode,omitempty"`
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	ContextUsage    int       `json:"context_usage,omitempty"`
 }
 
 type sessionDetail struct {
@@ -78,7 +82,7 @@ type sessionCreateRequest struct {
 }
 
 // toSessionItem builds a frontend-friendly session descriptor.
-func toSessionItem(s *agent.Session, source, agentProfile string) sessionItem {
+func (srv *Server) toSessionItem(s *agent.Session, source, agentProfile string) sessionItem {
 	updated := s.CreatedAt
 	if p, err := s.SavePath(); err == nil {
 		if st, err := os.Stat(p); err == nil {
@@ -89,20 +93,38 @@ func toSessionItem(s *agent.Session, source, agentProfile string) sessionItem {
 	if name == "" {
 		name = s.DisplayTitle()
 	}
+	wd, pm, re, ctxUsage := srv.sessionStatusFields()
 	return sessionItem{
-		ID:           s.ID,
-		Name:         name,
-		Title:        s.Title,
-		CreatedAt:    s.CreatedAt,
-		UpdatedAt:    updated,
-		Model:        s.Model,
-		Status:       "idle",
-		Source:       source,
-		AgentProfile: agentProfile,
-		Pinned:       false,
-		TotalTasks:   0,
-		TurnCount:    s.TurnCount(),
+		ID:              s.ID,
+		Name:            name,
+		Title:           s.Title,
+		CreatedAt:       s.CreatedAt,
+		UpdatedAt:       updated,
+		Model:           s.Model,
+		Status:          "idle",
+		Source:          source,
+		AgentProfile:    agentProfile,
+		Pinned:          false,
+		TotalTasks:      0,
+		TurnCount:       s.TurnCount(),
+		WorkingDir:      wd,
+		PermissionMode:  pm,
+		ReasoningEffort: re,
+		ContextUsage:    ctxUsage,
 	}
+}
+
+// sessionStatusFields returns the server-level session metadata that is shared
+// across all sessions (cwd, permission mode, reasoning effort, current context
+// usage). The Web UI mirrors the CLI bottom status bar, so these values are
+// surfaced on every session descriptor.
+func (srv *Server) sessionStatusFields() (workingDir, permissionMode, reasoningEffort string, contextUsage int) {
+	workingDir = srv.cwd
+	permissionMode = string(resolvePermissionMode())
+	if cfg, err := config.Load(); err == nil {
+		reasoningEffort = cfg.ReasoningEffort
+	}
+	return workingDir, permissionMode, reasoningEffort, 0
 }
 
 type toolInfo struct {
@@ -237,7 +259,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	for _, sess := range sessions {
 		// Source and agent_profile are not persisted on the session itself in
 		// the Go rewrite; default to "manual" / "general" so the UI renders.
-		item := toSessionItem(sess, "manual", "general")
+		item := s.toSessionItem(sess, "manual", "general")
 		out = append(out, item)
 		if item.Source == "cron" {
 			cronCount++
@@ -292,7 +314,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"session": toSessionItem(sess, source, agentProfile)})
+	writeJSON(w, http.StatusOK, map[string]any{"session": s.toSessionItem(sess, source, agentProfile)})
 }
 
 // ─── GET /api/sessions/:id/messages ─────────────────────────────────────────

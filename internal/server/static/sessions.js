@@ -2887,13 +2887,22 @@ const Sessions = (() => {
       if (sibReasoningWrap) sibReasoningWrap.style.display = "";
       if (sibSepAfterReasoning) sibSepAfterReasoning.style.display = "";
 
-      // Working dir — show full path
+      // Working dir — show full path, hide entirely if empty
       const sibDir = $("sib-dir");
-      if (sibDir && s.working_dir) {
-        sibDir.textContent = s.working_dir;
-        sibDir.title = `${s.working_dir} (${I18n.t("sib.dir.tooltip")})`;
-        sibDir.dataset.workingDir = s.working_dir;
-        sibDir.dataset.sessionId = s.id;
+      const sibSepAfterDir = document.querySelector(".sib-sep-after-dir");
+      if (sibDir) {
+        if (s.working_dir) {
+          sibDir.textContent = s.working_dir;
+          sibDir.title = `${s.working_dir} (${I18n.t("sib.dir.tooltip")})`;
+          sibDir.dataset.workingDir = s.working_dir;
+          sibDir.dataset.sessionId = s.id;
+          sibDir.style.display = "";
+          if (sibSepAfterDir) sibSepAfterDir.style.display = "";
+        } else {
+          sibDir.textContent = "";
+          sibDir.style.display = "none";
+          if (sibSepAfterDir) sibSepAfterDir.style.display = "none";
+        }
       }
 
       // Context usage — hide if 0 or missing

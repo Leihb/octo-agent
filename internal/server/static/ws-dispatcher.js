@@ -119,6 +119,9 @@ WS.onEvent(ev => {
         // list returns, so updateInfoBar doesn't need to branch on the source.
         if (ev.latency !== undefined) patch.latest_latency = ev.latency;
         if (ev.context_usage !== undefined) patch.context_usage = ev.context_usage;
+        if (ev.working_dir !== undefined) patch.working_dir = ev.working_dir;
+        if (ev.permission_mode !== undefined) patch.permission_mode = ev.permission_mode;
+        if (ev.reasoning_effort !== undefined) patch.reasoning_effort = ev.reasoning_effort;
       }
       if (!sid) break;
       Sessions.patch(sid, patch);
