@@ -406,10 +406,19 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string) {
 		"iterations": 1,
 	})
 
+	used, window := a.ContextUsage()
+	ctxPct := 0
+	if window > 0 {
+		ctxPct = used * 100 / window
+		if ctxPct > 100 {
+			ctxPct = 100
+		}
+	}
 	s.wsHub.broadcast(sess.ID, map[string]any{
-		"type":       "session_update",
-		"session_id": sess.ID,
-		"status":     "idle",
+		"type":           "session_update",
+		"session_id":     sess.ID,
+		"status":         "idle",
+		"context_usage":  ctxPct,
 	})
 }
 

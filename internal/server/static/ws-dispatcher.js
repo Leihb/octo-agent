@@ -118,6 +118,7 @@ WS.onEvent(ev => {
         // Stored under latest_latency — same field name the HTTP /api/sessions
         // list returns, so updateInfoBar doesn't need to branch on the source.
         if (ev.latency !== undefined) patch.latest_latency = ev.latency;
+        if (ev.context_usage !== undefined) patch.context_usage = ev.context_usage;
       }
       if (!sid) break;
       Sessions.patch(sid, patch);

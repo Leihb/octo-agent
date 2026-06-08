@@ -142,10 +142,11 @@ type wsEventComplete struct {
 }
 
 type wsEventSessionUpdate struct {
-	Type    string  `json:"type"`
-	Status  string  `json:"status,omitempty"`
-	Tasks   int     `json:"tasks,omitempty"`
-	Latency float64 `json:"latency,omitempty"`
+	Type         string  `json:"type"`
+	Status       string  `json:"status,omitempty"`
+	Tasks        int     `json:"tasks,omitempty"`
+	Latency      float64 `json:"latency,omitempty"`
+	ContextUsage int     `json:"context_usage,omitempty"` // 0–100 context window %
 }
 
 type wsEventTodoUpdate struct {

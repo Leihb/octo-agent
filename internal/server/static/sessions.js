@@ -2851,7 +2851,7 @@ const Sessions = (() => {
       this._lastSession = s;
       if (!s) {
         // Hide all spans when no session
-        ["sib-dir", "sib-mode", "sib-model", "sib-reasoning"].forEach(id => {
+        ["sib-dir", "sib-mode", "sib-model", "sib-reasoning", "sib-ctx"].forEach(id => {
           const el = $(id); if (el) el.textContent = "";
         });
         const bar = $("session-info-bar");
@@ -2894,6 +2894,18 @@ const Sessions = (() => {
         sibDir.title = `${s.working_dir} (${I18n.t("sib.dir.tooltip")})`;
         sibDir.dataset.workingDir = s.working_dir;
         sibDir.dataset.sessionId = s.id;
+      }
+
+      // Context usage — hide if 0 or missing
+      const sibCtx = $("sib-ctx");
+      const sibSepAfterCtx = document.querySelector(".sib-sep-after-ctx");
+      if (sibCtx) {
+        const ctxPct = s.context_usage || 0;
+        sibCtx.textContent = ctxPct > 0 ? `ctx ${ctxPct}%` : "";
+        sibCtx.style.display = ctxPct > 0 ? "" : "none";
+      }
+      if (sibSepAfterCtx) {
+        sibSepAfterCtx.style.display = (s.context_usage || 0) > 0 ? "" : "none";
       }
 
       // Permission mode — hide element if empty
