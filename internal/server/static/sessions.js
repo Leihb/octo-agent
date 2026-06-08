@@ -2851,42 +2851,12 @@ const Sessions = (() => {
       this._lastSession = s;
       if (!s) {
         // Hide all spans when no session
-        ["sib-id", "sib-dir", "sib-mode", "sib-model", "sib-reasoning"].forEach(id => {
+        ["sib-dir", "sib-mode", "sib-model", "sib-reasoning"].forEach(id => {
           const el = $(id); if (el) el.textContent = "";
         });
-        const sibIdEl = $("sib-id");
-        if (sibIdEl) delete sibIdEl.dataset.sessionId;
         const bar = $("session-info-bar");
         if (bar) bar.style.display = "none";
         return;
-      }
-
-      // Session ID (short — first 8 chars).
-      const sibId = $("sib-id");
-      if (sibId) {
-        sibId.textContent = s.id ? s.id.slice(0, 8) : "";
-        sibId.title = s.id || "";
-        if (s.id) {
-          sibId.dataset.sessionId = s.id;
-        } else {
-          delete sibId.dataset.sessionId;
-        }
-      }
-
-      // Working dir — show full path
-      const sibDir = $("sib-dir");
-      if (sibDir && s.working_dir) {
-        sibDir.textContent = s.working_dir;
-        sibDir.title = `${s.working_dir} (${I18n.t("sib.dir.tooltip")})`;
-        sibDir.dataset.workingDir = s.working_dir;
-        sibDir.dataset.sessionId = s.id;
-      }
-
-      // Permission mode — hide element if empty
-      const sibMode = $("sib-mode");
-      if (sibMode) {
-        sibMode.textContent = s.permission_mode || "";
-        sibMode.style.display = s.permission_mode ? "" : "none";
       }
 
       // Model — hide wrap entirely if empty
@@ -2904,6 +2874,7 @@ const Sessions = (() => {
       }
       if (sibModelWrap) sibModelWrap.style.display = s.model ? "" : "none";
 
+      // Reasoning effort
       const sibReasoning = $("sib-reasoning");
       const sibReasoningWrap = $("sib-reasoning-wrap");
       const sibSepAfterReasoning = document.querySelector(".sib-sep-after-reasoning");
@@ -2916,12 +2887,21 @@ const Sessions = (() => {
       if (sibReasoningWrap) sibReasoningWrap.style.display = "";
       if (sibSepAfterReasoning) sibSepAfterReasoning.style.display = "";
 
-      // Latency signal — read from s.latest_latency (populated by:
-      //   - HTTP /api/sessions → session_registry#list (from agent.latest_latency)
-      //   - WS session_update events patched by app.js
-      // Hidden entirely when no latency recorded yet (fresh session, or old
-      // pre-feature sessions that have never made an LLM call this run).
-      this._renderSignal(s.latest_latency);
+      // Working dir — show full path
+      const sibDir = $("sib-dir");
+      if (sibDir && s.working_dir) {
+        sibDir.textContent = s.working_dir;
+        sibDir.title = `${s.working_dir} (${I18n.t("sib.dir.tooltip")})`;
+        sibDir.dataset.workingDir = s.working_dir;
+        sibDir.dataset.sessionId = s.id;
+      }
+
+      // Permission mode — hide element if empty
+      const sibMode = $("sib-mode");
+      if (sibMode) {
+        sibMode.textContent = s.permission_mode || "";
+        sibMode.style.display = s.permission_mode ? "" : "none";
+      }
 
       const bar = $("session-info-bar");
       if (bar) bar.style.display = "flex";
