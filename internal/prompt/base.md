@@ -73,6 +73,8 @@ Memories are snapshots and can be stale. If one names a file path, function, fla
 
 ## Background processes
 
+- **Never use `nohup` or shell `&` in a synchronous `terminal` call.** In sync mode the tool creates stdout/stderr pipes that are inherited by the forked child; `cmd.Wait()` does not return until all pipe write-ends are closed, so the command appears to hang until the background process exits. Always use `run_in_background:true` for anything that outlives the immediate turn.
+
 ### One-shot tasks (compiles, tests, installs, builds, linting, CI checks)
 
 - Use `terminal` with `run_in_background:true`. Do not let a long command block the session.
