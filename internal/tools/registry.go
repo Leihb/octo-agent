@@ -25,6 +25,7 @@ var allTools = []tool{
 	TerminalTool{},
 	TerminalOutputTool{},
 	TerminalInputTool{},
+	TerminalListTool{},
 	KillShellTool{},
 	ReadFileTool{},
 	WriteFileTool{},

@@ -29,11 +29,6 @@ const BgPollNotice = "DO NOT poll terminal_output. The system will automatically
 // terminal_output.
 const ServiceModeNotice = "After launching a long-running service, verify it with an external check (e.g., `curl http://localhost:PORT` or `pgrep`) rather than polling terminal_output. terminal_output is for inspecting startup logs or diagnosing issues — do not call it in a tight loop."
 
-// TerminalOutputStopPolling is the model-facing instruction appended to a
-// terminal_output result when the process is still running with no new output.
-// Like BgPollNotice, it is noise for the human so the TUI strips it from cards.
-const TerminalOutputStopPolling = "STOP POLLING. The system will automatically notify you when this background process finishes. Do NOT call terminal_output again unless you need to check progress mid-run."
-
 // TerminalTool is an agent.ToolExecutor that runs shell commands through the
 // system shell (`sh -c` on macOS/Linux, PowerShell on Windows; see
 // shellCommand). Stdout and stderr are combined and returned as the tool
@@ -249,7 +244,7 @@ func (t TerminalOutputTool) managerFor(ctx context.Context) *BackgroundManager {
 func (TerminalOutputTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name:        "terminal_output",
-		Description: "Read output produced since the last check from a background process (the id returned by terminal with run_in_background:true), along with its status (running / exited). To terminate the process, use the kill_shell tool.\n\nFor ONE-SHOT tasks (compiles, tests, builds): you do NOT need to poll this tool. The system automatically notifies you when the process finishes.\n\nFor LONG-RUNNING services (servers, watchers): you may call this tool occasionally to inspect startup logs or diagnose issues, but do not call it in a tight loop. Prefer verifying the service with an external check (e.g., curl, pgrep) instead.",
+		Description: "Peek at the recent output of a background process (the id from terminal run_in_background:true): a snapshot of the last N lines plus its status (running / exited). Read-only; to stop the process use kill_shell.\n\nUse this to CHECK PROGRESS of a still-running process on demand — e.g. inspect a server's startup logs. You do NOT need it to learn that a process finished or to get its result: completion is pushed to you automatically, carrying the final output. This is a snapshot, not a feed — repeated calls return the current tail, there is no 'new since last call', so do not call it in a loop. To find an id you've lost track of, use terminal_list.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -257,32 +252,40 @@ func (TerminalOutputTool) Definition() agent.ToolDefinition {
 					"type":        "string",
 					"description": "The background process id (e.g. \"bg_1\").",
 				},
+				"lines": map[string]any{
+					"type":        "integer",
+					"description": "How many trailing lines of output to return. Defaults to 50; use 0 for all retained output.",
+				},
 			},
 			"required": []string{"id"},
 		},
 	}
 }
 
-// Execute returns the new output plus a status line. Read-only — it never
-// terminates the process (that's kill_shell).
+// defaultTailLines is how many trailing lines terminal_output returns when the
+// caller doesn't specify.
+const defaultTailLines = 50
+
+// Execute returns a snapshot of the process's last N lines plus a status line.
+// Read-only and non-advancing — it never terminates the process (that's
+// kill_shell) and never moves a read cursor, so it can't "block" and there is
+// no polling incentive.
 func (t TerminalOutputTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	id, _ := input["id"].(string)
 	if id == "" {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_output: id is required")
 	}
-	out, status, found, blocked := t.managerFor(ctx).Read(id)
-	if !found {
-		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_output: no background process %q", id)
+	lines := defaultTailLines
+	if v, ok := input["lines"].(float64); ok { // JSON numbers decode as float64
+		lines = int(v)
 	}
-	if blocked {
-		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_output: polling blocked for %s — the process is still running with no new output. Wait for the automatic completion notification instead.", id)
+	out, status, found := t.managerFor(ctx).Tail(id, lines)
+	if !found {
+		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_output: no background process %q (it may have been reaped — use terminal_list to see live processes)", id)
 	}
 	header := "[status: " + status + "]"
 	if out == "" {
-		if status == "running" {
-			return agent.ToolResult{Text: header + "\n(no new output)\n\n" + TerminalOutputStopPolling}, nil
-		}
-		return agent.ToolResult{Text: header + "\n(no new output)"}, nil
+		return agent.ToolResult{Text: header + "\n(no output yet)"}, nil
 	}
 	return agent.ToolResult{Text: header + "\n" + MaybeSpillOutput(id, out)}, nil
 }
@@ -393,4 +396,41 @@ func (t KillShellTool) Execute(ctx context.Context, _ string, input map[string]a
 		return agent.ToolResult{Text: header + "\n(no new output)"}, nil
 	}
 	return agent.ToolResult{Text: header + "\n" + MaybeSpillOutput(id, out)}, nil
+}
+
+// TerminalListTool lists this session's background processes (running and
+// recently-finished), so the model can recover a process id it lost track of
+// and see what is still running. The observe surface is push for completion +
+// pull-snapshot for everything else: terminal_list (this), terminal_output
+// (per-process tail). Neither advances any cursor.
+type TerminalListTool struct{ mgr *BackgroundManager }
+
+func (t TerminalListTool) managerFor(ctx context.Context) *BackgroundManager {
+	return resolveBackgroundManager(ctx, t.mgr)
+}
+
+// Definition takes no parameters.
+func (TerminalListTool) Definition() agent.ToolDefinition {
+	return agent.ToolDefinition{
+		Name:        "terminal_list",
+		Description: "List this session's background processes — those started with terminal run_in_background:true — with their id, status (running / exited), elapsed time, and command. Use to recover a process id you've lost track of, or to see what is still running before checking its output (terminal_output) or stopping it (kill_shell). Detached processes (terminal detached:true) are NOT listed — they're untracked by design.",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}
+}
+
+// Execute renders the tracked background processes as a compact table.
+func (t TerminalListTool) Execute(ctx context.Context, _ string, _ map[string]any) (agent.ToolResult, error) {
+	infos := t.managerFor(ctx).List()
+	if len(infos) == 0 {
+		return agent.ToolResult{Text: "No background processes."}, nil
+	}
+	var b strings.Builder
+	for _, in := range infos {
+		elapsed := time.Since(in.Start).Round(time.Second)
+		fmt.Fprintf(&b, "%s  [%s]  %s  %s\n", in.ID, in.Status, elapsed, in.Command)
+	}
+	return agent.ToolResult{Text: strings.TrimRight(b.String(), "\n")}, nil
 }

@@ -88,7 +88,7 @@ Memories are snapshots and can be stale. If one names a file path, function, fla
 
 - Use `terminal` with `run_in_background:true`.
 - After launch, **verify the service with an external check** (e.g., `curl http://localhost:PORT`, `pgrep`, or reading a PID file) rather than polling `terminal_output`.
-- You may call `terminal_output` occasionally to inspect startup logs or diagnose issues, but do not call it in a tight loop.
+- `terminal_output` is a **snapshot** of a process's last N lines, not a feed — call it on demand to inspect startup logs or check progress; repeated calls return the current tail, so there's nothing to gain from looping. Lost a process id? Use `terminal_list` to see what's running.
 - Stop with `kill_shell`. For servers and other services, prefer `signal: "SIGTERM"` for graceful shutdown. Use `signal: "SIGKILL"` (default) for forceful termination or when SIGTERM fails.
 
 ## Tool-use timing
