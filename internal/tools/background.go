@@ -405,9 +405,15 @@ func (m *BackgroundManager) Remove(id string) {
 	delete(m.procs, id)
 	m.mu.Unlock()
 	// Belt-and-suspenders: if Remove is ever called on a still-running id,
-	// cancel it so the process can't outlive its map entry.
+	// take it down so it can't outlive its map entry. Cancelling alone only
+	// SIGKILLs the shell wrapper and orphans its children, so — like Kill and
+	// KillAll — also signal the whole process group. A no-op on an already
+	// exited process (the common reap path), where the group is gone.
 	if ok && p != nil {
 		p.cancel()
+		if p.proc != nil {
+			_ = killProcessGroup(p.proc, "SIGKILL")
+		}
 	}
 }
 
