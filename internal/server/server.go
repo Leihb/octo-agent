@@ -133,9 +133,10 @@ type Server struct {
 
 	// channel manager for IM platform bridging (DingTalk, Feishu, etc.).
 	// nil when NoChannel is set or no channels are configured.
-	channelCfg    *channel.Config
-	channelMgr    *channel.Manager
-	channelCancel context.CancelFunc
+	channelCfg      *channel.Config
+	channelMgr      *channel.Manager
+	channelCancel   context.CancelFunc
+	runningAdapters sync.Map // string -> channel.Adapter
 
 	// mcpCleanup unregisters + closes the MCP registry connected at start.
 	// Always non-nil after New (a no-op when no servers connected).
@@ -850,6 +851,7 @@ func (s *Server) startChannels() {
 			continue
 		}
 
+		s.runningAdapters.Store(name, ad)
 		go func(a channel.Adapter, platform string) {
 			_ = a.Start(ctx, func(ev channel.InboundEvent) {
 				ev.Platform = platform
@@ -902,4 +904,5 @@ func (s *Server) stopChannels() {
 	if s.channelCancel != nil {
 		s.channelCancel()
 	}
+	s.runningAdapters = sync.Map{}
 }

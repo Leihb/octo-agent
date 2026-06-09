@@ -248,13 +248,8 @@ func platformToInfo(name string, pc channel.PlatformConfig) channelInfo {
 
 // isAdapterRunning reports whether the platform adapter is currently active.
 func (s *Server) isAdapterRunning(platform string) bool {
-	if s.channelMgr == nil {
-		return false
-	}
-	if !s.channelMgr.IsRunning() {
-		return false
-	}
-	return s.channelMgr.AdapterFor(platform) != nil
+	_, ok := s.runningAdapters.Load(platform)
+	return ok
 }
 
 func maskSecret(s string) string {
