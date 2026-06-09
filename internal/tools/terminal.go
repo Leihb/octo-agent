@@ -50,11 +50,8 @@ const TerminalOutputStopPolling = "STOP POLLING. The system will automatically n
 // exists so tests can inject an isolated manager.
 type TerminalTool struct{ mgr *BackgroundManager }
 
-func (t TerminalTool) manager() *BackgroundManager {
-	if t.mgr != nil {
-		return t.mgr
-	}
-	return defaultBg
+func (t TerminalTool) managerFor(ctx context.Context) *BackgroundManager {
+	return resolveBackgroundManager(ctx, t.mgr)
 }
 
 // Definition returns the agent.ToolDefinition the LLM receives in the tools
@@ -145,7 +142,7 @@ func (t TerminalTool) ExecuteStream(
 	// Background launch: detach, no timeout, return the id immediately. The
 	// guard above still applies, so dangerous commands are blocked either way.
 	if bg, _ := input["run_in_background"].(bool); bg {
-		id, err := t.manager().Start(command)
+		id, err := t.managerFor(ctx).Start(command)
 		if err != nil {
 			return agent.ToolResult{Text: ""}, err
 		}
@@ -180,7 +177,7 @@ func (t TerminalTool) ExecuteStream(
 		}
 	}
 
-	id, err := t.manager().Start(command, WithOnLine(onLine), WithVisible(false))
+	id, err := t.managerFor(ctx).Start(command, WithOnLine(onLine), WithVisible(false))
 	if err != nil {
 		return agent.ToolResult{Text: ""}, err
 	}
@@ -210,25 +207,25 @@ func (t TerminalTool) ExecuteStream(
 			// in the TUI "background (N running)" panel, then return. NOT
 			// reaped — it's now a real background task and its output must stay
 			// readable via terminal_output.
-			t.manager().Promote(id)
+			t.managerFor(ctx).Promote(id)
 			body := MaybeSpillOutput(id, snapshot())
 			return agent.ToolResult{Text: fmt.Sprintf("%s\n\n[timeout: command exceeded %s and continues as background process %s]\n\n%s", body, TerminalTimeout, id, BgPollNotice)}, nil
 		case <-ctx.Done():
 			// User cancelled (Esc / Ctrl-C): kill the hidden process and reap
 			// it — the output is returned here and now, nothing will poll it.
-			t.manager().Kill(id)
+			t.managerFor(ctx).Kill(id)
 			body := snapshot()
-			t.manager().Remove(id)
+			t.managerFor(ctx).Remove(id)
 			return agent.ToolResult{Text: body + "\n[exit: signal: killed]"}, nil
 		default:
 		}
 
-		_, status, _, _ := t.manager().Read(id)
+		_, status, _, _ := t.managerFor(ctx).Read(id)
 		if strings.HasPrefix(status, "exited") {
 			body := MaybeSpillOutput(id, snapshot())
 			// Reap the hidden process: its output has been captured and
 			// returned, so the bgProcess (and its retained buffer) can go.
-			t.manager().Remove(id)
+			t.managerFor(ctx).Remove(id)
 			if status != "exited: 0" {
 				return agent.ToolResult{Text: body + "\n[exit: " + strings.TrimPrefix(status, "exited: ") + "]"}, nil
 			}
@@ -243,11 +240,8 @@ func (t TerminalTool) ExecuteStream(
 // detached commands useful. It can also kill the process.
 type TerminalOutputTool struct{ mgr *BackgroundManager }
 
-func (t TerminalOutputTool) manager() *BackgroundManager {
-	if t.mgr != nil {
-		return t.mgr
-	}
-	return defaultBg
+func (t TerminalOutputTool) managerFor(ctx context.Context) *BackgroundManager {
+	return resolveBackgroundManager(ctx, t.mgr)
 }
 
 // Definition describes the required "id". Reading is non-destructive; to stop a
@@ -271,12 +265,12 @@ func (TerminalOutputTool) Definition() agent.ToolDefinition {
 
 // Execute returns the new output plus a status line. Read-only — it never
 // terminates the process (that's kill_shell).
-func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
+func (t TerminalOutputTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	id, _ := input["id"].(string)
 	if id == "" {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_output: id is required")
 	}
-	out, status, found, blocked := t.manager().Read(id)
+	out, status, found, blocked := t.managerFor(ctx).Read(id)
 	if !found {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_output: no background process %q", id)
 	}
@@ -299,11 +293,8 @@ func (t TerminalOutputTool) Execute(_ context.Context, _ string, input map[strin
 // that accept commands via stdin).
 type TerminalInputTool struct{ mgr *BackgroundManager }
 
-func (t TerminalInputTool) manager() *BackgroundManager {
-	if t.mgr != nil {
-		return t.mgr
-	}
-	return defaultBg
+func (t TerminalInputTool) managerFor(ctx context.Context) *BackgroundManager {
+	return resolveBackgroundManager(ctx, t.mgr)
 }
 
 // Definition describes the required "id" and "input".
@@ -329,7 +320,7 @@ func (TerminalInputTool) Definition() agent.ToolDefinition {
 }
 
 // Execute writes input to the process's stdin. Unknown or exited id is an error.
-func (t TerminalInputTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
+func (t TerminalInputTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	id, _ := input["id"].(string)
 	if id == "" {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_input: id is required")
@@ -338,7 +329,7 @@ func (t TerminalInputTool) Execute(_ context.Context, _ string, input map[string
 	if text == "" {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_input: input is required")
 	}
-	if err := t.manager().WriteStdin(id, text); err != nil {
+	if err := t.managerFor(ctx).WriteStdin(id, text); err != nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("terminal_input: %w", err)
 	}
 	return agent.ToolResult{Text: fmt.Sprintf("Sent to %s.", id)}, nil
@@ -350,11 +341,8 @@ func (t TerminalInputTool) Execute(_ context.Context, _ string, input map[string
 // kill:true flag so "stop this process" is a first-class, obvious action.
 type KillShellTool struct{ mgr *BackgroundManager }
 
-func (t KillShellTool) manager() *BackgroundManager {
-	if t.mgr != nil {
-		return t.mgr
-	}
-	return defaultBg
+func (t KillShellTool) managerFor(ctx context.Context) *BackgroundManager {
+	return resolveBackgroundManager(ctx, t.mgr)
 }
 
 // Definition describes the required "id".
@@ -383,7 +371,7 @@ func (KillShellTool) Definition() agent.ToolDefinition {
 // Execute kills the process, then returns its final remaining output. An
 // unknown id is an error (Kill reports it); an already-exited process is a
 // no-op kill and still returns its last output.
-func (t KillShellTool) Execute(_ context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
+func (t KillShellTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
 	id, _ := input["id"].(string)
 	if id == "" {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("kill_shell: id is required")
@@ -392,7 +380,7 @@ func (t KillShellTool) Execute(_ context.Context, _ string, input map[string]any
 	if sig == "" {
 		sig = "SIGKILL"
 	}
-	mgr := t.manager()
+	mgr := t.managerFor(ctx)
 	if !mgr.KillWithSignal(id, sig) {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("kill_shell: no background process %q", id)
 	}
