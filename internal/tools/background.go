@@ -72,6 +72,44 @@ func (p *bgProcess) finish(err error) {
 	p.mu.Unlock()
 }
 
+// statusLocked returns the status string ("running" / "exited: …"). Caller must
+// hold p.mu.
+func (p *bgProcess) statusLocked() string {
+	if !p.done {
+		return "running"
+	}
+	if p.exitErr != nil {
+		return "exited: " + p.exitErr.Error()
+	}
+	return "exited: 0"
+}
+
+// tail returns the last n lines of retained output (n <= 0 = all retained) plus
+// the current status. Unlike readNew it does NOT advance the read cursor: it's a
+// non-destructive snapshot, so repeated calls return the same view and there is
+// no incentive to poll. A truncation marker is prefixed when output was dropped
+// (buffer cap or the n-line clamp).
+func (p *bgProcess) tail(n int) (output, status string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	body := p.buf
+	truncated := p.produced > int64(len(p.buf)) // earlier bytes dropped by the cap
+	if n > 0 {
+		lines := bytes.Split(bytes.TrimRight(body, "\n"), []byte{'\n'})
+		if len(lines) > n {
+			lines = lines[len(lines)-n:]
+			truncated = true
+		}
+		body = bytes.Join(lines, []byte{'\n'})
+	}
+	out := string(body)
+	if truncated && out != "" {
+		out = "[... earlier output truncated ...]\n" + out
+	}
+	return out, p.statusLocked()
+}
+
 // readNew returns output produced since the last Read and the current status,
 // advancing the read cursor. When retained output was dropped (buffer cap), the
 // returned text is prefixed with a truncation marker.
@@ -88,14 +126,7 @@ func (p *bgProcess) readNew() (string, string, bool) {
 	out = append(out, p.buf[p.readOff-bufStart:]...)
 	p.readOff = p.produced
 
-	status := "running"
-	if p.done {
-		if p.exitErr != nil {
-			status = "exited: " + p.exitErr.Error()
-		} else {
-			status = "exited: 0"
-		}
-	}
+	status := p.statusLocked()
 
 	// Anti-polling: time-window based. Within a 30-second window, 3 or more
 	// empty reads on a running process trigger a block. This is lenient enough
@@ -283,17 +314,45 @@ func (m *BackgroundManager) Read(id string) (output, status string, found bool, 
 	return out, st, true, blk
 }
 
-// BgInfo is a snapshot of a still-running background process, for a live
-// "background (N running)" panel in the TUI.
+// Tail returns a non-destructive snapshot of the last `lines` lines of a
+// process's output (lines <= 0 = all retained), plus its status. found is false
+// when id is unknown. Unlike Read it does not advance the cursor — it's for
+// on-demand progress peeks (the terminal_output tool), so it never blocks and
+// repeated calls are idempotent.
+func (m *BackgroundManager) Tail(id string, lines int) (output, status string, found bool) {
+	m.mu.Lock()
+	p := m.procs[id]
+	m.mu.Unlock()
+	if p == nil {
+		return "", "", false
+	}
+	out, st := p.tail(lines)
+	return out, st, true
+}
+
+// BgInfo is a snapshot of a tracked background process — used both by the TUI's
+// live "background (N running)" panel and by the terminal_list tool.
 type BgInfo struct {
 	ID      string
 	Command string
 	Start   time.Time
+	Status  string // "running" / "exited: …"
 }
 
 // ListRunning returns the visible processes that haven't exited yet, oldest first.
 // Processes started invisibly (e.g. sync mode) are excluded until promoted.
 func (m *BackgroundManager) ListRunning() []BgInfo {
+	return m.list(false)
+}
+
+// List returns every visible tracked process — running AND exited-but-not-yet
+// reaped — oldest first, so the model (via terminal_list) can recover ids and
+// see what has finished. Invisible (sync, pre-timeout) processes are excluded.
+func (m *BackgroundManager) List() []BgInfo {
+	return m.list(true)
+}
+
+func (m *BackgroundManager) list(includeExited bool) []BgInfo {
 	m.mu.Lock()
 	procs := make([]*bgProcess, 0, len(m.procs))
 	for _, p := range m.procs {
@@ -306,9 +365,10 @@ func (m *BackgroundManager) ListRunning() []BgInfo {
 		p.mu.Lock()
 		done := p.done
 		visible := p.visible
+		info := BgInfo{ID: p.id, Command: p.command, Start: p.start, Status: p.statusLocked()}
 		p.mu.Unlock()
-		if !done && visible {
-			out = append(out, BgInfo{ID: p.id, Command: p.command, Start: p.start})
+		if visible && (includeExited || !done) {
+			out = append(out, info)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })

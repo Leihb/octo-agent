@@ -102,11 +102,6 @@ func renderToolCard(toolName string, input map[string]any, output string, isErr 
 		// drop it from the card — the "Started background process N" line stays.
 		output = strings.TrimRight(strings.TrimSuffix(output, tools.BgPollNotice), "\n")
 	}
-	if toolName == "terminal_output" {
-		// terminal_output can carry a model-only "STOP POLLING" notice when the
-		// process is still running with no new output. Strip it from the card.
-		output = strings.TrimRight(strings.TrimSuffix(output, tools.TerminalOutputStopPolling), "\n")
-	}
 	if toolName == "write_file" {
 		// write_file's own output is already a human-readable summary
 		// ("Wrote N bytes (M lines) to /path"); show that instead of a

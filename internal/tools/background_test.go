@@ -271,10 +271,12 @@ func TestTerminalTool_TimeoutPromotesToBackground(t *testing.T) {
 	t.Fatal("timed out waiting for background process to exit")
 }
 
-// TestTerminalOutputTool_AntiPolling verifies that after three empty polls
-// within the time window on a running background process, terminal_output
-// returns an error to force the LLM to stop polling.
-func TestTerminalOutputTool_AntiPolling(t *testing.T) {
+// TestTerminalOutputTool_SnapshotIdempotent verifies the snapshot semantics:
+// terminal_output is a non-advancing peek, so repeated calls on a running
+// process never error or "block" — they just return the current tail and
+// status. (Replaces the old delta + anti-polling behavior, which the snapshot
+// model removes by design.)
+func TestTerminalOutputTool_SnapshotIdempotent(t *testing.T) {
 	m := NewBackgroundManager()
 	term := TerminalTool{mgr: m}
 	outTool := TerminalOutputTool{mgr: m}
@@ -286,24 +288,15 @@ func TestTerminalOutputTool_AntiPolling(t *testing.T) {
 		t.Fatalf("launch: %v", err)
 	}
 
-	// First and second empty polls should warn but succeed (within the 30s window).
-	for i := 1; i <= 2; i++ {
+	// Many empty polls in a row: all succeed, none block, all report running.
+	for i := 1; i <= 5; i++ {
 		res, err := outTool.Execute(context.Background(), "terminal_output", map[string]any{"id": "bg_1"})
 		if err != nil {
-			t.Fatalf("poll %d should succeed: %v", i, err)
+			t.Fatalf("poll %d should never error in the snapshot model: %v", i, err)
 		}
-		if !strings.Contains(res.Text, "STOP POLLING") {
-			t.Errorf("poll %d should warn, got %q", i, res.Text)
+		if !strings.Contains(res.Text, "[status: running]") {
+			t.Errorf("poll %d should report running, got %q", i, res.Text)
 		}
-	}
-
-	// Third empty poll within the window: should be blocked with an error.
-	_, err := outTool.Execute(context.Background(), "terminal_output", map[string]any{"id": "bg_1"})
-	if err == nil {
-		t.Fatal("third poll should error")
-	}
-	if !strings.Contains(err.Error(), "polling blocked") {
-		t.Errorf("error should mention 'polling blocked', got %v", err)
 	}
 }
 
@@ -332,10 +325,5 @@ func TestTerminalOutputTool_ReadOnly(t *testing.T) {
 	}
 	if _, status, _, _ := m.Read("bg_1"); status != "running" {
 		t.Errorf("process should still be running after terminal_output, status=%q", status)
-	}
-	// When the process is running and there is no new output, the result must
-	// contain a strong anti-polling warning.
-	if !strings.Contains(resOut.Text, "STOP POLLING") {
-		t.Errorf("terminal_output on running process with no new output should warn against polling, got %q", resOut.Text)
 	}
 }

@@ -3,8 +3,6 @@ package main
 import (
 	"strings"
 	"testing"
-
-	"github.com/Leihb/octo-agent/internal/tools"
 )
 
 func TestCardVerbFor(t *testing.T) {
@@ -64,11 +62,10 @@ func TestRenderToolCard_Dispatch(t *testing.T) {
 		t.Errorf("terminal should render an output card; got:\n%s", run)
 	}
 
-	// terminal_output strips the STOP POLLING notice.
-	pollOut := "[status: running]\n(no new output)\n\n" + tools.TerminalOutputStopPolling
-	check := renderToolCard("terminal_output", map[string]any{"id": "bg_1"}, pollOut, false)
-	if strings.Contains(check, "STOP POLLING") {
-		t.Errorf("terminal_output card should strip STOP POLLING; got:\n%s", check)
+	// terminal_output → snapshot card with status + tail.
+	out := renderToolCard("terminal_output", map[string]any{"id": "bg_1"}, "[status: running]\nstarting up", false)
+	if !strings.Contains(out, "starting up") {
+		t.Errorf("terminal_output should render an output card; got:\n%s", out)
 	}
 
 	// non-card tool → "".
