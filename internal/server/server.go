@@ -899,6 +899,7 @@ func (s *Server) handleChannelMessage(ctx context.Context, ad channel.Adapter, e
 		subMgr.SetSynchronous(true)
 		ctx = tools.WithSubAgentManager(ctx, subMgr)
 		ctx = tools.WithTaskStore(ctx, sess.Tasks)
+		ctx = tools.WithBackgroundManager(ctx, tools.SessionBackgroundManager("im:"+string(sess.Key)))
 	}
 
 	_, _ = channel.RunAgent(ctx, sess, toolDefs, executor, ctrl, ev.Text)

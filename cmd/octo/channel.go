@@ -281,6 +281,9 @@ func handleAgentMessage(ctx context.Context, mgr *channel.Manager, ad channel.Ad
 		// The task store lives on the session, so the task list persists across
 		// messages in this chat (a fresh per-message store would reset it).
 		ctx = tools.WithTaskStore(ctx, sess.Tasks)
+		// Per-chat background manager: this chat's bg processes persist across
+		// messages and stay isolated from other chats; reaped on daemon shutdown.
+		ctx = tools.WithBackgroundManager(ctx, tools.SessionBackgroundManager("im:"+string(sess.Key)))
 	}
 
 	_, _ = channel.RunAgent(ctx, sess, toolDefs, executor, ctrl, ev.Text)

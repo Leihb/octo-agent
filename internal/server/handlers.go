@@ -442,6 +442,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.forgetTurnLock(id)
+	tools.CloseSessionBackgroundManager(id) // reap the session's background daemons
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": []string{id}})
 }
 
@@ -470,6 +471,7 @@ func (s *Server) handleDeleteSessions(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		s.forgetTurnLock(id)
+		tools.CloseSessionBackgroundManager(id) // reap the session's background daemons
 		deleted = append(deleted, id)
 	}
 
@@ -568,10 +570,14 @@ func (s *Server) prepareToolTurn(ctx context.Context, a *agent.Agent) (context.C
 	if err != nil {
 		return ctx, nil, nil, fmt.Errorf("permission engine: %w", err)
 	}
-	// Wire interactive permission confirmation when we know the session.
+	// Wire interactive permission confirmation when we know the session, and
+	// scope background processes to a per-session manager so one session's
+	// terminal_output / kill_shell can't see another's, and its daemons are
+	// reaped when the session is deleted (handleDeleteSession).
 	var ask app.PermissionAsk
 	if sid, ok := ctx.Value(ctxKeySessionID{}).(string); ok && sid != "" {
 		ask = s.permissionAskFrom(sid)
+		ctx = tools.WithBackgroundManager(ctx, tools.SessionBackgroundManager(sid))
 	}
 	a.Gate = app.NewPermissionGate(engine, ask)
 

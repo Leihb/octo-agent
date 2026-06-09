@@ -440,9 +440,14 @@ func (m *BackgroundManager) KillAll() {
 // processes across the session.
 var defaultBg = NewBackgroundManager()
 
-// KillAllBackground terminates all background processes started via the default
-// manager. Wire it into session/REPL shutdown to avoid orphans.
-func KillAllBackground() { defaultBg.KillAll() }
+// KillAllBackground terminates every tracked background process — the default
+// manager AND every per-session manager. Wire it into session/REPL/daemon
+// shutdown to avoid orphans regardless of which session launched a process.
+func KillAllBackground() {
+	for _, m := range allBackgroundManagers() {
+		m.KillAll()
+	}
+}
 
 // SetBackgroundOnExit registers the completion hook on the default manager (the
 // one the built-in terminal tool uses). The REPL wires this to push a
