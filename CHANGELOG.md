@@ -5,7 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased — 0.16.0-dev]
+## [Unreleased — 0.17.0-dev]
+
+## [0.16.0] — 2026-06-09
+
+### Added
+- **Home-directory memory inheritance across projects.** The home directory (`~`) is now a global memory slot inherited into every project — cross-project preferences, personal facts, and workflow rules are stored once and available everywhere. `memory.HomeDir()` resolves the home memory dir; `RenderInjection` injects home `MEMORY.md` before the project one; both CLI chat and `octo serve` resolve and inject it; the permission engine is whitelisted for both dirs; and the system prompt guides the agent to sort new memories by scope (project-specific → project memory, cross-project → home memory). The Web UI disambiguates inherited vs. project memories with a source tag, and memory injection (L1 + L2) is wired for web serve and IM channels. (#492, #500, #501, #503)
+- **Deletions move to trash instead of being destroyed.** A POSIX `rm()` wrapper is injected into every `terminal` command so files are copied to `~/.octo/trash/<project_hash>/` (with a `.meta.json` sidecar) before the real `rm` runs (skipped on Windows/PowerShell). Session, task, and memory deletions are likewise routed through `trash.Move`, grouped by function, so they're recoverable from the Web UI trash panel. (#485, #488)
+- **`terminal_input` tool — write to a background process's stdin.** The agent can now drive REPLs, configuration wizards, and long-running services started with `terminal background:true` by sending text to their stdin (`BackgroundManager` carries a stdin pipe; `WriteStdin` feeds it). (#469, #470)
+- **`ask_user_question` in the Web UI.** A `wsAsker` broadcasts structured single/multi-select questions (plus a free-text "Other") over WebSocket and blocks until the browser answers, with a 5-minute timeout and clean cancellation. The permission gate's `ask` verdicts now surface as a yes/no modal, and turn interruption is wired end-to-end. (#472)
+- **Live sub-agent panel in the Web UI, mirroring the TUI.** Sub-agent runtime events (started / tool / tool_error / done) stream over WebSocket and SSE; sync-mode sub-agents now emit tool-level activity too. The session info bar shows a sub-agent badge with a popover (description, recent tool chain, elapsed time). (#496)
+- **Auto-onboard when configuration is missing.** `octo serve` starts in onboarding mode with no API key — static files and onboard APIs come up, and the sender initialises lazily on the first chat request after the key is saved (no restart). `octo chat` launches the config wizard automatically when the key is missing and stdin is a TTY, then retries. The setup panel and onboard skill gained `permission_mode`, `reasoning_effort`, and `show_reasoning` prompts. (#460, #464, #465)
+- **`/model` and `/thinking` slash commands** in the TUI, plus a status bar showing the model name and reasoning effort. (#474, #477, #479)
+- **TUI rich cards for `terminal_output` / `kill_shell` / `terminal_input`**, matching the other tools. (#480)
+- **`next_message_suggestion` after each turn** over WebSocket. (#498)
+- **Web UI batch operations** — batch-delete sessions, delete skills, refreshed batch-select UI (custom checkbox + sticky bottom bar). (#468, #484, #486)
+- **`web-access` bundled as a default skill.** (#449)
+
+### Changed
+- **Provider layer is now a vendor registry.** `internal/app/provider.go` centralises all 11 vendors (openrouter, deepseek, minimax, kimi, kimi-coding, glm, openai, anthropic, siliconflow, mistral, groq); each carries its protocol, default base URL/model, API-key env var, and website. `buildClient` maps vendor → protocol, so adding a vendor is one line, and API-key / model / base-URL resolution plus the config wizard are all driven from the registry (`<VENDOR>_MODEL`, `<VENDOR>_BASE_URL` patterns). (#457, #458)
+- **System prompt hardened with Claude Code-style rules** — never use interactive git editors or `-i` flags (they block a headless agent), no colon before tool calls, `owner/repo#123` GitHub reference format, never guess URLs, and diagnose failures before switching tactics. Background-process guidance in tool descriptions and the system prompt was also strengthened, including long-running-service support. (#451, #469, #494)
+- **Default memory storage directory renamed `memory` → `memories`.** (#489)
+- **Onboard wizard** does a real connectivity test, dedupes `soul_setup`, and cleans up i18n. (#454)
+- **Web/TUI UI cleanup** — removed the unused "More Options" dropdown, the "Download session files" button, the idle status dot and tasks count from the session info bar, dead UI code, and broken links; prevented real-time messages from being occluded by the bottom bar. (#467, #473, #483, #487, #491)
+
+### Removed
+- **Strict permission mode.** `ModeStrict` silently converted `ask` → `deny` (a no-prompt rejection that confused users) and added no safety over the existing non-interactive `nil`-asker behaviour. Two clear modes remain: `interactive` (default, prompts) and `auto` (allows); the `--permission-mode strict` value now maps to `interactive`. (#461)
+- **Dead access-key CLI code.** (#459)
+
+### Fixed
+- **Server: correct channel running / `has_config` status** — running adapters are tracked directly on `Server`; the prompt doc warns against `nohup`/`&`. (#502, #504)
+- **Server: mid-turn steer messages are drained into the agent's Inbox**, and memory injection is wired for web serve and channels. (#490, #492)
+- **Web: assistant message fidelity** — reasoning/thinking content is surfaced, user messages persist immediately on WebSocket send, `tool_call`/`tool_result` are reconstructed from session blocks (empty user messages filtered), verbose JSON is stripped from `tool_call` summaries (client generates a compact arg summary), and a `CreatedAt` field prevents a history dedup collision. A `history_user_message` broadcast at turn start replaces the pending ghost bubble. (#463, #471, #475, #476, #495, #497)
+- **Web: status-bar and PATCH endpoints** — `working_dir`, `permission_mode`, `reasoning_effort`, and `context_usage` are exposed in the status bar and editable via PATCH; the compact batch toolbar and select menu were corrected. (#481, #482, #486)
+- **Permission: the `skill` tool is allowed and `permission_mode` is read from config.** (#466)
 
 ### Changed
 - **Diff / output cards adapt to light & dark terminals.** The `internal/tui` cards were github-dark-tuned only; their colours now come from an adaptive palette (`lipgloss.AdaptiveColor`, GitHub light/dark values) and the diff row washes + Chroma syntax style switch together on a one-time terminal-background probe (pale washes + the `github` style on light terminals, deep washes + `github-dark` on dark). Resolves the last TUI-upgrade follow-up; the dark rendering is unchanged.
