@@ -332,19 +332,39 @@ func RenderManifest(r *Registry) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// ccCompatNote bridges skills authored for Claude Code — the ecosystem most
+// SKILL.md files are written for — onto octo's toolbelt at load time. A static
+// note beats rewriting the skill on install: rewriting can't tell a tool
+// reference from a string inside a bundled script, and for source-available
+// skills a rewrite is a derivative work their license forbids. Injected for
+// user/project skills only; octo-native defaults don't need it.
+const ccCompatNote = "This skill may have been written for Claude Code. In this environment, " +
+	"map tool references accordingly: Bash → terminal; Read/Write/Edit → read_file / " +
+	"write_file / edit_file; Grep/Glob → grep / glob; Task/Agent → sub_agent; " +
+	"WebFetch/WebSearch → web_fetch / web_search. There is no persistent working " +
+	"directory across terminal calls — use absolute paths, or chain `cd … && …` " +
+	"inside one command. If the skill depends on a Claude Code feature with no " +
+	"equivalent here (hooks, plan mode, output styles), tell the user instead of " +
+	"improvising."
+
 // RenderSkill produces the text handed to the model when a skill is loaded —
 // via the `skill` tool (model-initiated) or a /<name> trigger (user-initiated).
 // It prefixes a one-line location header so the model can resolve files the
 // SKILL.md references (scripts, templates, reference docs bundled in the skill
 // directory) with its file tools, then the body, then any trailing user args.
 // Without the header a relative reference like "see references/api.md" would be
-// resolved against the project cwd and miss.
+// resolved against the project cwd and miss. Non-default skills additionally
+// get the Claude Code → octo tool-name bridging note.
 func RenderSkill(s Skill, args string) string {
 	var b strings.Builder
 	if s.Dir != "" {
 		fmt.Fprintf(&b, "[skill %q — bundled files live in: %s\n", s.Name, s.Dir)
 		b.WriteString("Resolve any paths this skill references (scripts, templates, reference docs) " +
-			"against that directory and read them with your file tools.]\n\n")
+			"against that directory and read them with your file tools.")
+		if s.Source != "default" {
+			b.WriteString("\n" + ccCompatNote)
+		}
+		b.WriteString("]\n\n")
 	}
 	b.WriteString(s.Body)
 	if args != "" {
