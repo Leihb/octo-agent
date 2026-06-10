@@ -38,6 +38,12 @@ func TestMaterializeDefaults_WritesEmbeddedAndStamps(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "worktree-isolate", "SKILL.md")); err != nil {
 		t.Fatalf("expected worktree-isolate/SKILL.md materialized: %v", err)
 	}
+	// code-review bundles a companion template — both files must materialize.
+	for _, f := range []string{"SKILL.md", "code-reviewer.md"} {
+		if _, err := os.Stat(filepath.Join(root, "code-review", f)); err != nil {
+			t.Fatalf("expected code-review/%s materialized: %v", f, err)
+		}
+	}
 	// Stamp records the version.
 	b, err := os.ReadFile(filepath.Join(root, defaultStampFile))
 	if err != nil || string(b) != "v1" {
