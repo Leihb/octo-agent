@@ -184,9 +184,24 @@ channels:
     app_secret: string
     domain: string (optional, e.g. "open.feishu.cn")
     allowed_users: string (optional, comma-separated user IDs)
+  wecom:
+    enabled: true | false
+    bot_id: string (intelligent robot Bot ID, starts with "aib")
+    secret: string (robot secret)
+    allowed_users: string (optional, comma-separated user IDs)
+  discord:
+    enabled: true | false
+    bot_token: string (bot token from the Discord Developer Portal)
+    allowed_users: string (optional, comma-separated user IDs)
+  telegram:
+    enabled: true | false
+    bot_token: string (from @BotFather)
+    base_url: string (optional, default https://api.telegram.org; override for self-hosted Bot API)
+    parse_mode: string (optional, default "Markdown"; empty string disables formatting)
+    allowed_users: string (optional, comma-separated user IDs)
 ```
 
-- `enabled`: `true` to start the bridge on next `octo serve`; `false` to keep the config but skip loading.
+- `enabled`: `true` to start the bridge on next `octo channel start`; `false` to keep the config but skip loading.
 - `allowed_users`: optional allow-list; if set, only listed users can interact with the bot. Empty = allow all.
 
 ### Supported platforms
@@ -196,6 +211,9 @@ channels:
 | `weixin` | `token` (or `cred_path`) | `base_url`, `timeout_sec`, `allowed_users` |
 | `dingtalk` | `client_id`, `client_secret` | `allowed_users` |
 | `feishu` | `app_id`, `app_secret` | `domain`, `allowed_users` |
+| `wecom` | `bot_id`, `secret` | `allowed_users` |
+| `discord` | `bot_token` | `allowed_users` |
+| `telegram` | `bot_token` | `base_url`, `parse_mode`, `allowed_users` |
 
 ### Steps
 
@@ -211,4 +229,4 @@ channels:
    - Reject malformed URLs in `base_url`.
 4. Merge the new value into the existing `channels` object; preserve fields the user did not touch.
 5. Write back with `write_file`, then `chmod 600 ~/.octo/channels.yml`.
-6. Confirm what changed and remind: channel changes take effect on the next `octo serve` (or immediately if the server is already running with `--no-channel` omitted).
+6. Confirm what changed and remind: channel changes take effect on the next `octo channel start` — restart it if it's already running.

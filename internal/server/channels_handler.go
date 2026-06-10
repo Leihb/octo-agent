@@ -185,13 +185,19 @@ func (s *Server) handleAvailableChannels(w http.ResponseWriter, r *http.Request)
 	// Field definitions per platform.
 	fieldDefs := map[string][]string{
 		"dingtalk": {"client_id", "client_secret", "allowed_users"},
+		"discord":  {"bot_token", "allowed_users"},
 		"feishu":   {"app_id", "app_secret", "domain", "allowed_users"},
+		"telegram": {"bot_token", "base_url", "parse_mode", "allowed_users"},
+		"wecom":    {"bot_id", "secret", "allowed_users"},
 		"weixin":   {"base_url", "cred_path"},
 	}
 
 	labels := map[string]string{
 		"dingtalk": "DingTalk (钉钉)",
+		"discord":  "Discord",
 		"feishu":   "Feishu (飞书)",
+		"telegram": "Telegram",
+		"wecom":    "WeCom (企业微信)",
 		"weixin":   "WeChat (微信)",
 	}
 

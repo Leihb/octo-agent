@@ -1,18 +1,19 @@
 ---
 name: channel-manager
 description: |
-  Configure IM platform channels (Feishu, Weixin/WeChat, DingTalk) for octo.
+  Configure IM platform channels (Feishu, Weixin/WeChat, WeCom, DingTalk, Discord, Telegram) for octo.
   Guides the user through platform consoles, collects credentials, writes ~/.octo/channels.yml,
   and diagnoses connection problems.
-  Trigger on: "channel setup", "setup feishu", "setup weixin", "setup wechat", "setup dingtalk",
+  Trigger on: "channel setup", "setup feishu", "setup weixin", "setup wechat", "setup wecom",
+  "setup dingtalk", "setup discord", "setup telegram",
   "channel config", "channel status", "channel enable", "channel disable", "channel doctor",
-  "connect feishu", "connect wechat", "connect dingtalk".
+  "connect feishu", "connect wechat", "connect wecom", "connect dingtalk", "connect discord", "connect telegram".
   Subcommands: setup, status, enable <platform>, disable <platform>, doctor.
 ---
 
 # Channel Manager Skill
 
-Configure IM platform channels for octo. Supported platforms: `feishu`, `weixin`, `dingtalk`.
+Configure IM platform channels for octo. Supported platforms: `feishu`, `weixin`, `wecom`, `dingtalk`, `discord`, `telegram`.
 
 ## How channels work in octo
 
@@ -44,16 +45,31 @@ channels:
     client_id: string         # required (AppKey)
     client_secret: string     # required (AppSecret)
     allowed_users: string
+  wecom:
+    enabled: true | false
+    bot_id: string            # required, intelligent robot Bot ID (starts with "aib")
+    secret: string            # required, robot secret
+    allowed_users: string
+  discord:
+    enabled: true | false
+    bot_token: string         # required, from the Discord Developer Portal
+    allowed_users: string
+  telegram:
+    enabled: true | false
+    bot_token: string         # required, from @BotFather
+    base_url: string          # optional, default https://api.telegram.org
+    parse_mode: string        # optional, default "Markdown"; empty string disables
+    allowed_users: string
 ```
 
 ## Command Parsing
 
 | User says | Subcommand |
 |---|---|
-| `channel setup`, `setup feishu`, `setup weixin`, `setup wechat`, `setup dingtalk` | setup |
+| `channel setup`, `setup feishu`, `setup weixin`, `setup wechat`, `setup wecom`, `setup dingtalk`, `setup discord`, `setup telegram` | setup |
 | `channel status` | status |
-| `channel enable feishu/weixin/dingtalk` | enable |
-| `channel disable feishu/weixin/dingtalk` | disable |
+| `channel enable <platform>` | enable |
+| `channel disable <platform>` | disable |
 | `channel doctor` | doctor |
 
 ---
@@ -80,6 +96,9 @@ dingtalk   ❌ no     (not configured)
 - Feishu: show `app_id` truncated to 12 chars.
 - Weixin: show whether `token` is set or a credential file exists (`cred_path`, else `~/.octo/weixin-credentials.json`). Never print the token value.
 - DingTalk: show `client_id` truncated to 12 chars. Never print `client_secret`.
+- WeCom: show `bot_id` truncated to 12 chars. Never print `secret`.
+- Discord: show whether `bot_token` is set (`token: present`). Never print the token value.
+- Telegram: show whether `bot_token` is set (`token: present`). Never print the token value.
 
 If the process is STOPPED but at least one platform is enabled, remind: "Run `octo channel start` to bring the channels online."
 
@@ -92,7 +111,10 @@ Ask with `ask_user_question`:
 >
 > 1. Feishu (飞书)
 > 2. Weixin (Personal WeChat via iLink QR login)
-> 3. DingTalk (钉钉)
+> 3. WeCom (企业微信 intelligent robot)
+> 4. DingTalk (钉钉)
+> 5. Discord
+> 6. Telegram (Bot API)
 
 ### Feishu setup
 
@@ -203,6 +225,84 @@ Weixin uses a QR-code login — no app credentials needed.
    ```
 6. "✅ DingTalk channel configured. Publish the app version if you haven't, run `octo channel start`, then message the robot in DingTalk."
 
+### WeCom setup (企业微信 intelligent robot)
+
+WeCom "API mode" intelligent robots connect over a WebSocket long connection — no public callback URL needed.
+
+1. Tell the user to open <https://work.weixin.qq.com/wework_admin/frame#/aiHelper/create> (scan to log in if needed), then:
+   "Scroll to the bottom of the right panel and click 'API mode creation' (API 模式创建). Reply done." Wait for "done".
+2. "Click 'Add' next to 'Visible Range' (可见范围), select the top-level company node, and confirm. Reply done." Wait for "done".
+3. "If the Secret is not visible, click 'Get Secret' (获取 Secret). Copy the Bot ID and Secret **before** clicking Save, and paste them here as: Bot ID: xxx, Secret: xxx". Parse the reply. Trim whitespace; the `bot_id` starts with `aib` — if the two values look swapped, swap them back.
+4. "Click Save, enter a name (e.g. octo) and description, confirm, and click Save again. Reply done." Wait for "done".
+5. Merge into `~/.octo/channels.yml` (preserve other platforms), then `chmod 600`:
+   ```yaml
+   channels:
+     wecom:
+       enabled: true
+       bot_id: <BOT_ID>
+       secret: <SECRET>
+   ```
+   There is no public REST endpoint to pre-validate these credentials — they are checked when the WebSocket subscribes. After `octo channel start`, an invalid pair logs `[wecom] authentication failed`.
+6. "✅ WeCom channel configured. Run `octo channel start`, then find the bot in the WeCom client under Contacts → Smart Bot (智能机器人) and message it."
+
+### Discord setup
+
+Discord requires manual portal interaction (hCaptcha gates application creation). Guide the user through the portal in one round-trip.
+
+1. Tell the user to open <https://discord.com/developers/applications>, then give **all** of the following in a single message and collect the values with `ask_user_question` (or a plain reply):
+   > 1. Click **New Application** (top-right), name it (e.g. "octo"), accept the ToS, click **Create**.
+   > 2. In the left nav click **Bot**.
+   > 3. Scroll to **Privileged Gateway Intents** and turn on **MESSAGE CONTENT INTENT**, then **Save Changes**.
+   > 4. Scroll up, click **Reset Token** → **Yes, do it!** → **Copy**. (The token is shown only once — copy before navigating away.)
+   > 5. In the left nav click **General Information** and copy the **Application ID**.
+   >
+   > Paste both back as one line: `token=YOUR_BOT_TOKEN app_id=YOUR_APPLICATION_ID`
+
+   If the user chats in a non-English language, append the localized label in parens after each bolded English button name (the English label is what they physically click). Parse with tolerant matching (`token=\S+`, `app_id=\d+`); if either field is missing, re-ask with the same format reminder (up to 3 tries).
+2. Validate the token:
+   ```bash
+   curl -s -H "Authorization: Bot <BOT_TOKEN>" \
+     -H "User-Agent: DiscordBot (https://github.com/Leihb/octo-agent, 1.0)" \
+     https://discord.com/api/v10/users/@me
+   ```
+   Success returns the bot user JSON with an `id`. A 401 means a bad token — re-ask.
+3. Merge into `~/.octo/channels.yml` (preserve other platforms), then `chmod 600`:
+   ```yaml
+   channels:
+     discord:
+       enabled: true
+       bot_token: <BOT_TOKEN>
+   ```
+4. Build the invite URL with the Application ID and tell the user to open it:
+   `https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot&permissions=274877975552`
+   > Pick your server from the dropdown → Continue → Authorize. If the dropdown is empty you don't have a server yet — open <https://discord.com/channels/@me>, click the **+** button → Create My Own, then re-open the invite link.
+5. "✅ Discord channel configured. Run `octo channel start`, then @-mention the bot in a channel or DM it."
+
+### Telegram setup (Bot API)
+
+Telegram is the simplest — no browser automation, no QR. The user creates a bot via @BotFather and pastes the token.
+
+1. Tell the user:
+   > Open Telegram and chat with **@BotFather** (https://t.me/BotFather). Send `/newbot`, pick a display name and a username ending in `bot`. BotFather replies with an HTTP API token like `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ`. Paste the token here.
+   >
+   > Optional: if your network blocks `api.telegram.org`, also give me the base URL of your self-hosted Bot API server.
+
+   Parse the token (matches `^\d+:[\w-]{30,}$`).
+2. Validate with `getMe`:
+   ```bash
+   curl -s "<BASE_URL_OR_https://api.telegram.org>/bot<TOKEN>/getMe"
+   ```
+   Success returns `"ok":true`. `401 Unauthorized` means a wrong token — re-ask.
+3. Merge into `~/.octo/channels.yml` (preserve other platforms; omit `base_url` unless the user gave one), then `chmod 600`:
+   ```yaml
+   channels:
+     telegram:
+       enabled: true
+       bot_token: <TOKEN>
+   ```
+4. "✅ Telegram channel configured. Run `octo channel start`, open your bot in Telegram, and send it a message."
+   > **For group chats**: disable Privacy Mode first (@BotFather → `/mybots` → Bot Settings → Group Privacy → Turn off), then **remove and re-add the bot to the group** — otherwise it cannot receive any group messages, including @-mentions.
+
 ---
 
 ## `enable` / `disable`
@@ -223,10 +323,16 @@ Check each item, report ✅ / ❌ with remediation:
    - Feishu: `app_id`, `app_secret` non-empty.
    - Weixin: `token` non-empty, or a readable credential file (`cred_path`, else `~/.octo/weixin-credentials.json`).
    - DingTalk: `client_id`, `client_secret` non-empty.
+   - WeCom: `bot_id` (starts with `aib`), `secret` non-empty.
+   - Discord: `bot_token` non-empty.
+   - Telegram: `bot_token` non-empty.
 3. **Feishu credentials** (if enabled) — run the tenant_access_token curl from setup Phase 5; `"code":0` → ✅, else ❌ "Feishu credentials rejected — re-run setup".
 4. **DingTalk credentials** (if enabled) — run the accessToken curl from setup step 4; `accessToken` present → ✅, else ❌ "DingTalk credentials invalid — re-run setup".
 5. **Weixin credentials** (if enabled) — credential file exists and contains a non-empty `token` → ✅, else ❌ "Run `octo channel login --platform weixin` to log in again".
-6. **Adapter process** — `pgrep -f "octo channel start"`; if no enabled platform, skip; if enabled but not running, ❌ "Run `octo channel start`".
+6. **Discord credentials** (if enabled) — run the `/users/@me` curl from Discord setup step 2; an `id` in the response → ✅, else ❌ "Discord token invalid or revoked — re-run setup".
+7. **Telegram credentials** (if enabled) — run the `getMe` curl from Telegram setup step 2; `"ok":true` → ✅, else ❌ "Telegram token rejected by getMe — re-run setup".
+8. **WeCom credentials** (if enabled) — no public REST validation endpoint; check the `octo channel start` output for `[wecom] authentication failed` → ❌ "WeCom credentials incorrect — re-run setup", or `[wecom] connected, authenticating` with no auth error → ✅.
+9. **Adapter process** — `pgrep -f "octo channel start"`; if no enabled platform, skip; if enabled but not running, ❌ "Run `octo channel start`".
 
 ---
 
@@ -234,4 +340,4 @@ Check each item, report ✅ / ❌ with remediation:
 
 - Always mask secrets in output — show at most the first 4 and last 4 characters.
 - `~/.octo/channels.yml` must be mode 600; fix with `chmod 600` after every write.
-- Never echo `app_secret`, `client_secret`, or `token` values back to the user.
+- Never echo `app_secret`, `client_secret`, `secret`, `bot_token`, or `token` values back to the user.
