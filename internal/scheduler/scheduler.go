@@ -42,14 +42,22 @@ type Runner interface {
 	RunTask(ctx context.Context, task Task) (sessionID string, err error)
 }
 
+// exprParser validates cron expressions with the same grammar the runtime
+// cron uses (six fields, seconds first, plus @descriptors), so Add/Update can
+// reject a bad expression before touching any state.
+var exprParser = cron.NewParser(
+	cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+)
+
 // Scheduler manages cron-based task execution.
 type Scheduler struct {
 	dir    string
 	runner Runner
 	cron   *cron.Cron
 
-	mu    sync.Mutex
-	tasks map[string]*Task
+	mu      sync.Mutex
+	tasks   map[string]*Task
+	entries map[string]cron.EntryID // live cron entry per enabled task
 }
 
 // New creates a Scheduler. dir is where task JSON files are stored
@@ -60,10 +68,11 @@ func New(dir string, runner Runner) (*Scheduler, error) {
 	}
 
 	s := &Scheduler{
-		dir:    dir,
-		runner: runner,
-		cron:   cron.New(cron.WithSeconds()),
-		tasks:  make(map[string]*Task),
+		dir:     dir,
+		runner:  runner,
+		cron:    cron.New(cron.WithSeconds()),
+		tasks:   make(map[string]*Task),
+		entries: make(map[string]cron.EntryID),
 	}
 
 	if err := s.loadAll(); err != nil {
@@ -86,16 +95,14 @@ func (s *Scheduler) Stop() {
 
 // Add creates a new task and schedules it.
 func (s *Scheduler) Add(task Task) error {
+	if _, err := exprParser.Parse(task.Cron); err != nil {
+		return fmt.Errorf("invalid cron expression %q: %w", task.Cron, err)
+	}
 	if task.ID == "" {
 		task.ID = fmt.Sprintf("task_%d", time.Now().UnixMilli())
 	}
 	if task.CreatedAt.IsZero() {
 		task.CreatedAt = time.Now()
-	}
-	if task.Enabled {
-		if _, err := s.cron.AddFunc(task.Cron, s.wrap(task)); err != nil {
-			return fmt.Errorf("invalid cron expression %q: %w", task.Cron, err)
-		}
 	}
 	if err := s.save(task); err != nil {
 		return err
@@ -103,20 +110,25 @@ func (s *Scheduler) Add(task Task) error {
 	s.mu.Lock()
 	s.tasks[task.ID] = &task
 	s.mu.Unlock()
+	if task.Enabled {
+		s.schedule(task.ID, task.Cron)
+	}
 	return nil
 }
 
-// Update modifies an existing task.
+// Update modifies an existing task and reschedules its live cron entry so the
+// change (new expression, enable/disable) takes effect immediately, not at the
+// next process restart.
 func (s *Scheduler) Update(task Task) error {
+	if _, err := exprParser.Parse(task.Cron); err != nil {
+		return fmt.Errorf("invalid cron expression %q: %w", task.Cron, err)
+	}
 	s.mu.Lock()
 	existing, ok := s.tasks[task.ID]
 	if !ok {
 		s.mu.Unlock()
 		return fmt.Errorf("task %q not found", task.ID)
 	}
-
-	// Remove old cron entry (we can't easily remove individual entries in robfig/cron,
-	// so we reconstruct the whole schedule). For now, just update the stored entry.
 	existing.Name = task.Name
 	existing.Cron = task.Cron
 	existing.Prompt = task.Prompt
@@ -124,16 +136,22 @@ func (s *Scheduler) Update(task Task) error {
 	existing.Agent = task.Agent
 	existing.Directory = task.Directory
 	existing.Enabled = task.Enabled
+	cp := *existing
 	s.mu.Unlock()
 
-	return s.save(*existing)
+	s.unschedule(task.ID)
+	if cp.Enabled {
+		s.schedule(cp.ID, cp.Cron)
+	}
+	return s.save(cp)
 }
 
-// Delete removes a task by ID.
+// Delete removes a task by ID and unregisters its live cron entry.
 func (s *Scheduler) Delete(id string) error {
 	s.mu.Lock()
 	delete(s.tasks, id)
 	s.mu.Unlock()
+	s.unschedule(id)
 	p := filepath.Join(s.dir, id+".json")
 	if _, err := os.Stat(p); err == nil {
 		if err := trash.Move(p, s.dir); err != nil {
@@ -183,18 +201,56 @@ func (s *Scheduler) RunNow(ctx context.Context, id string) (string, error) {
 
 // ─── Private methods ─────────────────────────────────────────────────────
 
-func (s *Scheduler) wrap(task Task) func() {
+// schedule registers a cron entry for the task and records its EntryID so a
+// later Update/Delete can remove it. The expression is pre-validated by the
+// callers, so a parse failure here is a programming error worth logging.
+func (s *Scheduler) schedule(id, expr string) {
+	eid, err := s.cron.AddFunc(expr, s.wrap(id))
+	if err != nil {
+		log.Printf("[scheduler] cron add %q: %v", id, err)
+		return
+	}
+	s.mu.Lock()
+	s.entries[id] = eid
+	s.mu.Unlock()
+}
+
+// unschedule removes the task's live cron entry, if any.
+func (s *Scheduler) unschedule(id string) {
+	s.mu.Lock()
+	eid, ok := s.entries[id]
+	delete(s.entries, id)
+	s.mu.Unlock()
+	if ok {
+		s.cron.Remove(eid)
+	}
+}
+
+// wrap returns the function cron fires for a task. It looks the task up by ID
+// at fire time — rather than capturing a copy at registration — so a deleted
+// or disabled task stops running immediately and prompt/model edits apply to
+// the very next run.
+func (s *Scheduler) wrap(id string) func() {
 	return func() {
+		s.mu.Lock()
+		t, ok := s.tasks[id]
+		if !ok || !t.Enabled {
+			s.mu.Unlock()
+			return
+		}
+		task := *t
+		s.mu.Unlock()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 
 		sessionID, err := s.runner.RunTask(ctx, task)
 		s.mu.Lock()
-		if t, ok := s.tasks[task.ID]; ok {
+		if t, ok := s.tasks[id]; ok {
 			t.LastRun = time.Now()
 			t.SessionID = sessionID
 			if err != nil {
-				log.Printf("[scheduler] task %q failed: %v", task.Name, err)
+				log.Printf("[scheduler] task %q failed: %v", t.Name, err)
 			}
 		}
 		s.mu.Unlock()
@@ -223,9 +279,7 @@ func (s *Scheduler) loadAll() error {
 		}
 		s.tasks[task.ID] = &task
 		if task.Enabled {
-			if _, err := s.cron.AddFunc(task.Cron, s.wrap(task)); err != nil {
-				log.Printf("[scheduler] cron add %q: %v", task.Name, err)
-			}
+			s.schedule(task.ID, task.Cron)
 		}
 	}
 	return nil

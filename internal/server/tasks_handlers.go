@@ -35,8 +35,13 @@ type taskResponse struct {
 	SessionID string `json:"session_id,omitempty"`
 }
 
-// initScheduler creates the scheduler if not already initialized.
+// initScheduler creates the scheduler if not already initialized. It is
+// called eagerly from ListenAndServe so scheduled tasks fire from server
+// start; the calls in individual handlers remain as a safety net (and as the
+// only path in tests that exercise the mux directly).
 func (s *Server) initScheduler() {
+	s.schedulerMu.Lock()
+	defer s.schedulerMu.Unlock()
 	if s.scheduler != nil {
 		return
 	}

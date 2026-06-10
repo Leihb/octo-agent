@@ -126,8 +126,10 @@ type Server struct {
 	liveStates  map[string]*sessionLiveState
 	liveStateMu sync.RWMutex
 
-	// scheduler for cron-based background tasks.
-	scheduler *scheduler.Scheduler
+	// scheduler for cron-based background tasks. schedulerMu serialises its
+	// lazy initialisation (handlers and server start may race).
+	scheduler   *scheduler.Scheduler
+	schedulerMu sync.Mutex
 
 	// mcpCleanup unregisters + closes the MCP registry connected at start.
 	// Always non-nil after New (a no-op when no servers connected).
@@ -276,8 +278,11 @@ func (s *Server) AccessKey() string {
 	return ""
 }
 
-// ListenAndServe starts the HTTP server.
+// ListenAndServe starts the HTTP server. The cron scheduler is armed before
+// serving so persisted tasks fire from server start, not from the first hit
+// on a task endpoint.
 func (s *Server) ListenAndServe() error {
+	s.initScheduler()
 	return s.http.ListenAndServe()
 }
 
