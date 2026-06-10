@@ -113,7 +113,7 @@ const Tasks = (() => {
     });
     row.querySelector(".task-btn-del").addEventListener("click", e => {
       e.stopPropagation();
-      Tasks.delete(t.id);
+      Tasks.delete(t.id, t.name);
     });
 
     return row;
@@ -307,8 +307,8 @@ const Tasks = (() => {
       Sessions.select(session.id);
     },
 
-    async delete(id) {
-      if (!confirm(I18n.t("tasks.confirmDelete"))) return;
+    async delete(id, name) {
+      if (!confirm(I18n.t("tasks.confirmDelete", { name: name || id }))) return;
       const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!res.ok) { alert(I18n.t("tasks.deleteError")); return; }
 
