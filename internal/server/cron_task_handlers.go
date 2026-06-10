@@ -2,6 +2,8 @@ package server
 
 import (
 	"net/http"
+
+	"github.com/Leihb/octo-agent/internal/scheduler"
 )
 
 // ─── GET /api/cron-tasks ────────────────────────────────────────────────────
@@ -55,12 +57,13 @@ func (s *Server) handleRunCronTask(w http.ResponseWriter, r *http.Request) {
 // ─── PATCH /api/cron-tasks/{name} ───────────────────────────────────────────
 
 type patchCronTaskRequest struct {
-	Enabled   *bool   `json:"enabled,omitempty"`
-	Cron      *string `json:"cron,omitempty"`
-	Prompt    *string `json:"prompt,omitempty"`
-	Model     *string `json:"model,omitempty"`
-	Agent     *string `json:"agent,omitempty"`
-	Directory *string `json:"directory,omitempty"`
+	Enabled   *bool                    `json:"enabled,omitempty"`
+	Cron      *string                  `json:"cron,omitempty"`
+	Prompt    *string                  `json:"prompt,omitempty"`
+	Model     *string                  `json:"model,omitempty"`
+	Agent     *string                  `json:"agent,omitempty"`
+	Directory *string                  `json:"directory,omitempty"`
+	Notify    *scheduler.NotifyTargets `json:"notify,omitempty"`
 }
 
 func (s *Server) handlePatchCronTask(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +111,10 @@ func (s *Server) handlePatchCronTask(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.Directory != nil {
 				t.Directory = *req.Directory
+				changed = true
+			}
+			if req.Notify != nil {
+				t.Notify = *req.Notify
 				changed = true
 			}
 			if changed {

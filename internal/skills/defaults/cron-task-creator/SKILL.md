@@ -115,7 +115,7 @@ curl -s -X PATCH http://127.0.0.1:8080/api/cron-tasks/<name-or-id> \
 curl -s http://127.0.0.1:8080/api/tasks
 ```
 
-Supported PATCH fields: `enabled`, `cron`, `prompt`, `model`, `agent`, `directory`.
+Supported PATCH fields: `enabled`, `cron`, `prompt`, `model`, `agent`, `directory`, `notify`.
 
 ## Other operations
 
