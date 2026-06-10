@@ -136,6 +136,18 @@ func decodeDataURL(dataURL string) (mime string, data []byte, err error) {
 	return mime, data, nil
 }
 
+// imageRefsFromBlocks derives the frontend thumbnail URLs for a message's
+// persisted image blocks (blocks without an on-disk copy are skipped).
+func imageRefsFromBlocks(blocks []agent.ContentBlock) []string {
+	var refs []string
+	for _, b := range blocks {
+		if b.Type == "image" && b.ImagePath != "" {
+			refs = append(refs, "/api/uploads/"+filepath.Base(b.ImagePath))
+		}
+	}
+	return refs
+}
+
 // extForImageMIME picks the stored file extension for an image MIME type.
 func extForImageMIME(mime string) string {
 	switch mime {

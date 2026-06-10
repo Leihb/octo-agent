@@ -94,7 +94,7 @@ type Server struct {
 
 	// steerQueues holds mid-turn user messages (steer) that arrive while a
 	// turn is in flight.  Consumed by the turn loop after each iteration.
-	steerQueues map[string][]string
+	steerQueues map[string][]agent.InboxItem
 	steerMu     sync.Mutex
 
 	// sessionAgents tracks the currently-running Agent per session so that
@@ -188,7 +188,7 @@ func New(cfg Config) (*Server, error) {
 		homeMemDir:       homeMemDir,
 		turnLocks:        map[string]*sync.Mutex{},
 		turnRunning:      make(map[string]bool),
-		steerQueues:      make(map[string][]string),
+		steerQueues:      make(map[string][]agent.InboxItem),
 		sessionAgents:    make(map[string]*agent.Agent),
 		accessKey:        accessKey,
 		questionChans:    make(map[string]chan tools.AskResponse),

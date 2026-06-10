@@ -127,6 +127,11 @@ type AgentEvent struct {
 	Reply      *Reply         `json:"reply,omitempty"`
 	Messages   []string       `json:"messages,omitempty"`
 	Compact    *CompactStats  `json:"compact,omitempty"`
+
+	// Steer carries the full inbox items behind an EventSteerInjected —
+	// including attachment blocks — for handlers that render more than the
+	// plain texts in Messages.
+	Steer []InboxItem `json:"-"`
 }
 
 // CompactStats carries the numbers behind the compaction events. BeforeTokens

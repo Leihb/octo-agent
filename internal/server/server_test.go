@@ -867,7 +867,7 @@ func TestDoAgentTurn_SeedsThinkingProgress(t *testing.T) {
 	// Maps doAgentTurn touches that the full constructor sets up but mustServer
 	// (a minimal hand-built Server) does not.
 	srv.turnRunning = make(map[string]bool)
-	srv.steerQueues = make(map[string][]string)
+	srv.steerQueues = make(map[string][]agent.InboxItem)
 	srv.sessionAgents = make(map[string]*agent.Agent)
 
 	sess := agent.NewSession("stub-model", "")
