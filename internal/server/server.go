@@ -271,6 +271,12 @@ func New(cfg Config) (*Server, error) {
 	// tool catalog and can be dispatched through the browser.
 	tools.SetAsker(s.wsAsker())
 
+	// Register the restarter so restart_server appears in the tool catalog —
+	// the agent can then honour "重启一下服务" from web or IM. The restart
+	// drains in-flight turns (including the one calling the tool) before the
+	// worker exits with ExitRestart for the supervisor to respawn.
+	tools.SetRestarter(s.Restart)
+
 	s.registerRoutes()
 	s.initWS()
 	if sender != nil {
