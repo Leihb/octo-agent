@@ -99,16 +99,11 @@ curl -s -X PATCH  http://127.0.0.1:8080/api/cron-tasks/{name} \
 
 - **Tasks only fire while `octo serve` is running.** No daemon, no serve → no
   runs. Missed schedules are not replayed on restart.
-- **The scheduler arms lazily.** After (re)starting `octo serve`, schedules are
-  not active until something touches a task endpoint — make one
-  `GET /api/tasks` call (or open the Web UI tasks panel) to arm it.
-- **Edits to an existing task need a serve restart.** Changing the cron
-  expression, prompt, or `enabled` flag — via API or file edit — updates the
-  stored task but does **not** reschedule the already-registered cron entry in
-  the running process. The same applies to delete: a deleted or disabled task
-  keeps firing until the server restarts. Only *newly created* tasks (via
-  POST) take effect immediately. After restart, remember to arm the scheduler
-  again (previous caveat).
+- **API changes take effect immediately; file edits don't.** Create, update,
+  enable/disable, and delete through the API reschedule the running process on
+  the spot. Editing a JSON file under `~/.octo/tasks/` by hand only takes
+  effect the next time `octo serve` starts — prefer the API whenever the
+  server is up.
 - **Validate before creating.** A malformed cron expression is rejected at
   creation time by the API, but a hand-written JSON file with a bad expression
   fails silently at load (logged to stderr only) — double-check the 6-field
