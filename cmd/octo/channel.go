@@ -283,7 +283,17 @@ func handleAgentMessage(ctx context.Context, mgr *channel.Manager, ad channel.Ad
 		ctx = tools.WithTaskStore(ctx, sess.Tasks)
 		// Per-chat background manager: this chat's bg processes persist across
 		// messages and stay isolated from other chats; reaped on daemon shutdown.
-		ctx = tools.WithBackgroundManager(ctx, tools.SessionBackgroundManager("im:"+string(sess.Key)))
+		bgMgr := tools.SessionBackgroundManager("im:" + string(sess.Key))
+		// Surface background completions to the model — parity with the
+		// CLI/TUI's SetBackgroundOnExit → Inbox wiring. sess.Agent persists
+		// across messages, so an idle-time completion waits in the Inbox and
+		// is drained at the start of the next message's turn. The note is a
+		// <system-reminder> block; the UIController never echoes steer events,
+		// so nothing leaks into the chat.
+		bgMgr.SetOnExit(func(e tools.BgExit) {
+			sess.Agent.Inbox.Enqueue(tools.FormatBgNote(e))
+		})
+		ctx = tools.WithBackgroundManager(ctx, bgMgr)
 	}
 
 	_, _ = channel.RunAgent(ctx, sess, toolDefs, executor, ctrl, ev.Text)

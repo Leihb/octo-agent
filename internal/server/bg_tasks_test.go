@@ -2,9 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
@@ -118,5 +120,38 @@ func TestWireBackgroundTaskNotices_BroadcastsExit(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("timed out; notice=%v update=%v", gotNotice, gotUpdate)
 		}
+	}
+}
+
+// notifyAgentBgExit must reach the model on both paths: the running Agent's
+// Inbox mid-turn, the steer queue while idle. Parity with the CLI/TUI's
+// SetBackgroundOnExit → Inbox wiring.
+func TestNotifyAgentBgExit_MidTurnGoesToInbox(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0"})
+	a := agent.New(&recordingSender{}, "stub-model")
+	srv.sessionAgentsMu.Lock()
+	srv.sessionAgents["sess-1"] = a
+	srv.sessionAgentsMu.Unlock()
+
+	srv.notifyAgentBgExit("sess-1", tools.BgExit{ID: "bg_1", Command: "make build", Status: "exited: 0", NewOutput: "done"})
+
+	items := a.Inbox.Drain()
+	if len(items) != 1 || !strings.Contains(items[0].Text, "[BACKGROUND COMPLETED]") || !strings.Contains(items[0].Text, "bg_1") {
+		t.Fatalf("inbox = %+v, want one bg note", items)
+	}
+	// Nothing should have leaked into the idle steer queue.
+	if leftover := srv.drainSteer("sess-1"); len(leftover) != 0 {
+		t.Errorf("steer queue = %+v, want empty", leftover)
+	}
+}
+
+func TestNotifyAgentBgExit_IdleGoesToSteerQueue(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0"})
+
+	srv.notifyAgentBgExit("sess-1", tools.BgExit{ID: "bg_2", Command: "make test", Status: "exited: exit status 1"})
+
+	items := srv.drainSteer("sess-1")
+	if len(items) != 1 || !strings.Contains(items[0].Text, "[BACKGROUND COMPLETED]") || !strings.Contains(items[0].Text, "bg_2") {
+		t.Fatalf("steer queue = %+v, want one bg note", items)
 	}
 }

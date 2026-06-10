@@ -98,7 +98,7 @@ func runTUI(cfg replConfig) int {
 	// event loop. Without this a finished background command is invisible
 	// until the model polls terminal_output.
 	tools.SetBackgroundOnExit(func(e tools.BgExit) {
-		cfg.a.Inbox.Enqueue(formatBgNote(e))
+		cfg.a.Inbox.Enqueue(tools.FormatBgNote(e))
 		p.Send(bgExitMsg{e})
 	})
 	defer tools.SetBackgroundOnExit(nil)
