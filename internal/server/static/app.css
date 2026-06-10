@@ -5773,6 +5773,9 @@ body {
 
 .channels-page-header {
   margin-bottom: 0.25rem;
+  /* anchor for .skill-action-btns (absolute top-right) on the MCP panel,
+     which reuses this header class */
+  position: relative;
 }
 
 .channels-page-title {
