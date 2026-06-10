@@ -193,6 +193,11 @@ type Agent struct {
 	// to merge into the next user message. Set via AttachUserBlocks and
 	// consumed exactly once by the next appendUserInput, alongside the text.
 	pendingUserBlocks []ContentBlock
+
+	// turnIterations is the number of provider round-trips (loop iterations)
+	// executed during the most recent Run/RunStream call. It is set when the
+	// runLoop returns so callers can surface it in UI (e.g. "3 iterations").
+	turnIterations int
 }
 
 // AttachUserBlocks queues content blocks — typically image blocks — to be
@@ -525,7 +530,9 @@ func (a *Agent) runLoop(
 	streamStalls := 0      // transient mid-stream stalls re-issued for the current round
 	truncationResumes := 0 // layer-2 resume-and-chunk budget
 	escalateExhausted := false
+	a.turnIterations = 0
 	for i := 0; limit == unlimitedTurns || i < limit; i++ {
+		a.turnIterations = i + 1
 		// Interrupt (Ctrl-C) between iterations — e.g. right after a tool batch.
 		if ctx.Err() != nil {
 			return a.finishInterrupted(handler)
@@ -713,12 +720,15 @@ func (a *Agent) runLoop(
 			r := reply
 			handler(AgentEvent{Kind: EventTurnDone, Reply: &r})
 		}
+		a.turnIterations = i + 1
 		return reply, nil
 	}
 
 	// Loop cap reached while the model still wanted to keep going. End the
 	// run gracefully rather than erroring — the history holds the partial
 	// progress and the caller gets a clear, non-fatal explanation.
+	// turnIterations already holds the last loop index (set at the top of each
+	// iteration), so the UI reports the actual count before the cap.
 	return a.budgetStop(handler, StopReasonMaxTurns, fmt.Sprintf(
 		"[octo] Stopped: reached the max-turns limit (%d). The task may be incomplete — "+
 			"raise --max-turns or send another message to continue.", limit))
@@ -764,7 +774,16 @@ func (a *Agent) finishInterrupted(handler EventHandler) (Reply, error) {
 		r := reply
 		handler(AgentEvent{Kind: EventTurnDone, Reply: &r})
 	}
+	// turnIterations stays at its current value (set by the caller in runLoop
+	// before finishInterrupted is reached) so the UI shows how many iterations
+	// completed before the interrupt.
 	return reply, context.Canceled
+}
+
+// TurnIterations returns the number of provider round-trips executed during
+// the most recent Run/RunStream call. It is 0 before the first run.
+func (a *Agent) TurnIterations() int {
+	return a.turnIterations
 }
 
 // turnLimit resolves the per-Run loop cap.

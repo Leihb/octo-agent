@@ -537,7 +537,7 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 	s.wsHub.broadcast(sess.ID, map[string]any{
 		"type":       "complete",
 		"session_id": sess.ID,
-		"iterations": 1,
+		"iterations": a.TurnIterations(),
 	})
 
 	used, window := a.ContextUsage()
