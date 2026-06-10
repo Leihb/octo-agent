@@ -39,7 +39,7 @@ func (s *Server) listSessionsBrief() []wsSessionInfo {
 		out = append(out, wsSessionInfo{
 			ID:              sess.ID,
 			Name:            sess.DisplayTitle(),
-			Status:          "idle",
+			Status:          s.sessionStatus(sess.ID),
 			CreatedAt:       sess.CreatedAt.UnixMilli(),
 			Source:          source,
 			Model:           sess.Model,
@@ -477,6 +477,14 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 		s.interruptMu.Unlock()
 	}()
 
+	// Tell the frontend the turn started: "running" is what shows the
+	// interrupt button (the turn-end paths broadcast "idle" to hide it).
+	s.wsHub.broadcast(sess.ID, map[string]any{
+		"type":       "session_update",
+		"session_id": sess.ID,
+		"status":     "running",
+	})
+
 	a := s.buildAgent(sess)
 	if len(blocks) > 0 {
 		// Image attachments fold into the same user turn as the text when
@@ -896,6 +904,19 @@ func (s *Server) registerInterrupt(sessionID string, cancel context.CancelFunc) 
 	s.interruptMu.Lock()
 	s.interrupts[sessionID] = cancel
 	s.interruptMu.Unlock()
+}
+
+// sessionStatus returns the status string the frontend keys on ("running"
+// shows the interrupt button; anything else hides it). A registered interrupt
+// cancel func exists exactly for the duration of a turn — read via its own
+// mutex, unlike the turnRunning map which is guarded by per-session turnLocks.
+func (s *Server) sessionStatus(sessionID string) string {
+	s.interruptMu.Lock()
+	defer s.interruptMu.Unlock()
+	if _, ok := s.interrupts[sessionID]; ok {
+		return "running"
+	}
+	return "idle"
 }
 
 // Request confirmation from user (blocks until user responds in browser or ctx

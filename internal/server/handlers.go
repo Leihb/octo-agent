@@ -102,7 +102,7 @@ func (srv *Server) toSessionItem(s *agent.Session, source, agentProfile string) 
 		CreatedAt:       s.CreatedAt,
 		UpdatedAt:       updated,
 		Model:           s.Model,
-		Status:          "idle",
+		Status:          srv.sessionStatus(s.ID),
 		Source:          source,
 		AgentProfile:    agentProfile,
 		Pinned:          false,
