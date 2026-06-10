@@ -76,10 +76,17 @@ func (s *Server) RunTask(ctx context.Context, task scheduler.Task) (string, erro
 		}
 		sess = agent.NewSession(model, s.system)
 		sess.Source = "cron"
+		sess.Title = task.Name
 		task.SessionID = sess.ID
 		// If the task specifies a directory, note it in system prompt.
 		if task.Directory != "" {
 			sess.System = fmt.Sprintf("Working directory: %s\n%s", task.Directory, sess.System)
+		}
+		// Persist immediately: a task run can take many minutes, and until the
+		// session file exists the run is invisible in the web session list —
+		// clicking Run looked like it did nothing.
+		if err := sess.Save(); err != nil {
+			return sess.ID, fmt.Errorf("save session: %w", err)
 		}
 	}
 
