@@ -1042,23 +1042,26 @@ const Sessions = (() => {
   // Build one .tool-item row element.
   function _makeToolItem(name, args, summary) {
     const item = document.createElement("div");
-    item.className = "tool-item";
+    // "running" drives the in-flight visuals (row glow, spinning gear,
+    // spinner); _applyResultToItem removes it when the result lands.
+    item.className = "tool-item running";
 
     // Use backend-provided summary when available, fall back to client-side summarise
     const argSummary = summary || _summariseArgs(name, args);
 
     // When a structured summary is available, show it as the primary label (no redundant tool name).
     // Otherwise show the raw tool name + arg summary as before.
+    const gear = `<span class="tool-item-gear">⚙</span>`;
     const label = summary
-      ? `<span class="tool-item-name">⚙ ${escapeHtml(summary)}</span>`
-      : `<span class="tool-item-name">⚙ ${escapeHtml(name)}</span>` +
+      ? `<span class="tool-item-name">${gear} ${escapeHtml(summary)}</span>`
+      : `<span class="tool-item-name">${gear} ${escapeHtml(name)}</span>` +
         (argSummary ? `<span class="tool-item-arg">${escapeHtml(argSummary)}</span>` : "");
 
     item.innerHTML =
       `<div class="tool-item-header">` +
         `<span class="tool-item-chevron">▸</span>` +
         label +
-        `<span class="tool-item-status running">…</span>` +
+        `<span class="tool-item-status running"></span>` +
       `</div>` +
       `<pre class="tool-item-stdout"></pre>`;
     // The result area is collapsed to the one-line header by default;
@@ -1376,6 +1379,7 @@ const Sessions = (() => {
   // otherwise), header hint, and the default-collapsed state. Shared by the
   // live path (_completeLastToolItem) and history replay.
   function _applyResultToItem(item, result, uiPayload) {
+    item.classList.remove("running");
     const status = item.querySelector(".tool-item-status");
     if (status) {
       const st = uiPayload && uiPayload.status ? uiPayload.status : "ok";
@@ -1435,6 +1439,13 @@ const Sessions = (() => {
   // "expanded" so the single tool item remains visible after collapse.
   function _collapseToolGroup(group) {
     const body = group.querySelector(".tool-group-body");
+    // A collapse means the turn moved on — no tool in this group can still be
+    // in flight. Stop the running animation on items whose result never
+    // arrived (e.g. interrupted turn).
+    if (body) {
+      body.querySelectorAll(".tool-item.running").forEach(it => it.classList.remove("running"));
+      body.querySelectorAll(".tool-item-status.running").forEach(st => st.classList.remove("running"));
+    }
     const n    = body ? body.children.length : 0;
     // Only hide the body (collapse) when there are multiple tools with a visible header.
     // A single-tool group has no header, so we keep its body visible forever.
