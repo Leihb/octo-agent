@@ -52,7 +52,17 @@ Times are interpreted in the server's local timezone.
 3. **Write a self-contained prompt.** The task session has no access to this
    conversation — the prompt must carry all context: what to do, where, and
    what the output should look like.
-4. **Create** the task (see below), then **verify** by listing tasks. Offer a
+4. **Give the prompt an explicit stop condition.** Task runs are capped at
+   100 turns and 30 minutes; an open-ended prompt makes the model keep
+   re-verifying instead of finishing (a real "check for new issues" task spent
+   18 minutes and all 100 turns re-confirming that zero issues existed). Spell
+   out when the task is done, especially for the empty case:
+   - Bad: "Check the repository for any new open issues that need attention."
+   - Good: "List open issues created in the last 24h via one
+     `gh issue list` call. If there are none, reply exactly 'no new issues'
+     and stop. Otherwise summarize each in one line and stop — do not
+     re-check."
+5. **Create** the task (see below), then **verify** by listing tasks. Offer a
    one-off immediate run to test.
 
 ## Creating a task
