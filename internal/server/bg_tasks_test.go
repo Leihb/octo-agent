@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -153,5 +154,95 @@ func TestNotifyAgentBgExit_IdleGoesToSteerQueue(t *testing.T) {
 	items := srv.drainSteer("sess-1")
 	if len(items) != 1 || !strings.Contains(items[0].Text, "[BACKGROUND COMPLETED]") || !strings.Contains(items[0].Text, "bg_2") {
 		t.Fatalf("steer queue = %+v, want one bg note", items)
+	}
+}
+
+// An idle-time note must not just sit in the steer queue — it kicks a turn so
+// the model reacts immediately (parity with the TUI's idle auto-turn). The
+// kicked turn consumes the note; the reminder never renders as a user bubble
+// (doAgentTurn strips <system-reminder> spans from the broadcast).
+func TestDeliverModelNote_IdleKicksTurn(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0"})
+	srv.wsHub = newWSHub()
+	srv.turnRunning = map[string]bool{}
+	srv.liveStates = map[string]*sessionLiveState{}
+	srv.interrupts = map[string]context.CancelFunc{}
+
+	sess := agent.NewSession("stub-model", "")
+	if err := sess.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	srv.deliverModelNote(sess.ID, "<system-reminder>\n[BACKGROUND COMPLETED]\nBackground process bg_1 (`make build`) exited: 0.\n</system-reminder>")
+
+	// The kicked turn runs asynchronously; wait for it to finish.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu := srv.sessionTurnLock(sess.ID)
+		mu.Lock()
+		running := srv.turnRunning[sess.ID]
+		mu.Unlock()
+		if !running {
+			// Either finished or never started — check results below.
+			loaded, err := agent.LoadSession(sess.ID)
+			if err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			if len(loaded.Messages) >= 2 {
+				if leftover := srv.drainSteer(sess.ID); len(leftover) != 0 {
+					t.Errorf("steer queue = %+v, want drained", leftover)
+				}
+				return // turn ran: user note + assistant reply persisted
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("kicked turn never completed")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// prepareToolTurn must hand back the SAME session-scoped manager on every
+// turn of a session (async mode), so spawns survive turn boundaries — and a
+// sid-less context still gets the old per-turn synchronous manager.
+func TestPrepareToolTurn_SessionScopedAsyncManager(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	srv := mustServer(t, Config{Tools: true})
+	a := agent.New(&stubSender{}, "stub-model")
+
+	ctx := context.WithValue(context.Background(), ctxKeySessionID{}, "sess-mgr-test")
+	t.Cleanup(func() { tools.CloseSessionSubAgentManager("sess-mgr-test") })
+
+	_, _, m1, err := srv.prepareToolTurn(ctx, a)
+	if err != nil {
+		t.Fatalf("prepareToolTurn: %v", err)
+	}
+	_, _, m2, err := srv.prepareToolTurn(ctx, a)
+	if err != nil {
+		t.Fatalf("prepareToolTurn: %v", err)
+	}
+	if m1 != m2 {
+		t.Error("same session should reuse one sub-agent manager across turns")
+	}
+	if m1.Synchronous() {
+		t.Error("session-scoped manager should be async")
+	}
+
+	_, _, anon, err := srv.prepareToolTurn(context.Background(), a)
+	if err != nil {
+		t.Fatalf("prepareToolTurn (no sid): %v", err)
+	}
+	if !anon.Synchronous() {
+		t.Error("sid-less context should fall back to a synchronous manager")
+	}
+	if anon == m1 {
+		t.Error("sid-less manager must not be the session-scoped one")
 	}
 }

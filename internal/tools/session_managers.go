@@ -73,6 +73,59 @@ func CloseSessionBackgroundManager(id string) {
 	}
 }
 
+// Per-session sub-agent managers, keyed the same way as the background
+// managers. Unlike the per-turn managers the server used to build, these
+// persist across turns, which is what makes async sub-agents possible there:
+// a spawn outlives the turn that launched it, its completion hook still has a
+// home, and the spawner's child registry keeps children resumable in later
+// turns. Reaped on session delete (CloseSessionSubAgentManager) or daemon
+// shutdown (KillAllSessionSubAgents).
+var (
+	sessionSubMgrsMu sync.Mutex
+	sessionSubMgrs   = map[string]*SubAgentManager{}
+)
+
+// SessionSubAgentManager returns the per-session sub-agent manager for id,
+// creating it via mkSpawner on first use. Subsequent calls reuse the existing
+// manager (and its spawner), so mkSpawner is only invoked once per session.
+func SessionSubAgentManager(id string, mkSpawner func() Spawner) *SubAgentManager {
+	sessionSubMgrsMu.Lock()
+	defer sessionSubMgrsMu.Unlock()
+	m := sessionSubMgrs[id]
+	if m == nil {
+		m = NewSubAgentManager(mkSpawner())
+		sessionSubMgrs[id] = m
+	}
+	return m
+}
+
+// CloseSessionSubAgentManager kills every sub-agent tracked for a session and
+// drops its manager. No-op for an unknown id.
+func CloseSessionSubAgentManager(id string) {
+	sessionSubMgrsMu.Lock()
+	m := sessionSubMgrs[id]
+	delete(sessionSubMgrs, id)
+	sessionSubMgrsMu.Unlock()
+	if m != nil {
+		m.KillAll()
+	}
+}
+
+// KillAllSessionSubAgents terminates every sub-agent across all sessions.
+// Called on daemon shutdown, mirroring KillAllBackground.
+func KillAllSessionSubAgents() {
+	sessionSubMgrsMu.Lock()
+	mgrs := make([]*SubAgentManager, 0, len(sessionSubMgrs))
+	for _, m := range sessionSubMgrs {
+		mgrs = append(mgrs, m)
+	}
+	sessionSubMgrs = map[string]*SubAgentManager{}
+	sessionSubMgrsMu.Unlock()
+	for _, m := range mgrs {
+		m.KillAll()
+	}
+}
+
 // allBackgroundManagers returns defaultBg plus every live per-session manager,
 // so process-wide operations (shutdown reap) cover every tracked process.
 func allBackgroundManagers() []*BackgroundManager {

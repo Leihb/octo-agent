@@ -1,17 +1,15 @@
-package main
+package tools
 
 import (
 	"strings"
 	"testing"
-
-	"github.com/Leihb/octo-agent/internal/tools"
 )
 
 // TestFormatSubAgentNote_MaxTurnsFlagged verifies an async sub-agent that hit
 // its turn limit is flagged INCOMPLETE in the completion notice, so the parent
 // doesn't treat partial work as a finished answer.
 func TestFormatSubAgentNote_MaxTurnsFlagged(t *testing.T) {
-	got := formatSubAgentNote(tools.SubAgentNotification{
+	got := FormatSubAgentNote(SubAgentNotification{
 		AgentID:     "agent_1",
 		Description: "investigate",
 		Kind:        "spawn_done",
@@ -23,7 +21,7 @@ func TestFormatSubAgentNote_MaxTurnsFlagged(t *testing.T) {
 	}
 
 	// Normal completion is not flagged.
-	clean := formatSubAgentNote(tools.SubAgentNotification{
+	clean := FormatSubAgentNote(SubAgentNotification{
 		AgentID: "agent_2", Description: "x", Kind: "spawn_done", Result: "done",
 	})
 	if strings.Contains(clean, "INCOMPLETE") {

@@ -62,13 +62,24 @@ func (s *Server) wireBackgroundTaskNotices(sessionID string) {
 }
 
 // notifyAgentBgExit pushes a background-completion note to the model — parity
-// with the CLI/TUI's SetBackgroundOnExit → Inbox wiring. Mid-turn the note
-// goes straight into the running Agent's Inbox (drained between loop
-// iterations); while idle it goes to the steer queue, which the next turn
-// flushes into its Inbox at start. The note is a <system-reminder> block, so
-// the web transcript never renders it as user speech.
+// with the CLI/TUI's SetBackgroundOnExit → Inbox wiring.
 func (s *Server) notifyAgentBgExit(sessionID string, e tools.BgExit) {
-	note := tools.FormatBgNote(e)
+	s.deliverModelNote(sessionID, tools.FormatBgNote(e))
+}
+
+// notifySubAgentExit pushes an async sub-agent completion to the model —
+// parity with the CLI/TUI's SubAgentManager.SetOnExit → Inbox wiring.
+func (s *Server) notifySubAgentExit(sessionID string, ev tools.SubAgentNotification) {
+	s.deliverModelNote(sessionID, tools.FormatSubAgentNote(ev))
+}
+
+// deliverModelNote routes a <system-reminder> completion note to the model.
+// Mid-turn it goes straight into the running Agent's Inbox (drained between
+// loop iterations); while idle it goes to the steer queue and a turn is
+// kicked so the model reacts immediately — the same idle auto-turn the TUI
+// does. The note is a <system-reminder> block, so the web transcript never
+// renders it as user speech.
+func (s *Server) deliverModelNote(sessionID, note string) {
 	s.sessionAgentsMu.Lock()
 	a := s.sessionAgents[sessionID]
 	s.sessionAgentsMu.Unlock()
@@ -77,6 +88,51 @@ func (s *Server) notifyAgentBgExit(sessionID string, e tools.BgExit) {
 		return
 	}
 	s.enqueueSteer(sessionID, agent.InboxItem{Text: note})
+	s.kickIdleSteerTurn(sessionID)
+}
+
+// kickIdleSteerTurn starts a turn for sessionID when none is running, so a
+// completion note queued while idle reaches the model immediately. No-op when
+// a turn is running (its chained loop drains the queue at turn end) or the
+// queue is already empty by the time the lock is held.
+func (s *Server) kickIdleSteerTurn(sessionID string) {
+	mu := s.sessionTurnLock(sessionID)
+	mu.Lock()
+	if s.turnRunning[sessionID] {
+		mu.Unlock()
+		return
+	}
+	sess, err := agent.LoadSession(sessionID)
+	if err != nil {
+		// Session not loadable (deleted, or a transient read error) — leave
+		// the queue untouched; the next turn will pick the note up.
+		mu.Unlock()
+		return
+	}
+	items := s.drainSteer(sessionID)
+	if len(items) == 0 {
+		mu.Unlock()
+		return
+	}
+	s.turnRunning[sessionID] = true
+	mu.Unlock()
+
+	var texts []string
+	var blocks []agent.ContentBlock
+	for _, it := range items {
+		if strings.TrimSpace(it.Text) != "" {
+			texts = append(texts, it.Text)
+		}
+		blocks = append(blocks, it.Blocks...)
+	}
+	go func() {
+		defer func() {
+			mu.Lock()
+			s.turnRunning[sessionID] = false
+			mu.Unlock()
+		}()
+		s.runAgentTurnLoop(sess, strings.Join(texts, "\n\n"), blocks, imageRefsFromBlocks(blocks))
+	}()
 }
 
 // bgNoticeStatus maps a BackgroundManager exit status ("exited: 0",

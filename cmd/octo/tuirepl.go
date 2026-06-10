@@ -77,7 +77,7 @@ func runTUI(cfg replConfig) int {
 	if cfg.subAgentMgr != nil {
 		tools.SetDefaultSubAgentManager(cfg.subAgentMgr)
 		cfg.subAgentMgr.SetOnExit(func(ev tools.SubAgentNotification) {
-			cfg.a.Inbox.Enqueue(formatSubAgentNote(ev))
+			cfg.a.Inbox.Enqueue(tools.FormatSubAgentNote(ev))
 			p.Send(subAgentNoteMsg{ev})
 		})
 		// Runtime activity (started + per-tool) for the live bottom panel.
@@ -777,6 +777,13 @@ const maxSubAgentRecentTools = 4
 // state. "started" creates/refreshes the entry; "tool"/"tool_error" append to
 // its chain.
 func (m *tuiModel) handleSubAgentEvent(ev tools.SubAgentEvent) {
+	// "done" removes the entry; handled before the create-on-miss below so a
+	// late done can't resurrect a panel slot the completion note already
+	// removed.
+	if ev.Kind == "done" {
+		m.removeSubAgent(ev.AgentID)
+		return
+	}
 	sa := m.subAgents[ev.AgentID]
 	if sa == nil {
 		sa = &subAgentUI{description: ev.Description, start: time.Now()}

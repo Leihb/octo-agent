@@ -308,6 +308,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// terminal background commands run through the process-global manager
 	// regardless of which session launched them, so one call covers all.
 	tools.KillAllBackground()
+	tools.KillAllSessionSubAgents()
 	tools.SetDefaultSubAgentManager(nil)
 	tools.SetTaskStore(nil)
 	if s.mcpCleanup != nil {

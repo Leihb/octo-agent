@@ -108,7 +108,7 @@ func runOnce(cfg replConfig, prompt string, stream bool) int {
 	if cfg.subAgentMgr != nil {
 		tools.SetDefaultSubAgentManager(cfg.subAgentMgr)
 		cfg.subAgentMgr.SetOnExit(func(ev tools.SubAgentNotification) {
-			a.Inbox.Enqueue(formatSubAgentNote(ev))
+			a.Inbox.Enqueue(tools.FormatSubAgentNote(ev))
 		})
 		defer func() {
 			cfg.subAgentMgr.SetOnExit(nil)

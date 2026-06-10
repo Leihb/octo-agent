@@ -2159,6 +2159,12 @@ const Sessions = (() => {
     // description, elapsed time, and recent tool chain.
 
     handleSubAgentEvent(agentID, description, kind, toolName) {
+      // "done" removes the entry — handled before the create-on-miss below
+      // so a late done can't resurrect a slot that was already cleared.
+      if (kind === "done") {
+        this.handleSubAgentDone(agentID);
+        return;
+      }
       let sa = _subAgents[agentID];
       if (!sa) {
         sa = { description: description || agentID, start: Date.now(), recent: [], errored: false };
@@ -2188,10 +2194,10 @@ const Sessions = (() => {
     },
 
     handleSubAgentDone(agentID) {
-      if (agentID && _subAgents[agentID]) {
-        delete _subAgents[agentID];
+      if (agentID) {
+        delete _subAgents[agentID]; // no-op when already cleared
       } else {
-        // Sync mode sends sub_agent_done without agent_id — clear all.
+        // Legacy sub_agent_done without agent_id — clear all.
         Object.keys(_subAgents).forEach(k => delete _subAgents[k]);
       }
       this._updateSubAgentBadge();

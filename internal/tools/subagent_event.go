@@ -17,6 +17,8 @@ type SubAgentEvent struct {
 	//   "started"    — the sub-agent began a task (or a Continue round)
 	//   "tool"       — it dispatched a tool (ToolName set)
 	//   "tool_error" — a tool returned an error (ToolName set)
+	//   "done"       — the round finished (sync return or async completion);
+	//                  live panels drop the entry on this
 	Kind     string
 	ToolName string
 }

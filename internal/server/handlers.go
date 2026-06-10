@@ -479,6 +479,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 	s.forgetTurnLock(id)
 	tools.CloseSessionBackgroundManager(id) // reap the session's background daemons
+	tools.CloseSessionSubAgentManager(id)   // and its sub-agents
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": []string{id}})
 }
 
@@ -508,6 +509,7 @@ func (s *Server) handleDeleteSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.forgetTurnLock(id)
 		tools.CloseSessionBackgroundManager(id) // reap the session's background daemons
+		tools.CloseSessionSubAgentManager(id)   // and its sub-agents
 		deleted = append(deleted, id)
 	}
 
@@ -626,11 +628,44 @@ func (s *Server) prepareToolTurn(ctx context.Context, a *agent.Agent) (context.C
 	}
 	a.Gate = app.NewPermissionGate(engine, ask)
 
-	spawner := app.NewSpawner(a, executor, func() []agent.ToolDefinition {
-		return tools.DefaultToolsFor(a.Model)
-	})
-	mgr := tools.NewSubAgentManager(spawner)
-	mgr.SetSynchronous(true)
+	mkSpawner := func() tools.Spawner {
+		return app.NewSpawner(a, executor, func() []agent.ToolDefinition {
+			return tools.DefaultToolsFor(a.Model)
+		})
+	}
+	var mgr *tools.SubAgentManager
+	if sid, ok := ctx.Value(ctxKeySessionID{}).(string); ok && sid != "" {
+		// Session-scoped manager: it (and its spawner's child registry)
+		// persists across turns, so sub-agents may run async — a spawn
+		// outlives its turn, the completion lands via the manager's onExit
+		// hook, and children stay resumable later. The spawner is built once,
+		// on the session's first tool turn; the Sender/System it captures are
+		// per-server and stable.
+		mgr = tools.SessionSubAgentManager(sid, mkSpawner)
+		// (Re-)wire the hooks every turn — idempotent, and they outlive the
+		// turn so an async completion between turns still lands.
+		mgr.SetOnEvent(func(ev tools.SubAgentEvent) {
+			if s.wsHub == nil {
+				return
+			}
+			s.wsHub.broadcast(sid, map[string]any{
+				"type":        "sub_agent_event",
+				"session_id":  sid,
+				"agent_id":    ev.AgentID,
+				"description": ev.Description,
+				"kind":        ev.Kind,
+				"tool_name":   ev.ToolName,
+			})
+		})
+		mgr.SetOnExit(func(ev tools.SubAgentNotification) {
+			s.notifySubAgentExit(sid, ev)
+		})
+	} else {
+		// No session identity (one-shot runTurn paths): keep the old
+		// request/response semantics — block on every sub-agent.
+		mgr = tools.NewSubAgentManager(mkSpawner())
+		mgr.SetSynchronous(true)
+	}
 	ctx = tools.WithSubAgentManager(ctx, mgr)
 	ctx = tools.WithTaskStore(ctx, tasks.New())
 

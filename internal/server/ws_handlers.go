@@ -365,16 +365,21 @@ func (s *Server) drainSteer(sessionID string) []agent.InboxItem {
 func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent.ContentBlock, images []string) {
 	// Confirm the user message immediately so the frontend can swap the
 	// ghost (.msg-pending) bubble for the real one before streaming starts.
-	userEvent := map[string]any{
-		"type":       "history_user_message",
-		"session_id": sess.ID,
-		"content":    content,
-		"created_at": time.Now().UnixMilli(),
+	// <system-reminder> spans are stripped from the bubble: a turn kicked by a
+	// completion note (kickIdleSteerTurn) is pure reminder and renders nothing.
+	visible := strings.TrimSpace(agent.StripSystemReminders(content))
+	if visible != "" || len(images) > 0 {
+		userEvent := map[string]any{
+			"type":       "history_user_message",
+			"session_id": sess.ID,
+			"content":    visible,
+			"created_at": time.Now().UnixMilli(),
+		}
+		if len(images) > 0 {
+			userEvent["images"] = images
+		}
+		s.wsHub.broadcast(sess.ID, userEvent)
 	}
-	if len(images) > 0 {
-		userEvent["images"] = images
-	}
-	s.wsHub.broadcast(sess.ID, userEvent)
 
 	// Persist the user message right away so a page refresh mid-turn doesn't
 	// lose it.  We append it for Save(), then pop it back off so buildAgent
@@ -481,10 +486,11 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 
 	var toolDefs []agent.ToolDefinition
 	var executor agent.ToolExecutor
-	var subMgr *tools.SubAgentManager
 	if s.cfg.Tools {
 		var perr error
-		runCtx, executor, subMgr, perr = s.prepareToolTurn(runCtx, a)
+		// prepareToolTurn wires the session-scoped sub-agent manager's hooks
+		// (live-panel events + completion notes to the model).
+		runCtx, executor, _, perr = s.prepareToolTurn(runCtx, a)
 		if perr != nil {
 			sw.error(perr.Error())
 			return
@@ -492,19 +498,6 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 		toolDefs = tools.DefaultToolsFor(a.Model)
 		// Surface background-process completions (badge + chat notice).
 		s.wireBackgroundTaskNotices(sess.ID)
-		// Wire sub-agent live-panel events into the WebSocket stream.
-		if subMgr != nil {
-			subMgr.SetOnEvent(func(ev tools.SubAgentEvent) {
-				s.wsHub.broadcast(sess.ID, map[string]any{
-					"type":        "sub_agent_event",
-					"session_id":  sess.ID,
-					"agent_id":    ev.AgentID,
-					"description": ev.Description,
-					"kind":        ev.Kind,
-					"tool_name":   ev.ToolName,
-				})
-			})
-		}
 	}
 
 	reply, err := a.RunStream(runCtx, content, toolDefs, executor, sw.handleEvent)
@@ -767,19 +760,15 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			toolResult["ui_payload"] = ev.UI
 		}
 		w.hub.broadcast(w.sessionID, toolResult)
-		// Signal sub-agent completion so the frontend can clear the live panel.
-		if ev.ToolName == "sub_agent" {
-			w.hub.broadcast(w.sessionID, map[string]any{
-				"type":       "sub_agent_done",
-				"session_id": w.sessionID,
-			})
-		}
 		// The agent immediately starts the next LLM round after a tool result,
 		// and that round emits no event until its first delta (or the next
 		// tool_call). Re-seed the "thinking" indicator so the UI animates
 		// across the gap instead of the next tool popping out of dead air —
 		// same rationale as the turn-start seed in doAgentTurn. The frontend
 		// clears it on the next tool_call / assistant_message / complete.
+		// (No sub_agent_done broadcast here: in async mode the tool returns
+		// while agents still run — the manager's per-agent "done" event is
+		// the completion signal for the live panel.)
 		w.reseedThinkingProgress()
 		// A tool call is the only place a turn starts or kills a background
 		// process — refresh the badge.

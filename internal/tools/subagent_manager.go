@@ -203,6 +203,7 @@ func (m *SubAgentManager) RunSync(ctx context.Context, req SpawnRequest) (SpawnR
 	if sink := m.eventSink(id, req.Description); sink != nil {
 		ctx = WithSubAgentEventSink(ctx, sink)
 		sink(SubAgentEvent{Kind: "started"})
+		defer sink(SubAgentEvent{Kind: "done"})
 	}
 	return m.spawner.Spawn(ctx, req)
 }
@@ -316,7 +317,8 @@ func (m *SubAgentManager) Start(req SpawnRequest) (string, error) {
 
 	// Stream runtime events (started + per-tool) for live display. nil sink =>
 	// no onEvent hook => the spawner runs without streaming.
-	if sink := m.eventSink(id, req.Description); sink != nil {
+	sink := m.eventSink(id, req.Description)
+	if sink != nil {
 		ctx = WithSubAgentEventSink(ctx, sink)
 		sink(SubAgentEvent{Kind: "started"})
 	}
@@ -327,6 +329,11 @@ func (m *SubAgentManager) Start(req SpawnRequest) (string, error) {
 			m.activeAsync--
 			m.mu.Unlock()
 		}()
+		if sink != nil {
+			// Deferred (not inline after the hook) so a panic-free exit always
+			// clears the live-panel entry, even on spawn error.
+			defer sink(SubAgentEvent{Kind: "done"})
+		}
 		res, err := m.spawner.Spawn(ctx, req)
 		stopReason := ""
 		if err == nil {
@@ -411,8 +418,11 @@ func (m *SubAgentManager) runContinue(agentID, message string) {
 	agent.mu.Unlock()
 
 	// Stream runtime events for this round too, so the live panel re-shows the
-	// sub-agent as running while it handles the message.
-	if sink := m.eventSink(agentID, desc); sink != nil {
+	// sub-agent as running while it handles the message. "done" is emitted
+	// explicitly before any pending-message handoff (not deferred) so it can't
+	// race the next round's "started".
+	sink := m.eventSink(agentID, desc)
+	if sink != nil {
 		ctx = WithSubAgentEventSink(ctx, sink)
 		sink(SubAgentEvent{Kind: "started"})
 	}
@@ -448,6 +458,9 @@ func (m *SubAgentManager) runContinue(agentID, message string) {
 			OutputTokens: outTok,
 			StopReason:   sr,
 		})
+	}
+	if sink != nil {
+		sink(SubAgentEvent{Kind: "done"})
 	}
 
 	// Process pending message, if any.
