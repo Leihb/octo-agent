@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -456,5 +458,54 @@ func TestAgentSpawner_MarksContextSoRecursionRefused(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot spawn") {
 		t.Errorf("recursive sub_agent should be refused, got %v", err)
+	}
+}
+
+func TestAgentSpawner_SessionDirPersistsTranscript(t *testing.T) {
+	tmp := t.TempDir()
+	send := &subAgentSender{reply: "sub-agent answer", inputTokens: 100, outputTokens: 40}
+	parent := agent.New(send, "parent-model")
+	sp := NewSpawner(parent, nilExecutor{}, func() []agent.ToolDefinition { return nil })
+
+	res, err := sp.Spawn(context.Background(), tools.SpawnRequest{
+		Description: "Test",
+		Prompt:      "do something",
+		SessionDir:  tmp,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AgentID == "" {
+		t.Fatal("expected non-empty AgentID")
+	}
+
+	// The session file should have been written.
+	path := filepath.Join(tmp, res.AgentID+".jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("session file not written: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("session file is empty")
+	}
+
+	// Should contain the prompt and the reply as JSONL records.
+	body := string(data)
+	if !strings.Contains(body, "do something") {
+		t.Error("session transcript missing user prompt")
+	}
+	if !strings.Contains(body, "sub-agent answer") {
+		t.Error("session transcript missing assistant reply")
+	}
+
+	// Continue should append to the same file.
+	before, _ := os.ReadFile(path)
+	_, err = sp.Continue(context.Background(), res.AgentID, "continue please")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	if len(after) <= len(before) {
+		t.Error("Continue should have appended more records to the session file")
 	}
 }

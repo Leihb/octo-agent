@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -21,9 +22,10 @@ type Worker interface {
 
 // WorkSpec is one worker dispatch.
 type WorkSpec struct {
-	Label   string // short label for progress/logs
-	Prompt  string // the fully assembled worker context
-	Workdir string // Phase 2: the worktree to root the worker's shell in ("" = process cwd)
+	Label      string // short label for progress/logs
+	Prompt     string // the fully assembled worker context
+	Workdir    string // Phase 2: the worktree to root the worker's shell in ("" = process cwd)
+	SessionDir string // per-unit sub-agent session log directory ("" = no persistence)
 }
 
 // WorkResult is a worker round's outcome. Incomplete is true when the worker
@@ -34,6 +36,11 @@ type WorkResult struct {
 	Handle     string
 	Reply      string
 	Incomplete bool
+	// Turns is the number of provider round-trips the sub-agent consumed in
+	// this round (Spawn or Continue). The conductor folds this into its global
+	// Iterations budget so the cap reflects actual LLM calls, not just conductor
+	// dispatch rounds.
+	Turns int
 }
 
 // Verifier is the completion gate. A unit is never Done until Verify returns
@@ -106,6 +113,11 @@ type Config struct {
 	// StallRounds: after this many consecutive iterations with no unit
 	// reaching Done, the loop declares a stall and stops (Phase 3). <=0 → off.
 	StallRounds int
+	// MaxUnitDuration caps wall-clock time for a single worker round (Spawn or
+	// Continue). If the worker exceeds this, the context is cancelled and the
+	// unit is retried. <=0 → 60s default. This prevents a single sub-agent
+	// from hanging the whole conductor.
+	MaxUnitDuration time.Duration
 }
 
 func (c Config) maxAttempts() int {
@@ -113,6 +125,13 @@ func (c Config) maxAttempts() int {
 		return c.MaxAttempts
 	}
 	return 3
+}
+
+func (c Config) maxUnitDuration() time.Duration {
+	if c.MaxUnitDuration > 0 {
+		return c.MaxUnitDuration
+	}
+	return 60 * time.Second
 }
 
 // maxRecoverRounds bounds how many consecutive re-plan attempts the loop will
@@ -214,11 +233,15 @@ func (c *Conductor) Run(ctx context.Context, id string) error {
 			return c.finalize(ctx, id)
 		}
 
-		progressed := c.runBatch(ctx, id, batch)
+		progressed, totalTurns := c.runBatch(ctx, id, batch)
 
-		// Bump the iteration counter once per worker dispatch in the batch.
-		n := len(batch)
-		_, _ = c.store.Update(id, func(l *Ledger) error { l.Iterations += n; return nil })
+		// Bump the iteration counter by the actual sub-agent turns consumed,
+		// so the budget reflects real LLM round-trips, not just conductor
+		// dispatch rounds. Minimum 1 so empty rounds still count.
+		if totalTurns < 1 {
+			totalTurns = 1
+		}
+		_, _ = c.store.Update(id, func(l *Ledger) error { l.Iterations += totalTurns; return nil })
 
 		if progressed {
 			roundsSinceProgress = 0
@@ -284,8 +307,8 @@ type dispatchOutcome struct {
 // concurrently, then integrates the outcomes SERIALLY in unit-id order. The
 // concurrency is the design's bounded parallelism; the serial integrate keeps
 // trunk merges + ledger transitions race-free. Returns whether any unit
-// reached Done this round.
-func (c *Conductor) runBatch(ctx context.Context, id string, batch []dispatchItem) bool {
+// reached Done this round, and the sum of sub-agent turns consumed.
+func (c *Conductor) runBatch(ctx context.Context, id string, batch []dispatchItem) (progressed bool, totalTurns int) {
 	outcomes := make([]dispatchOutcome, len(batch))
 	if len(batch) == 1 {
 		outcomes[0] = c.dispatchUnit(ctx, id, batch[0])
@@ -301,13 +324,13 @@ func (c *Conductor) runBatch(ctx context.Context, id string, batch []dispatchIte
 		wg.Wait()
 	}
 
-	progressed := false
 	for _, oc := range outcomes {
+		totalTurns += oc.res.Turns
 		if c.integrate(ctx, id, oc) {
 			progressed = true
 		}
 	}
-	return progressed
+	return progressed, totalTurns
 }
 
 // dispatchUnit runs (or resumes) one unit's worker and verifies its output in
@@ -360,24 +383,33 @@ func (c *Conductor) dispatchUnit(ctx context.Context, id string, item dispatchIt
 		return nil
 	})
 
+	// Wall-clock timeout so one slow sub-agent can't block the whole conductor.
+	unitCtx, cancel := context.WithTimeout(ctx, c.cfg.maxUnitDuration())
+	defer cancel()
+
 	if item.resume && u.Handle != "" {
 		msg := u.ContinueMsg
 		if msg == "" {
 			msg = "Continue where you left off and finish the task."
 		}
 		c.logf("▶ #%d resuming\n", unitID)
-		oc.res, oc.workerErr = c.worker.Continue(ctx, u.Handle, msg)
+		oc.res, oc.workerErr = c.worker.Continue(unitCtx, u.Handle, msg)
 	} else {
 		spec := WorkSpec{
-			Label:   fmt.Sprintf("#%d %s", unitID, oneLine(u.Description, 60)),
-			Prompt:  c.buildPrompt(id, l, u, oc.workdir),
-			Workdir: oc.workdir,
+			Label:      fmt.Sprintf("#%d %s", unitID, oneLine(u.Description, 60)),
+			Prompt:     c.buildPrompt(id, l, u, oc.workdir),
+			Workdir:    oc.workdir,
+			SessionDir: filepath.Join(c.store.Dir(id), "sessions"),
 		}
 		c.logf("▶ #%d running\n", unitID)
-		oc.res, oc.workerErr = c.worker.Run(ctx, spec)
+		oc.res, oc.workerErr = c.worker.Run(unitCtx, spec)
 	}
 
 	if oc.workerErr != nil {
+		if unitCtx.Err() == context.DeadlineExceeded {
+			c.logf("⏱ #%d wall-clock timeout (>%s)\n", unitID, c.cfg.maxUnitDuration())
+			c.store.AppendJournal(id, fmt.Sprintf("#%d timeout after %s", unitID, c.cfg.maxUnitDuration()))
+		}
 		return oc
 	}
 

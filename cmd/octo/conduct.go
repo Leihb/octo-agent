@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/app"
@@ -61,6 +64,7 @@ func printConductUsage(w io.Writer) {
 	fmt.Fprintln(w, "  --max-attempts N           Verify-fail retries per unit before it blocks (default 3)")
 	fmt.Fprintln(w, "  --max-iterations N         Loop-turn budget backstop (default scales with units)")
 	fmt.Fprintln(w, "  --stall-rounds N           Stop after N rounds with no unit completed (default 5, 0 = off)")
+	fmt.Fprintln(w, "  --max-unit-duration D      Wall-clock timeout per unit (default 60s)")
 	fmt.Fprintln(w, "  --concurrency N            Parallel workers in isolated worktrees (default 1)")
 	fmt.Fprintln(w, "  --no-worktree              Run workers in the main tree even when concurrency=1")
 	fmt.Fprintln(w, "  --replan=false             Disable automatic re-planning when stuck")
@@ -68,17 +72,18 @@ func printConductUsage(w io.Writer) {
 
 // conductFlags holds the parsed start-flags shared across the start/resume paths.
 type conductFlags struct {
-	provider      string
-	model         string
-	planOnly      bool
-	verify        bool   // LLM judge gate
-	verifyCmd     string // objective shell gate, e.g. "go build ./... && go test ./..."
-	maxAttempts   int
-	maxIterations int
-	stallRounds   int
-	concurrency   int
-	noWorktree    bool
-	replan        bool
+	provider        string
+	model           string
+	planOnly        bool
+	verify          bool   // LLM judge gate
+	verifyCmd       string // objective shell gate, e.g. "go build ./... && go test ./..."
+	maxAttempts     int
+	maxIterations   int
+	stallRounds     int
+	concurrency     int
+	noWorktree      bool
+	replan          bool
+	maxUnitDuration time.Duration
 }
 
 func conductFlagSet(name string, f *conductFlags, stderr io.Writer) *flag.FlagSet {
@@ -92,18 +97,21 @@ func conductFlagSet(name string, f *conductFlags, stderr io.Writer) *flag.FlagSe
 	fs.IntVar(&f.maxAttempts, "max-attempts", 0, "Verify-fail retries per unit before blocking")
 	fs.IntVar(&f.maxIterations, "max-iterations", 0, "Loop-turn budget backstop")
 	fs.IntVar(&f.stallRounds, "stall-rounds", 5, "Stop after N rounds with no progress (0=off)")
+	fs.DurationVar(&f.maxUnitDuration, "max-unit-duration", 0, "Wall-clock timeout per unit (default 60s)")
 	fs.IntVar(&f.concurrency, "concurrency", 1, "Parallel workers in isolated worktrees")
 	fs.BoolVar(&f.noWorktree, "no-worktree", false, "Run workers in the main tree")
 	fs.BoolVar(&f.replan, "replan", true, "Let the conductor revise the plan as it learns (disable with --replan=false)")
+	fs.DurationVar(&f.maxUnitDuration, "max-unit-duration", 0, "Wall-clock timeout per unit (default 60s)")
 	return fs
 }
 
 func (f conductFlags) config() conductor.Config {
 	return conductor.Config{
-		MaxAttempts:   f.maxAttempts,
-		MaxIterations: f.maxIterations,
-		MaxConcurrent: f.concurrency,
-		StallRounds:   f.stallRounds,
+		MaxAttempts:     f.maxAttempts,
+		MaxIterations:   f.maxIterations,
+		MaxConcurrent:   f.concurrency,
+		StallRounds:     f.stallRounds,
+		MaxUnitDuration: f.maxUnitDuration,
 	}
 }
 
@@ -252,7 +260,9 @@ func conductLedger(store *conductor.Store, id string, f conductFlags, stdout, st
 	}
 
 	fmt.Fprintln(stdout, "Conducting…  (unattended — Ctrl-C to stop; resume later)")
-	err := c.Run(context.Background(), id)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	err := c.Run(ctx, id)
 
 	led, gerr := store.Get(id)
 	if gerr == nil {
@@ -411,7 +421,7 @@ func (spawnerWorker) Run(ctx context.Context, spec conductor.WorkSpec) (conducto
 	if spec.Workdir != "" {
 		ctx = tools.WithWorkingDir(ctx, spec.Workdir)
 	}
-	res, err := sp.Spawn(ctx, tools.SpawnRequest{Description: spec.Label, Prompt: spec.Prompt})
+	res, err := sp.Spawn(ctx, tools.SpawnRequest{Description: spec.Label, Prompt: spec.Prompt, SessionDir: spec.SessionDir})
 	if err != nil {
 		return conductor.WorkResult{}, err
 	}
@@ -419,6 +429,7 @@ func (spawnerWorker) Run(ctx context.Context, spec conductor.WorkSpec) (conducto
 		Handle:     res.AgentID,
 		Reply:      res.Reply,
 		Incomplete: res.StopReason == agent.StopReasonMaxTurns,
+		Turns:      res.Turns,
 	}, nil
 }
 
@@ -435,5 +446,6 @@ func (spawnerWorker) Continue(ctx context.Context, handle, message string) (cond
 		Handle:     res.AgentID,
 		Reply:      res.Reply,
 		Incomplete: res.StopReason == agent.StopReasonMaxTurns,
+		Turns:      res.Turns,
 	}, nil
 }

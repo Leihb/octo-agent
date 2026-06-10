@@ -181,6 +181,17 @@ func (s *Store) AppendJournal(id, line string) {
 	fmt.Fprintf(f, "[%s] %s\n", ts, strings.TrimRight(line, "\n"))
 }
 
+// ReadJournal returns the full text of the ledger's JOURNAL.md, or "" if absent.
+func (s *Store) ReadJournal(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := os.ReadFile(s.JournalPath(id))
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 // ReadConventions returns the current conventions doc, or "" if absent.
 func (s *Store) ReadConventions(id string) string {
 	b, err := os.ReadFile(s.ConventionsPath(id))
