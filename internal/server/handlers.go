@@ -15,6 +15,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/permission"
+	"github.com/Leihb/octo-agent/internal/skills"
 	"github.com/Leihb/octo-agent/internal/tasks"
 	"github.com/Leihb/octo-agent/internal/tools"
 	"github.com/Leihb/octo-agent/internal/version"
@@ -531,6 +532,15 @@ func (s *Server) handleListTools(w http.ResponseWriter, r *http.Request) {
 // ─── GET /api/skills ────────────────────────────────────────────────────────
 
 func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
+	// The registry is a startup-time snapshot. Skills added, edited, or
+	// removed on disk (rather than through this API) would otherwise stay
+	// invisible — or worse, deleted ones would linger in the panel — until
+	// the server restarts. Re-scan before listing; Reload only reads each
+	// skill dir's SKILL.md frontmatter, so it's cheap enough per request.
+	s.skillReg.Reload()
+	// Refresh the manifest for sessions built after this point, same as the
+	// toggle/delete handlers do.
+	s.skillsManifest = skills.RenderManifest(s.skillReg)
 	list := s.skillReg.All()
 	out := make([]skillInfo, 0, len(list))
 	for _, sk := range list {

@@ -541,6 +541,63 @@ func TestHandleToggleSkill_NotFound(t *testing.T) {
 	}
 }
 
+// TestHandleListSkills_RescansDisk is the regression guard for the stale
+// skill panel: the registry is discovered once at server start, so without a
+// per-request re-scan a skill directory deleted (or added) on disk would stay
+// wrong in the panel until the server restarts.
+func TestHandleListSkills_RescansDisk(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+
+	hasSkill := func(name string) bool {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/skills?access_key="+srv.AccessKey(), nil)
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+		}
+		var body struct {
+			Skills []struct {
+				Name string `json:"name"`
+			} `json:"skills"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		for _, sk := range body.Skills {
+			if sk.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+
+	// A skill dropped on disk AFTER server start must show up without restart.
+	skillDir := filepath.Join(tmp, ".octo", "skills", "ghost")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: ghost\ndescription: appears and disappears\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !hasSkill("ghost") {
+		t.Fatal("skill added on disk after start not listed; list handler did not re-scan")
+	}
+
+	// A skill deleted on disk must vanish from the next list response.
+	if err := os.RemoveAll(skillDir); err != nil {
+		t.Fatal(err)
+	}
+	if hasSkill("ghost") {
+		t.Fatal("skill deleted on disk still listed; panel would show a ghost entry until restart")
+	}
+}
+
 func TestHandleBenchmark_Success(t *testing.T) {
 	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/test-session/benchmark?access_key="+srv.AccessKey(), nil)
