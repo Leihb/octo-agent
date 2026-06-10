@@ -46,6 +46,11 @@ type SpawnRequest struct {
 	// ReadOnly, when true, strips the mutating tools (write_file, edit_file)
 	// from the child's toolbelt on top of the always-dropped Agent tool.
 	ReadOnly bool
+
+	// SessionDir, when non-empty, tells the spawner to persist the sub-agent's
+	// full conversation transcript to <SessionDir>/<agent-id>.jsonl so it can
+	// be inspected after a failure.
+	SessionDir string
 }
 
 // SpawnResult is the sub-agent's final output, plus its token usage so the
@@ -57,6 +62,9 @@ type SpawnResult struct {
 	Reply        string
 	InputTokens  int
 	OutputTokens int
+	// Turns is the number of provider round-trips the sub-agent executed.
+	// Used by the conductor to charge its global iteration budget.
+	Turns int
 	// StopReason carries why the sub-agent stopped. Empty for normal
 	// completion; "max_turns" when the loop budget was exhausted.
 	StopReason string

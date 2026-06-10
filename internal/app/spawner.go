@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -48,7 +49,7 @@ func NewSpawner(parent *agent.Agent, executor agent.ToolExecutor, toolsFn func()
 // Set to the same default as the parent (100) so sub-agents have enough
 // budget for complex sub-tasks. Each Continue re-arms
 // this budget for the next round.
-const childMaxTurns = 100
+const childMaxTurns = 30
 
 // Spawn implements tools.Spawner. It builds an isolated child, registers it so
 // a later Continue can resume it, runs the first prompt, and returns the
@@ -72,10 +73,18 @@ func (s *Spawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools.Spaw
 	child.Gate = s.parent.Gate
 	child.MaxTurns = childMaxTurns
 
-	lc := &liveChild{agent: child, tools: childTools, executor: s.executor}
+	lc := &liveChild{agent: child, tools: childTools, executor: s.executor, sessionDir: req.SessionDir}
 	id := s.reg.put(lc)
 
-	reply, in, out, stop, err := s.runChild(ctx, lc, req.Prompt)
+	if req.SessionDir != "" {
+		_ = os.MkdirAll(req.SessionDir, 0o755)
+		sess := agent.NewSession(child.Model, child.System)
+		sess.ID = id
+		sess.Dir = req.SessionDir
+		lc.session = sess
+	}
+
+	reply, in, out, stop, turns, err := s.runChild(ctx, lc, req.Prompt)
 	if err != nil {
 		return tools.SpawnResult{}, err
 	}
@@ -84,6 +93,7 @@ func (s *Spawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools.Spaw
 		Reply:        reply,
 		InputTokens:  in,
 		OutputTokens: out,
+		Turns:        turns,
 		StopReason:   stop,
 	}, nil
 }
@@ -97,7 +107,7 @@ func (s *Spawner) Continue(ctx context.Context, agentID, message string) (tools.
 		return tools.SpawnResult{}, fmt.Errorf(
 			"agent %s is no longer alive (idle-expired or evicted); launch a fresh sub-agent instead", agentID)
 	}
-	reply, in, out, stop, err := s.runChild(ctx, lc, message)
+	reply, in, out, stop, turns, err := s.runChild(ctx, lc, message)
 	if err != nil {
 		return tools.SpawnResult{}, err
 	}
@@ -106,6 +116,7 @@ func (s *Spawner) Continue(ctx context.Context, agentID, message string) (tools.
 		Reply:        reply,
 		InputTokens:  in,
 		OutputTokens: out,
+		Turns:        turns,
 		StopReason:   stop,
 	}, nil
 }
@@ -115,14 +126,14 @@ func (s *Spawner) Continue(ctx context.Context, agentID, message string) (tools.
 // the sub-agent context marker so the child can't recurse, and accrues only the
 // token delta for this round into the parent (SessionTokens is cumulative, so
 // re-accruing the total would double-count earlier rounds). The returned (in,
-// out) are this round's delta.
+// out) are this round's delta; turns is the child's TurnIterations count.
 //
 // A max-turns checkpoint is NOT an error: the partial reply and StopReason
 // ("max_turns") are returned so a caller (the conductor) can checkpoint and
 // Continue. Tokens spent on the partial round are still accrued. Callers that
 // drive a continuation (the conductor) inspect
 // StopReason themselves.
-func (s *Spawner) runChild(ctx context.Context, lc *liveChild, prompt string) (reply string, in, out int, stopReason string, err error) {
+func (s *Spawner) runChild(ctx context.Context, lc *liveChild, prompt string) (reply string, in, out int, stopReason string, turns int, err error) {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 
@@ -145,8 +156,9 @@ func (s *Spawner) runChild(ctx context.Context, lc *liveChild, prompt string) (r
 		}
 	}
 	r, err := lc.agent.RunStream(childCtx, prompt, lc.tools, lc.executor, handler)
+	turns = lc.agent.TurnIterations()
 	if err != nil {
-		return "", 0, 0, "", err
+		return "", 0, 0, "", turns, err
 	}
 
 	// Accrue the round's token delta even on a max-turns checkpoint — the
@@ -156,7 +168,20 @@ func (s *Spawner) runChild(ctx context.Context, lc *liveChild, prompt string) (r
 	lc.accruedIn, lc.accruedOut = totIn, totOut
 	s.parent.AccrueChildUsage(in, out)
 
-	return r.Content, in, out, r.StopReason, nil
+	lc.syncSession()
+	return r.Content, in, out, r.StopReason, turns, nil
+}
+
+// syncSession persists the child's conversation to disk when sessionDir was
+// supplied. Called at the end of every runChild round (Spawn + Continue) so
+// the transcript is always up-to-date. Failures are silent — session logging
+// is best-effort and must never block the sub-agent.
+func (lc *liveChild) syncSession() {
+	if lc.session == nil || lc.sessionDir == "" {
+		return
+	}
+	lc.session.SyncFrom(lc.agent.History)
+	_ = lc.session.Save()
 }
 
 // filterChildTools drops Agent (a sub-agent cannot spawn another sub-agent —
@@ -221,6 +246,12 @@ type liveChild struct {
 
 	lastUsed time.Time // for TTL eviction
 	seq      uint64    // monotonic touch order, for LRU eviction (clock-independent)
+
+	// sessionDir + session persist the sub-agent transcript when the caller
+	// (conductor) wants post-mortem traceability. Empty sessionDir means no
+	// persistence (the default for chat/REPL sub-agents).
+	sessionDir string
+	session    *agent.Session
 }
 
 // childRegistry holds the live children for one spawner (one REPL session).

@@ -28,31 +28,58 @@ func newFnWorker(fn func(unitID, call int, resume bool, spec WorkSpec) WorkResul
 	return &fnWorker{calls: map[int]int{}, prompts: map[int]string{}, fn: fn}
 }
 
-func (w *fnWorker) Run(_ context.Context, spec WorkSpec) (WorkResult, error) {
+func (w *fnWorker) Run(ctx context.Context, spec WorkSpec) (WorkResult, error) {
+	if err := ctx.Err(); err != nil {
+		return WorkResult{}, err
+	}
 	id := unitIDFromLabel(spec.Label)
 	w.mu.Lock()
 	c := w.calls[id]
 	w.calls[id]++
 	w.prompts[id] = spec.Prompt
 	w.mu.Unlock()
-	res := w.fn(id, c, false, spec)
-	if res.Handle == "" {
-		res.Handle = "h" + strconv.Itoa(id)
+	// Run fn in a goroutine so a cancelled context can interrupt even a
+	// blocking fn (e.g. time.Sleep), matching real behaviour where LLM calls
+	// respect ctx cancellation.
+	ch := make(chan WorkResult, 1)
+	go func() { ch <- w.fn(id, c, false, spec) }()
+	select {
+	case res := <-ch:
+		if err := ctx.Err(); err != nil {
+			return WorkResult{}, err
+		}
+		if res.Handle == "" {
+			res.Handle = "h" + strconv.Itoa(id)
+		}
+		return res, nil
+	case <-ctx.Done():
+		return WorkResult{}, ctx.Err()
 	}
-	return res, nil
 }
 
-func (w *fnWorker) Continue(_ context.Context, handle, _ string) (WorkResult, error) {
+func (w *fnWorker) Continue(ctx context.Context, handle, _ string) (WorkResult, error) {
+	if err := ctx.Err(); err != nil {
+		return WorkResult{}, err
+	}
 	id, _ := strconv.Atoi(strings.TrimPrefix(handle, "h"))
 	w.mu.Lock()
 	c := w.calls[id]
 	w.calls[id]++
 	w.mu.Unlock()
-	res := w.fn(id, c, true, WorkSpec{})
-	if res.Handle == "" {
-		res.Handle = handle
+	ch := make(chan WorkResult, 1)
+	go func() { ch <- w.fn(id, c, true, WorkSpec{}) }()
+	select {
+	case res := <-ch:
+		if err := ctx.Err(); err != nil {
+			return WorkResult{}, err
+		}
+		if res.Handle == "" {
+			res.Handle = handle
+		}
+		return res, nil
+	case <-ctx.Done():
+		return WorkResult{}, ctx.Err()
 	}
-	return res, nil
 }
 
 func (w *fnWorker) callCount(id int) int {
@@ -396,5 +423,56 @@ func TestConductCancellation(t *testing.T) {
 	l, _ := s.Get(id)
 	if l.Status != LedgerCancelled {
 		t.Fatalf("status = %s, want cancelled", l.Status)
+	}
+}
+
+func TestConductTurnsChargeIterations(t *testing.T) {
+	s := newTestStore(t)
+	id := seed(t, s, "g", []Unit{
+		{ID: 1, Description: "a"},
+		{ID: 2, Description: "b"},
+	})
+	worker := newFnWorker(func(unitID, call int, resume bool, spec WorkSpec) WorkResult {
+		// Each "run" consumes 5 sub-agent turns.
+		return WorkResult{Reply: "ok", Turns: 5}
+	})
+	c := New(s, worker, alwaysGreen(), nil, Config{})
+	if err := c.Run(context.Background(), id); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	l, _ := s.Get(id)
+	// Two units × 5 turns each = 10 total iterations.
+	if l.Iterations != 10 {
+		t.Errorf("iterations = %d, want 10 (turns charged to budget)", l.Iterations)
+	}
+}
+
+func TestConductWallClockTimeoutRetries(t *testing.T) {
+	s := newTestStore(t)
+	id := seed(t, s, "g", []Unit{{ID: 1, Description: "slow task"}})
+	var calls atomic.Int32
+	worker := newFnWorker(func(unitID, call int, resume bool, spec WorkSpec) WorkResult {
+		calls.Add(1)
+		if call == 0 {
+			// Sleep past the wall-clock budget so the conductor sees a timeout.
+			time.Sleep(200 * time.Millisecond)
+		}
+		return WorkResult{Reply: "recovered"}
+	})
+	c := New(s, worker, alwaysGreen(), nil, Config{MaxUnitDuration: 50 * time.Millisecond})
+	if err := c.Run(context.Background(), id); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	l, _ := s.Get(id)
+	if l.Status != LedgerDone {
+		t.Fatalf("status = %s, want done", l.Status)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("worker calls = %d, want 2 (timeout + retry)", calls.Load())
+	}
+	// Journal should mention the timeout.
+	journal := s.ReadJournal(id)
+	if !strings.Contains(journal, "timeout") {
+		t.Errorf("journal missing timeout entry:\n%s", journal)
 	}
 }

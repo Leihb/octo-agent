@@ -33,6 +33,10 @@ type Session struct {
 	Source    string    `json:"source,omitempty"` // how the session was created: "" (manual) | "cron" | "channel" | "setup"
 	Messages  []Message `json:"messages"`
 
+	// Dir overrides the default ~/.octo/sessions location. Empty means use the
+	// default. Not serialized — it's a runtime override.
+	Dir string `json:"-"`
+
 	// persisted is how many messages are already on disk. Save appends
 	// Messages[persisted:]; it's not serialized.
 	persisted int
@@ -132,9 +136,13 @@ func sessionsDir() (string, error) {
 
 // SavePath returns the JSONL path where this session would be saved.
 func (s *Session) SavePath() (string, error) {
-	dir, err := sessionsDir()
-	if err != nil {
-		return "", err
+	dir := s.Dir
+	if dir == "" {
+		var err error
+		dir, err = sessionsDir()
+		if err != nil {
+			return "", err
+		}
 	}
 	return filepath.Join(dir, s.ID+".jsonl"), nil
 }
