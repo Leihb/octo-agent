@@ -342,8 +342,10 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 		case agent.RoleUser:
 			// Emit tool_result events for any tool_result blocks before the
 			// user message (they carry the actual output).
+			hasToolResult := false
 			for _, b := range m.Blocks {
 				if b.Type == "tool_result" {
+					hasToolResult = true
 					events = append(events, map[string]any{
 						"type":   "tool_result",
 						"result": b.Result,
@@ -359,14 +361,38 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 			if m.CreatedAt.IsZero() {
 				createdAt = int64(i + 1)
 			}
-			// Only emit history_user_message if there is actual text content
+			// A multipart user message (image attachments) carries its text
+			// in blocks rather than Content, and its images as blocks whose
+			// persisted file maps to an /api/uploads/ thumbnail URL. Blocks
+			// of a tool_result message are tool bookkeeping, not user input.
+			text := m.Content
+			var images []string
+			if !hasToolResult {
+				for _, b := range m.Blocks {
+					switch b.Type {
+					case "text":
+						if text == "" {
+							text = b.Text
+						}
+					case "image":
+						if b.ImagePath != "" {
+							images = append(images, "/api/uploads/"+filepath.Base(b.ImagePath))
+						}
+					}
+				}
+			}
+			// Only emit history_user_message if there is user-visible content
 			// (tool_result-only messages are bookkeeping, not user-visible).
-			if m.Content != "" {
-				events = append(events, map[string]any{
+			if text != "" || len(images) > 0 {
+				ev := map[string]any{
 					"type":       "history_user_message",
-					"content":    m.Content,
+					"content":    text,
 					"created_at": createdAt,
-				})
+				}
+				if len(images) > 0 {
+					ev["images"] = images
+				}
+				events = append(events, ev)
 			}
 		case agent.RoleAssistant:
 			// Emit tool_call events for any tool_use blocks.

@@ -64,6 +64,12 @@ type ContentBlock struct {
 	// (Claude, GPT-4o, Kimi k2.6, etc.). The provider adapter serialises it to
 	// the vendor-specific wire format (Anthropic base64 source, OpenAI data URL).
 	Image *ImageData `json:"-"`
+
+	// ImagePath points at a persisted on-disk copy of Image (type=="image").
+	// Image bytes are never serialised into the session transcript; a block
+	// saved with a path is rehydrated from it by LoadSession so a resumed
+	// conversation can re-send the image to the provider.
+	ImagePath string `json:"image_path,omitempty"`
 }
 
 // ImageData holds raw image bytes and their MIME type for multimodal uploads.

@@ -884,7 +884,7 @@ func TestDoAgentTurn_SeedsThinkingProgress(t *testing.T) {
 	srv.wsHub.register <- conn
 	srv.wsHub.subscribe(conn, sess.ID)
 
-	srv.doAgentTurn(sess, "hi")
+	srv.doAgentTurn(sess, "hi", nil, nil)
 
 	// Broadcast is async through the hub's event loop; drain until the turn's
 	// terminal "complete" event (or a safety deadline).

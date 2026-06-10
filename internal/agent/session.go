@@ -345,8 +345,54 @@ func LoadSession(id string) (*Session, error) {
 		// Meta line was missing/corrupt — fall back to the filename stem.
 		s.ID = strings.TrimSuffix(filepath.Base(path), ".jsonl")
 	}
+	rehydrateImageBlocks(s.Messages)
 	s.persisted = len(s.Messages) // a resumed session continues appending
 	return s, nil
+}
+
+// rehydrateImageBlocks reloads persisted image attachments (ImagePath) into
+// memory so provider adapters can re-send them on resumed turns — image bytes
+// are never serialised into the transcript itself. A block whose file is gone,
+// or a legacy block saved without a path, degrades to a text placeholder: the
+// anthropic adapter hard-errors on an image block with no data, which would
+// otherwise make every later turn of the resumed session fail.
+func rehydrateImageBlocks(msgs []Message) {
+	for mi := range msgs {
+		for bi := range msgs[mi].Blocks {
+			b := &msgs[mi].Blocks[bi]
+			if b.Type != "image" || b.Image != nil {
+				continue
+			}
+			if b.ImagePath != "" {
+				if data, err := os.ReadFile(b.ImagePath); err == nil {
+					b.Image = &ImageData{MIMEType: imageMIMEFromPath(b.ImagePath), Data: data}
+					continue
+				}
+			}
+			name := "image"
+			if b.ImagePath != "" {
+				name = filepath.Base(b.ImagePath)
+			}
+			*b = NewTextBlock("[image attachment no longer available: " + name + "]")
+		}
+	}
+}
+
+// imageMIMEFromPath maps a file extension to its image MIME type, defaulting
+// to JPEG (the web UI re-encodes every image upload as JPEG).
+func imageMIMEFromPath(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	default:
+		return "image/jpeg"
+	}
 }
 
 // resolveSessionPath maps an id (bare, suffixed, or absolute path) to the

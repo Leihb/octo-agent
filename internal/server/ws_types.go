@@ -26,8 +26,13 @@ type wsMsgUserMessage struct {
 }
 
 type wsUserFile struct {
-	Name    string `json:"name"`
+	Name string `json:"name"`
+	// DataURL carries an image attachment inline (base64 data URL).
 	DataURL string `json:"data_url,omitempty"`
+	// Path references a document already uploaded via POST /api/upload
+	// (an /api/uploads/<name> URL).
+	Path     string `json:"path,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
 }
 
 type wsMsgInterrupt struct {

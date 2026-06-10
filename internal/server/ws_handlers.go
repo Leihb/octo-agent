@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -96,8 +97,14 @@ func (s *Server) handleWSUserMessage(conn *wsConn, msg *wsMsgUserMessage) {
 	}
 
 	content := extractTextContent(msg.Content)
-	if content == "" {
+	att := parseUserFiles(msg.Files)
+	if content == "" && len(att.blocks) == 0 && len(att.notes) == 0 {
 		return
+	}
+	// Document attachments ride as path notes in the text so the model can
+	// read_file them and the transcript keeps a visible record.
+	if len(att.notes) > 0 {
+		content = strings.TrimSpace(content + "\n\n" + strings.Join(att.notes, "\n"))
 	}
 
 	sess, err := agent.LoadSession(sid)
@@ -114,6 +121,16 @@ func (s *Server) handleWSUserMessage(conn *wsConn, msg *wsMsgUserMessage) {
 
 	if s.turnRunning[sess.ID] {
 		mu.Unlock()
+		// The steer queue and Inbox are text-only, so a mid-turn image rides
+		// as a path note: read_file returns it as an image block, so the
+		// model can still view it on the next iteration.
+		if len(att.blocks) > 0 {
+			var lines []string
+			for _, b := range att.blocks {
+				lines = append(lines, fmt.Sprintf("[Attached image: %s — open it with read_file to view]", b.ImagePath))
+			}
+			content = strings.TrimSpace(content + "\n\n" + strings.Join(lines, "\n"))
+		}
 		s.enqueueSteer(sess.ID, content)
 		// Also inject into the running Agent's Inbox so the runLoop can
 		// drain it between tool-call iterations.
@@ -137,7 +154,7 @@ func (s *Server) handleWSUserMessage(conn *wsConn, msg *wsMsgUserMessage) {
 			s.turnRunning[sess.ID] = false
 			mu.Unlock()
 		}()
-		s.runAgentTurnLoop(sess, content)
+		s.runAgentTurnLoop(sess, content, att.blocks, att.images)
 	}()
 }
 
@@ -201,6 +218,26 @@ func (s *Server) handleWSRetry(conn *wsConn, sessionID string) {
 	sess.Messages = sess.Messages[:lastUserIdx]
 	_ = sess.Save()
 
+	// A multipart user message (image attachments) keeps its text in a text
+	// block; re-attach the image blocks (rehydrated by LoadSession) so the
+	// retried turn re-sends them.
+	content := userMsg.Content
+	var blocks []agent.ContentBlock
+	var images []string
+	for _, b := range userMsg.Blocks {
+		switch b.Type {
+		case "text":
+			if content == "" {
+				content = b.Text
+			}
+		case "image":
+			blocks = append(blocks, b)
+			if b.ImagePath != "" {
+				images = append(images, "/api/uploads/"+filepath.Base(b.ImagePath))
+			}
+		}
+	}
+
 	s.turnRunning[sess.ID] = true
 	mu.Unlock()
 
@@ -210,7 +247,7 @@ func (s *Server) handleWSRetry(conn *wsConn, sessionID string) {
 			s.turnRunning[sess.ID] = false
 			mu.Unlock()
 		}()
-		s.runAgentTurnLoop(sess, userMsg.Content)
+		s.runAgentTurnLoop(sess, content, blocks, images)
 	}()
 }
 
@@ -287,10 +324,13 @@ func joinNonEmpty(parts []string, sep string) string {
 //
 // doAgentTurn is the single-turn body shared by the loop and retry paths.
 
-func (s *Server) runAgentTurnLoop(sess *agent.Session, initialContent string) {
+func (s *Server) runAgentTurnLoop(sess *agent.Session, initialContent string, blocks []agent.ContentBlock, images []string) {
 	content := initialContent
 	for {
-		s.doAgentTurn(sess, content)
+		s.doAgentTurn(sess, content, blocks, images)
+		// Attachments belong to the initial message only; steer follow-ups
+		// are plain text.
+		blocks, images = nil, nil
 		steerMsgs := s.drainSteer(sess.ID)
 		if len(steerMsgs) == 0 {
 			break
@@ -313,21 +353,35 @@ func (s *Server) drainSteer(sessionID string) []string {
 	return msgs
 }
 
-func (s *Server) doAgentTurn(sess *agent.Session, content string) {
+func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent.ContentBlock, images []string) {
 	// Confirm the user message immediately so the frontend can swap the
 	// ghost (.msg-pending) bubble for the real one before streaming starts.
-	s.wsHub.broadcast(sess.ID, map[string]any{
+	userEvent := map[string]any{
 		"type":       "history_user_message",
 		"session_id": sess.ID,
 		"content":    content,
 		"created_at": time.Now().UnixMilli(),
-	})
+	}
+	if len(images) > 0 {
+		userEvent["images"] = images
+	}
+	s.wsHub.broadcast(sess.ID, userEvent)
 
 	// Persist the user message right away so a page refresh mid-turn doesn't
 	// lose it.  We append it for Save(), then pop it back off so buildAgent
 	// doesn't double-count it — RunStream will add the same message to
-	// a.History via appendUserInput.
-	sess.Messages = append(sess.Messages, agent.NewUserMessage(content))
+	// a.History via appendUserInput. Mirror appendUserInput's multipart shape
+	// (optional text block, then attachments) so the persisted line matches.
+	userMsg := agent.NewUserMessage(content)
+	if len(blocks) > 0 {
+		multi := make([]agent.ContentBlock, 0, len(blocks)+1)
+		if content != "" {
+			multi = append(multi, agent.NewTextBlock(content))
+		}
+		userMsg.Content = ""
+		userMsg.Blocks = append(multi, blocks...)
+	}
+	sess.Messages = append(sess.Messages, userMsg)
 	_ = sess.Save()
 	sess.Messages = sess.Messages[:len(sess.Messages)-1]
 
@@ -384,6 +438,11 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string) {
 	}()
 
 	a := s.buildAgent(sess)
+	if len(blocks) > 0 {
+		// Image attachments fold into the same user turn as the text when
+		// RunStream appends the user input.
+		a.AttachUserBlocks(blocks)
+	}
 
 	// Flush any steer messages that arrived before the Agent was built into
 	// the Agent's Inbox so the runLoop can drain them between iterations.

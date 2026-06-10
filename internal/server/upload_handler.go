@@ -27,14 +27,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	home, err := os.UserHomeDir()
+	uploadDir, err := ensureUploadsDir()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot determine home dir")
-		return
-	}
-	uploadDir := filepath.Join(home, ".octo", uploadsDirName)
-	if err := os.MkdirAll(uploadDir, 0o700); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("mkdir: %v", err))
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

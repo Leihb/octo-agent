@@ -340,6 +340,7 @@ func (s *Server) registerRoutes() {
 
 	// Upload
 	s.mux.HandleFunc("POST /api/upload", s.requireAuth(s.handleUpload))
+	s.mux.HandleFunc("GET /api/uploads/{name}", s.requireAuth(s.handleGetUpload))
 
 	// File action (open / download)
 	s.mux.HandleFunc("POST /api/file-action", s.requireAuth(s.handleFileAction))
