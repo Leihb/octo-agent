@@ -1063,6 +1063,93 @@ drain:
 	}
 }
 
+// TestDoAgentTurn_LiveAndHistoryCreatedAtMatch guards the Web UI's
+// live-vs-history dedup key. On session open, the initial /messages fetch can
+// race the live history_user_message broadcast; the frontend dedups the two
+// render paths by exact created_at equality, so the broadcast and the history
+// endpoint must report the SAME millisecond value for the same user message.
+// A mismatch (one side seconds, the other milliseconds, or two separate
+// time.Now() calls) renders the user's message twice until a page refresh.
+func TestDoAgentTurn_LiveAndHistoryCreatedAtMatch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	srv.initWS()
+	srv.turnRunning = make(map[string]bool)
+	srv.steerQueues = make(map[string][]agent.InboxItem)
+	srv.sessionAgents = make(map[string]*agent.Agent)
+
+	sess := agent.NewSession("stub-model", "")
+	if err := sess.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	conn := &wsConn{
+		hub:        srv.wsHub,
+		send:       make(chan []byte, 256),
+		subscribed: map[string]struct{}{},
+	}
+	srv.wsHub.register <- conn
+	srv.wsHub.subscribe(conn, sess.ID)
+
+	srv.doAgentTurn(sess, "hello dedup", nil, nil)
+
+	// Capture the live broadcast's created_at.
+	var liveCreatedAt float64
+	deadline := time.After(2 * time.Second)
+drainDedup:
+	for {
+		select {
+		case b := <-conn.send:
+			var ev map[string]any
+			if err := json.Unmarshal(b, &ev); err != nil {
+				continue
+			}
+			if typ, _ := ev["type"].(string); typ == "history_user_message" {
+				liveCreatedAt, _ = ev["created_at"].(float64)
+			} else if typ == "complete" {
+				break drainDedup
+			}
+		case <-deadline:
+			break drainDedup
+		}
+	}
+	if liveCreatedAt <= 0 {
+		t.Fatal("no live history_user_message with created_at captured")
+	}
+
+	// Fetch history and find the same user message.
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/"+sess.ID+"/messages?access_key="+srv.AccessKey(), nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("messages status = %d; body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Events []map[string]any `json:"events"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	var histCreatedAt float64
+	for _, ev := range body.Events {
+		if typ, _ := ev["type"].(string); typ == "history_user_message" {
+			if c, _ := ev["content"].(string); c == "hello dedup" {
+				histCreatedAt, _ = ev["created_at"].(float64)
+			}
+		}
+	}
+	if histCreatedAt <= 0 {
+		t.Fatal("user message not found in history endpoint response")
+	}
+	if liveCreatedAt != histCreatedAt {
+		t.Fatalf("dedup key mismatch: live created_at = %v, history created_at = %v — frontend would render the message twice",
+			liveCreatedAt, histCreatedAt)
+	}
+}
+
 // TestWSStreamWriter_ReseedsThinkingAfterTool is the regression guard for the
 // web-UI "tools pop out of dead air" gap. The frontend clears the progress
 // indicator when a tool_call renders, and the next LLM round emits nothing

@@ -363,6 +363,21 @@ func (s *Server) drainSteer(sessionID string) []agent.InboxItem {
 }
 
 func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent.ContentBlock, images []string) {
+	// Build the user message first: its CreatedAt is both the persisted
+	// timestamp and the broadcast created_at below, so the live event and a
+	// concurrent history fetch carry the SAME dedup key. (Mirror
+	// appendUserInput's multipart shape — optional text block, then
+	// attachments — so the persisted line matches what RunStream appends.)
+	userMsg := agent.NewUserMessage(content)
+	if len(blocks) > 0 {
+		multi := make([]agent.ContentBlock, 0, len(blocks)+1)
+		if content != "" {
+			multi = append(multi, agent.NewTextBlock(content))
+		}
+		userMsg.Content = ""
+		userMsg.Blocks = append(multi, blocks...)
+	}
+
 	// Confirm the user message immediately so the frontend can swap the
 	// ghost (.msg-pending) bubble for the real one before streaming starts.
 	// <system-reminder> spans are stripped from the bubble: a turn kicked by a
@@ -373,7 +388,7 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 			"type":       "history_user_message",
 			"session_id": sess.ID,
 			"content":    visible,
-			"created_at": time.Now().UnixMilli(),
+			"created_at": userMsg.CreatedAt.UnixMilli(),
 		}
 		if len(images) > 0 {
 			userEvent["images"] = images
@@ -384,17 +399,7 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 	// Persist the user message right away so a page refresh mid-turn doesn't
 	// lose it.  We append it for Save(), then pop it back off so buildAgent
 	// doesn't double-count it — RunStream will add the same message to
-	// a.History via appendUserInput. Mirror appendUserInput's multipart shape
-	// (optional text block, then attachments) so the persisted line matches.
-	userMsg := agent.NewUserMessage(content)
-	if len(blocks) > 0 {
-		multi := make([]agent.ContentBlock, 0, len(blocks)+1)
-		if content != "" {
-			multi = append(multi, agent.NewTextBlock(content))
-		}
-		userMsg.Content = ""
-		userMsg.Blocks = append(multi, blocks...)
-	}
+	// a.History via appendUserInput.
 	sess.Messages = append(sess.Messages, userMsg)
 	_ = sess.Save()
 	sess.Messages = sess.Messages[:len(sess.Messages)-1]

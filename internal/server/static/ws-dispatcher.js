@@ -167,6 +167,14 @@ WS.onEvent(ev => {
       if (ev.session_id !== Sessions.activeId) break;
       const firstGhost = document.querySelector(".msg-pending");
       if (firstGhost) firstGhost.remove();
+      // Dedup against the initial history fetch: on session open the
+      // /messages fetch can race this live event (the turn starts over WS
+      // while the fetch is in flight), and whichever path renders second
+      // would duplicate the bubble. Both paths carry the message's persisted
+      // CreatedAt in ms, so exact-match marking makes them mutually
+      // exclusive.
+      if (Sessions.isRendered(ev.session_id, ev.created_at)) break;
+      Sessions.markRendered(ev.session_id, ev.created_at);
       let userHtml = "";
       if (Array.isArray(ev.images) && ev.images.length > 0) {
         userHtml += ev.images.map(src => {

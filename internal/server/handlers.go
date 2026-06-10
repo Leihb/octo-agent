@@ -362,7 +362,13 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 			// array index as a unique cursor (not sess.CreatedAt — that
 			// collides with the Web UI's dedup logic and drops everything
 			// after the first user message).
-			createdAt := m.CreatedAt.Unix()
+			//
+			// UnixMilli, not Unix: the live history_user_message broadcast in
+			// doAgentTurn sends this message's CreatedAt in milliseconds, and
+			// the Web UI dedups live-vs-history rounds by exact created_at
+			// equality — mismatched units would render the same user message
+			// twice when a history fetch races the live event.
+			createdAt := m.CreatedAt.UnixMilli()
 			if m.CreatedAt.IsZero() {
 				createdAt = int64(i + 1)
 			}

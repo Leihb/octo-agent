@@ -4009,6 +4009,13 @@ const Sessions = (() => {
       dedup.add(createdAt);
     },
 
+    /** Whether a round with this created_at was already rendered (by either
+     *  the live WS handler or a history fetch) — the other path must skip it. */
+    isRendered(id, createdAt) {
+      if (!createdAt) return false;
+      return !!_renderedCreatedAt[id]?.has(createdAt);
+    },
+
     /** Mark a session as having a pending task that should start after subscribe. */
     setPendingRunTask(sessionId) {
       _pendingRunTaskId = sessionId;
