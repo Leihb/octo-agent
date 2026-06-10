@@ -677,6 +677,9 @@ func buildEnvContext(cwd string) string {
 		fmt.Fprintf(&b, "- Working directory: %s\n", cwd)
 	}
 	fmt.Fprintf(&b, "- Today's date: %s\n", time.Now().Format("2006-01-02"))
+	// Platform-shell guidance (dialect + install/PATH traps), shared with the
+	// CLI builder so web sessions get the same orientation.
+	b.WriteString(tools.ShellEnvNote())
 	return b.String()
 }
 

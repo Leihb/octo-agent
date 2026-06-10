@@ -19,6 +19,8 @@ CDP 模式必需 **Node.js 22+**（使用原生 WebSocket）。check-deps 脚本
 - Windows: `winget install OpenJS.NodeJS.LTS`（或 https://nodejs.org 下载安装包）
 - macOS: `brew install node`
 - Linux: 发行版包管理器或 https://nodejs.org
+- **小白用户（或无 winget/Homebrew）**：直接给 https://nodejs.org 的 LTS 安装包链接，让用户下载双击、一路"下一步"装完后回来告诉你；提前告知安装器会弹系统授权框（Windows UAC / macOS 密码），需要用户在屏幕前确认
+- 刚装好的 node 在本会话 PATH 中可能不可见（命令继承 octo 启动时的环境）——按环境须知刷新 PATH 或全路径调用（Windows `& "$env:ProgramFiles\nodejs\node.exe" -v`，macOS `/usr/local/bin/node -v` 或 `/opt/homebrew/bin/node -v`）；仍异常就请用户重启 octo
 
 没有 Node 时本技能并非不可用：静态层（内置 `web_fetch` / `web_search`）不依赖 Node，可先用静态层完成任务，仅在确需浏览器操作时再请用户安装。
 

@@ -17,8 +17,9 @@ To build a powerful frontend artifact — a self-contained single HTML file that
 
 **Requirements**: `bash` and Node.js 18+ on PATH. Verify both before starting (`bash --version`, `node -v`). If either is missing, tell the user what to install and wait for their go-ahead — never install unasked:
 
-- Node.js — Windows: `winget install OpenJS.NodeJS.LTS` (or https://nodejs.org); macOS: `brew install node`; Linux: distro package manager or https://nodejs.org
-- bash on Windows — the scripts are bash; Git for Windows provides it (`winget install Git.Git`, then use Git Bash's `bash.exe`). Without bash or WSL this skill cannot run on Windows — say so plainly; do not attempt to translate the scripts to PowerShell.
+- Node.js — Windows: `winget install OpenJS.NodeJS.LTS`; macOS: `brew install node`; Linux: distro package manager. **Novice users (or no winget/Homebrew)**: hand them the https://nodejs.org LTS installer link and let them click through the GUI installer with defaults, then verify. Expect an elevation/permission dialog they must approve at the screen.
+- bash on Windows — the scripts are bash; Git for Windows provides it (`winget install Git.Git`, or the https://git-scm.com GUI installer). The default install does **not** put `bash` on PATH — invoke it by full path: `& "$env:ProgramFiles\Git\bin\bash.exe" <skill-dir>/scripts/init-artifact.sh <name>`. Without Git Bash or WSL this skill cannot run on Windows — say so plainly; do not attempt to translate the scripts to PowerShell.
+- After any mid-session install, the new tool may be missing from this session's PATH — refresh PATH or use full paths per the environment notes; if problems persist, have the user restart octo.
 
 Note: the `scripts/` paths are relative to this skill's directory (its absolute path is in the header above) — invoke them as `bash <skill-dir>/scripts/init-artifact.sh`. Run the project itself in the user's working directory, not inside the skill directory.
 
