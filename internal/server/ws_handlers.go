@@ -484,7 +484,24 @@ func (s *Server) drainSteer(sessionID string) []agent.InboxItem {
 	return items
 }
 
+// crashRecoveryReminder is prepended (as model-facing context, stripped from
+// every UI surface by StripSystemReminders) to the first user message of a
+// turn whose session transcript still ends mid-turn — meaning the previous
+// turn died with the server process. Its rounds were persisted incrementally,
+// but the round in flight at the crash is gone, so executed tools may have
+// changed state without their results being recorded.
+const crashRecoveryReminder = `<system-reminder>The previous turn in this session ended abnormally (the server stopped mid-turn). Tool calls from that turn may have executed and changed state even if their results are missing from this conversation. Verify the current state before repeating or continuing potentially destructive actions.</system-reminder>`
+
 func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent.ContentBlock, images []string) {
+	// A transcript that still ends mid-turn here means the previous turn died
+	// with the server — a finished or user-interrupted turn always ends on a
+	// plain assistant message. Warn the model once: the reminder rides this
+	// turn's user message, and the turn's own completion makes the tail clean
+	// again, so it cannot re-fire.
+	if sess.EndsMidTurn() {
+		content = crashRecoveryReminder + "\n\n" + content
+	}
+
 	// Build the user message first: its CreatedAt is both the persisted
 	// timestamp and the broadcast created_at below, so the live event and a
 	// concurrent history fetch carry the SAME dedup key. (Mirror

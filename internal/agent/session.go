@@ -91,6 +91,32 @@ func (s *Session) UsedTools() bool {
 	return false
 }
 
+// EndsMidTurn reports whether the persisted transcript stops in the middle of
+// a turn: the last message is a user message still awaiting a reply (the
+// initiating input, a tool_result batch, or a mid-turn steer), or an
+// assistant tool_use whose results never landed. A turn that finished — or
+// was interrupted by the user — always ends on a plain assistant text message
+// (finishInterrupted guarantees this), so a mid-turn tail means the process
+// died with the turn in flight: crash, kill, power loss. Callers use it to
+// warn the model that tool side effects from that turn may be unrecorded.
+func (s *Session) EndsMidTurn() bool {
+	if len(s.Messages) == 0 {
+		return false
+	}
+	last := s.Messages[len(s.Messages)-1]
+	switch last.Role {
+	case RoleUser:
+		return true
+	case RoleAssistant:
+		for _, b := range last.Blocks {
+			if b.Type == "tool_use" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // sessionsDir returns (and creates if needed) ~/.octo/sessions.
 func sessionsDir() (string, error) {
 	home, err := os.UserHomeDir()
