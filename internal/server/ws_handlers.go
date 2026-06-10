@@ -18,7 +18,57 @@ import (
 type sessionLiveState struct {
 	progress    *wsEventProgress
 	stdoutLines []string
-	toolCall    *wsEventToolCall
+
+	// events buffers the turn's already-broadcast transcript events
+	// (tool_call / tool_result / tool_error / steer history_user_message,
+	// plus flushed deltas) so a tab that subscribes mid-turn — e.g. after a
+	// page refresh — can replay what it missed. The session file only gains
+	// the turn's messages at turn end, so until then this buffer is the only
+	// source. Dropped with the live state once the turn persists.
+	events []map[string]any
+
+	// textBuf / thinkingBuf accumulate the in-flight LLM round's streamed
+	// deltas. flushDeltas folds them into events when the round ends in a
+	// tool call; anything still unflushed is replayed directly after events.
+	textBuf     strings.Builder
+	thinkingBuf strings.Builder
+}
+
+// maxLiveTurnEvents caps the replay buffer; a turn that somehow exceeds it
+// (hundreds of tool rounds) drops its oldest events rather than growing
+// without bound. The cap stays under the 256-slot conn send buffer so a full
+// replay can never overflow a fresh connection.
+const maxLiveTurnEvents = 200
+
+// appendEvent adds an already-broadcast turn event to the replay buffer.
+// Caller holds liveStateMu.
+func (ls *sessionLiveState) appendEvent(ev map[string]any) {
+	ls.events = append(ls.events, ev)
+	if n := len(ls.events) - maxLiveTurnEvents; n > 0 {
+		ls.events = ls.events[n:]
+	}
+}
+
+// flushDeltas folds the accumulated streaming deltas into the replay buffer
+// as one synthetic event each, preserving their position relative to the
+// tool call that ended the round. Caller holds liveStateMu.
+func (ls *sessionLiveState) flushDeltas(sessionID string) {
+	if ls.thinkingBuf.Len() > 0 {
+		ls.appendEvent(map[string]any{
+			"type":       "thinking_delta",
+			"session_id": sessionID,
+			"text":       ls.thinkingBuf.String(),
+		})
+		ls.thinkingBuf.Reset()
+	}
+	if ls.textBuf.Len() > 0 {
+		ls.appendEvent(map[string]any{
+			"type":       "text_delta",
+			"session_id": sessionID,
+			"text":       ls.textBuf.String(),
+		})
+		ls.textBuf.Reset()
+	}
 }
 
 // ─── WS handler methods on Server ──────────────────────────────────────────
@@ -67,6 +117,77 @@ func (s *Server) replayLiveState(sessionID string, conn *wsConn) {
 		conn.send <- b
 	}
 
+	// Snapshot the in-progress turn under the read lock: the event buffer,
+	// any unflushed streaming deltas, the current progress, and buffered
+	// stdout. Marshaling happens inside the lock because the builders and the
+	// events slice are mutated by handleEvent under the write lock; sends
+	// happen after release.
+	var replay [][]byte
+	s.liveStateMu.RLock()
+	if state, ok := s.liveStates[sessionID]; ok && state.progress != nil {
+		// Transcript events broadcast before this tab subscribed. Without
+		// this a page refresh mid-turn loses every tool card (and any
+		// streamed text) until the turn persists at its end.
+		for _, ev := range state.events {
+			if b, err := json.Marshal(ev); err == nil {
+				replay = append(replay, b)
+			}
+		}
+		// The in-flight round's deltas, not yet folded into events.
+		if state.thinkingBuf.Len() > 0 {
+			if b, err := json.Marshal(map[string]any{
+				"type":       "thinking_delta",
+				"session_id": sessionID,
+				"text":       state.thinkingBuf.String(),
+			}); err == nil {
+				replay = append(replay, b)
+			}
+		}
+		if state.textBuf.Len() > 0 {
+			if b, err := json.Marshal(map[string]any{
+				"type":       "text_delta",
+				"session_id": sessionID,
+				"text":       state.textBuf.String(),
+			}); err == nil {
+				replay = append(replay, b)
+			}
+		}
+		p := state.progress
+		if b, err := json.Marshal(map[string]any{
+			"type":          "progress",
+			"session_id":    sessionID,
+			"message":       p.Message,
+			"progress_type": p.ProgressType,
+			"phase":         "active",
+			"status":        "start",
+			"started_at":    p.StartedAt,
+		}); err == nil {
+			replay = append(replay, b)
+		}
+		if len(state.stdoutLines) > 0 {
+			if b, err := json.Marshal(map[string]any{
+				"type":       "tool_stdout",
+				"session_id": sessionID,
+				"lines":      state.stdoutLines,
+			}); err == nil {
+				replay = append(replay, b)
+			}
+		}
+	}
+	s.liveStateMu.RUnlock()
+
+	// Buffered transcript events go out before the pending prompt so the tab
+	// rebuilds the transcript in broadcast order — the prompt was asked after
+	// the tool calls that precede it. Non-blocking sends mirror the hub's
+	// slow-consumer policy; a fresh connection's 256-slot buffer always fits
+	// a full replay.
+	for _, b := range replay {
+		select {
+		case conn.send <- b:
+		default:
+		}
+	}
+
 	// Replay an outstanding interactive prompt. Its original broadcast only
 	// reached the tabs connected at the time; without this, a page refresh
 	// during ask_user_question / a permission confirmation leaves the new tab
@@ -84,36 +205,6 @@ func (s *Server) replayLiveState(sessionID string, conn *wsConn) {
 		if b, err := json.Marshal(pendingC); err == nil {
 			conn.send <- b
 		}
-	}
-
-	s.liveStateMu.RLock()
-	state, ok := s.liveStates[sessionID]
-	s.liveStateMu.RUnlock()
-	if !ok || state.progress == nil {
-		return
-	}
-
-	// Replay progress.
-	p := state.progress
-	b, _ := json.Marshal(map[string]any{
-		"type":          "progress",
-		"session_id":    sessionID,
-		"message":       p.Message,
-		"progress_type": p.ProgressType,
-		"phase":         "active",
-		"status":        "start",
-		"started_at":    p.StartedAt,
-	})
-	conn.send <- b
-
-	// Replay buffered stdout.
-	if len(state.stdoutLines) > 0 {
-		b, _ := json.Marshal(map[string]any{
-			"type":       "tool_stdout",
-			"session_id": sessionID,
-			"lines":      state.stdoutLines,
-		})
-		conn.send <- b
 	}
 }
 
@@ -541,6 +632,16 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 	sess.SyncFrom(a.History)
 	_ = sess.Save()
 
+	// The turn is persisted: drop the live state (and its replay buffer) now,
+	// before any further broadcasts, so a tab subscribing from here on
+	// rebuilds from history alone instead of also replaying buffered events
+	// on top of it. On success/interrupt EventTurnDone already cleared it;
+	// this covers provider-error returns. The deferred delete stays as a
+	// backstop for panics.
+	s.liveStateMu.Lock()
+	delete(s.liveStates, sess.ID)
+	s.liveStateMu.Unlock()
+
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			// Interrupted — finishInterrupted already emitted EventTurnDone,
@@ -715,6 +816,19 @@ func (w *wsStreamWriter) error(msg string) {
 	})
 }
 
+// bufferTurnEvent records an already-broadcast turn event in the session's
+// live state so replayLiveState can resend it to a tab that subscribes
+// mid-turn. Pending deltas are flushed first: anything accumulated by then
+// was streamed before this event, so replay order matches broadcast order.
+func (w *wsStreamWriter) bufferTurnEvent(ev map[string]any) {
+	w.server.liveStateMu.Lock()
+	if ls, ok := w.server.liveStates[w.sessionID]; ok {
+		ls.flushDeltas(w.sessionID)
+		ls.appendEvent(ev)
+	}
+	w.server.liveStateMu.Unlock()
+}
+
 // reseedThinkingProgress broadcasts a fresh "thinking" progress phase and
 // records it as the session's live state. Called after a tool finishes (or
 // errors): the next LLM round is already running but stays silent until its
@@ -724,7 +838,6 @@ func (w *wsStreamWriter) reseedThinkingProgress() {
 	startedAt := time.Now().UnixMilli()
 	w.server.liveStateMu.Lock()
 	if ls, ok := w.server.liveStates[w.sessionID]; ok {
-		ls.toolCall = nil
 		ls.progress = &wsEventProgress{
 			Type:         "progress",
 			ProgressType: "thinking",
@@ -756,24 +869,27 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			"session_id": w.sessionID,
 			"text":       ev.Text,
 		})
-
-	case agent.EventToolStarted:
-		tc := wsEventToolCall{
-			Type: "tool_call",
-			Name: ev.ToolName,
-			Args: ev.Input,
-		}
-		w.hub.broadcast(w.sessionID, map[string]any{
-			"type":       tc.Type,
-			"session_id": w.sessionID,
-			"name":       tc.Name,
-			"args":       tc.Args,
-		})
-
-		// Track as live state for replay.
 		w.server.liveStateMu.Lock()
 		if ls, ok := w.server.liveStates[w.sessionID]; ok {
-			ls.toolCall = &tc
+			ls.textBuf.WriteString(ev.Text)
+		}
+		w.server.liveStateMu.Unlock()
+
+	case agent.EventToolStarted:
+		evt := map[string]any{
+			"type":       "tool_call",
+			"session_id": w.sessionID,
+			"name":       ev.ToolName,
+			"args":       ev.Input,
+		}
+		w.hub.broadcast(w.sessionID, evt)
+
+		// Track as live state for replay: fold the finished round's deltas
+		// into the buffer first so replay keeps text before its tool call.
+		w.server.liveStateMu.Lock()
+		if ls, ok := w.server.liveStates[w.sessionID]; ok {
+			ls.flushDeltas(w.sessionID)
+			ls.appendEvent(evt)
 			ls.progress = &wsEventProgress{
 				Type:         "progress",
 				Message:      ev.ToolName,
@@ -794,6 +910,7 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			toolResult["ui_payload"] = ev.UI
 		}
 		w.hub.broadcast(w.sessionID, toolResult)
+		w.bufferTurnEvent(toolResult)
 		// The agent immediately starts the next LLM round after a tool result,
 		// and that round emits no event until its first delta (or the next
 		// tool_call). Re-seed the "thinking" indicator so the UI animates
@@ -809,11 +926,13 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 		w.server.broadcastBackgroundTasks(w.sessionID)
 
 	case agent.EventToolError:
-		w.hub.broadcast(w.sessionID, map[string]any{
+		evt := map[string]any{
 			"type":       "tool_error",
 			"session_id": w.sessionID,
 			"error":      ev.Err,
-		})
+		}
+		w.hub.broadcast(w.sessionID, evt)
+		w.bufferTurnEvent(evt)
 		// A tool error does not end the turn — the error result goes back to
 		// the model, which keeps running. Re-seed the indicator just like
 		// EventToolDone (deleting the live state here would also blank the
@@ -827,6 +946,11 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			"session_id": w.sessionID,
 			"text":       ev.Text,
 		})
+		w.server.liveStateMu.Lock()
+		if ls, ok := w.server.liveStates[w.sessionID]; ok {
+			ls.thinkingBuf.WriteString(ev.Text)
+		}
+		w.server.liveStateMu.Unlock()
 
 	case agent.EventSteerInjected:
 		// Prefer the full inbox items (text + attachment blocks) so a steer
@@ -857,6 +981,9 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 				evt["images"] = imgs
 			}
 			w.hub.broadcast(w.sessionID, evt)
+			// Steer messages persist only at turn end like everything else
+			// in the turn — buffer them so a refresh keeps the bubble.
+			w.bufferTurnEvent(evt)
 		}
 
 	case agent.EventTurnDone:
@@ -875,10 +1002,10 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 				"thinking":   extractThinking(ev.Reply),
 			})
 		}
-		// Clear live state.
-		w.server.liveStateMu.Lock()
-		delete(w.server.liveStates, w.sessionID)
-		w.server.liveStateMu.Unlock()
+		// Live state is NOT cleared here: this event fires inside RunStream,
+		// before doAgentTurn persists the session, and a tab subscribing in
+		// that gap needs the replay buffer (history doesn't have the turn
+		// yet). doAgentTurn drops the state right after Save.
 	}
 }
 
