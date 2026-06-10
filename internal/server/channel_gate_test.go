@@ -1,18 +1,22 @@
-package main
+package server
 
 import (
 	"context"
 	"testing"
 )
 
-// TestNewChannelGate_NonInteractive verifies the IM bridge gate: safe tools are
-// allowed, while ask-class tools resolve to deny (there is no chat prompt to
-// confirm over). This is the IM path's first permission enforcement — before
-// PR3 the channel ran tools ungated.
-func TestNewChannelGate_NonInteractive(t *testing.T) {
-	gate, err := newChannelGate(t.TempDir())
+// TestBuildChannelGate_NonInteractive verifies the IM bridge gate the server
+// builds for in-process channels: safe tools are allowed, while ask-class
+// tools resolve to deny — a chat channel has no prompt to confirm over.
+// (Ported from the standalone `octo channel start` command when the bridge
+// merged into serve.)
+func TestBuildChannelGate_NonInteractive(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0"})
+	srv.cwd = t.TempDir()
+
+	gate, err := srv.buildChannelGate()
 	if err != nil {
-		t.Fatalf("newChannelGate: %v", err)
+		t.Fatalf("buildChannelGate: %v", err)
 	}
 
 	ctx := context.Background()

@@ -201,7 +201,7 @@ channels:
     allowed_users: string (optional, comma-separated user IDs)
 ```
 
-- `enabled`: `true` to start the bridge on next `octo channel start`; `false` to keep the config but skip loading.
+- `enabled`: `true` to start the bridge on the next `octo serve` start; `false` to keep the config but skip loading.
 - `allowed_users`: optional allow-list; if set, only listed users can interact with the bot. Empty = allow all.
 
 ### Supported platforms
@@ -229,4 +229,4 @@ channels:
    - Reject malformed URLs in `base_url`.
 4. Merge the new value into the existing `channels` object; preserve fields the user did not touch.
 5. Write back with `write_file`, then `chmod 600 ~/.octo/channels.yml`.
-6. Confirm what changed and remind: channel changes take effect on the next `octo channel start` — restart it if it's already running.
+6. Confirm what changed and remind: channel changes take effect on the next `octo serve` start — restart it if it's already running.

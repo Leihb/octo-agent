@@ -5,13 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"os/signal"
-	"strings"
 
-	"github.com/Leihb/octo-agent/internal/agent"
-	"github.com/Leihb/octo-agent/internal/app"
-	"github.com/Leihb/octo-agent/internal/channel"
+	// The IM adapters self-register into the channel registry at init time.
+	// These imports keep them linked into the binary for every subcommand —
+	// octo serve runs them, and the channels web panel / task notify look
+	// them up by name.
 	_ "github.com/Leihb/octo-agent/internal/channel/adapters/dingtalk"
 	_ "github.com/Leihb/octo-agent/internal/channel/adapters/discord"
 	_ "github.com/Leihb/octo-agent/internal/channel/adapters/feishu"
@@ -19,18 +17,13 @@ import (
 	_ "github.com/Leihb/octo-agent/internal/channel/adapters/wecom"
 	_ "github.com/Leihb/octo-agent/internal/channel/adapters/weixin"
 	"github.com/Leihb/octo-agent/internal/channel/adapters/weixin/ilink"
-	"github.com/Leihb/octo-agent/internal/config"
-	"github.com/Leihb/octo-agent/internal/permission"
-	"github.com/Leihb/octo-agent/internal/prompt"
-	"github.com/Leihb/octo-agent/internal/skills"
-	"github.com/Leihb/octo-agent/internal/tasks"
-	"github.com/Leihb/octo-agent/internal/tools"
 )
 
-// runChannel handles `octo channel start` and `octo channel login`.
+// runChannel handles `octo channel login`. The IM bridge itself runs inside
+// `octo serve` — the former `octo channel start` command was folded into it.
 func runChannel(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: octo channel <login|start> [flags]")
+		fmt.Fprintln(stderr, "Usage: octo channel login [flags]")
 		return 2
 	}
 
@@ -38,10 +31,12 @@ func runChannel(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "login":
 		return runChannelLogin(args[1:], stdin, stdout, stderr)
 	case "start":
-		return runChannelStart(args[1:], stdin, stdout, stderr)
+		fmt.Fprintln(stderr, "octo channel start was removed: IM channels now run inside `octo serve`.")
+		fmt.Fprintln(stderr, "Enable platforms in ~/.octo/channels.yml (or the web Channels panel) and run `octo serve`.")
+		return 2
 	default:
 		fmt.Fprintf(stderr, "octo channel: unknown subcommand %q\n", args[0])
-		fmt.Fprintln(stderr, "Usage: octo channel <login|start>")
+		fmt.Fprintln(stderr, "Usage: octo channel login")
 		return 2
 	}
 }
@@ -89,259 +84,4 @@ func runChannelLogin(args []string, stdin io.Reader, stdout, stderr io.Writer) i
 	fmt.Fprintf(stdout, "✓ Logged in as %s\n", creds.UserID)
 	fmt.Fprintf(stdout, "Credentials saved to %s\n", ilink.DefaultCredPath())
 	return 0
-}
-
-// runChannelStart handles `octo channel start`.
-func runChannelStart(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("channel start", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	providerName := fs.String("provider", "", "Provider: anthropic | openai")
-	model := fs.String("model", "", "Model name")
-	system := fs.String("system", "", "System prompt (optional)")
-	bindMode := fs.String("bind-mode", "chat_user", "Session binding: chat_user | chat | user")
-	maxTokens := fs.Int("max-tokens", 0, "max_tokens for the response")
-	maxTurns := fs.Int("max-turns", 0, "Max provider round-trips per message")
-	noTools := fs.Bool("no-tools", false, "Disable built-in tools")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-
-	// Load channel config.
-	chCfg, err := channel.LoadConfig()
-	if err != nil {
-		fmt.Fprintf(stderr, "octo channel: %v\n", err)
-		return 1
-	}
-	if len(chCfg.EnabledPlatforms()) == 0 {
-		fmt.Fprintln(stderr, "octo channel: no enabled platforms in ~/.octo/channels.yml")
-		fmt.Fprintln(stderr, "Run `octo config` to set up channels.")
-		return 1
-	}
-
-	// Resolve provider/model.
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(stderr, "octo channel: %v\n", err)
-		return 1
-	}
-	provName, resolvedModel, ok := resolveProviderModel(*providerName, *model, cfg)
-	if !ok {
-		fmt.Fprintf(stderr, "octo channel: unknown provider %q\n", provName)
-		return 2
-	}
-	// Validate credentials once (printing setup help on a missing key); the
-	// per-session sender is built in the factory below with a fresh cache key.
-	apiKey, err := resolveAPIKey(provName, cfg, stderr)
-	if err != nil {
-		return 1
-	}
-	baseURL := resolveBaseURL(provName, cfg)
-
-	// Build agent factory.
-	cwd, _ := os.Getwd()
-	env := buildEnvContext(cwd)
-	skillReg := skills.Discover(cwd)
-	skillsManifest := skills.RenderManifest(skillReg)
-	tools.SetSkills(skillReg)
-
-	// Permission gate — the IM bridge's first enforcement. A chat channel has
-	// no one to prompt, so the gate is non-interactive (ask → deny) in strict
-	// mode: safe tools run, risky ones are refused with a reason the model
-	// sees. Same posture as the HTTP server. One engine is shared across all
-	// sessions (Check is concurrency-safe; ask=nil never calls Remember).
-	gate, err := newChannelGate(cwd)
-	if err != nil {
-		fmt.Fprintf(stderr, "octo channel: %v\n", err)
-		return 1
-	}
-
-	agentFactory := func() *agent.Agent {
-		// The key was validated above; NewSender only re-errors on client
-		// construction, which doesn't happen for an already-resolved key.
-		llmSender, _ := app.NewSender(app.SenderOptions{
-			Provider: provName,
-			APIKey:   apiKey,
-			BaseURL:  baseURL,
-			CacheKey: newCacheKey(),
-		})
-		a := agent.New(llmSender, resolvedModel)
-		a.CWD = cwd
-		a.MaxTokens = *maxTokens
-		a.MaxTurns = *maxTurns
-		a.System = prompt.Compose(*system, cwd, env, skillsManifest, "", true)
-		a.Gate = gate
-		return a
-	}
-
-	// Tool environment, skipped when tools are off:
-	//   - sub-agent + task gating sentinels (each message overrides them with a
-	//     ctx-scoped manager + store; see handleAgentMessage),
-	//   - Tool Search config + MCP servers, connected non-interactively so the
-	//     bridge gets the same MCP surface as the CLI.
-	if !*noTools {
-		defer registerChannelSubAgentTools(agentFactory())()
-		tools.SetToolSearchConfig(app.ToolSearchConfigFrom(cfg.Tools.ToolSearch))
-		mcpCleanup, mcpErr := app.ConnectMCP(context.Background(), cwd, stderr)
-		if mcpErr != nil {
-			fmt.Fprintf(stderr, "octo channel: mcp: %v\n", mcpErr)
-		}
-		defer mcpCleanup()
-	}
-
-	mode := channel.BindingMode(*bindMode)
-	mgr := channel.NewManager(chCfg, agentFactory, mode)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	for _, name := range chCfg.EnabledPlatforms() {
-		pc := chCfg.Platform(name)
-		if pc == nil {
-			continue
-		}
-		ctor, err := channel.Find(name)
-		if err != nil {
-			fmt.Fprintf(stderr, "octo channel: %v\n", err)
-			continue
-		}
-		ad, err := ctor(pc)
-		if err != nil {
-			fmt.Fprintf(stderr, "octo channel: failed to create %s adapter: %v\n", name, err)
-			continue
-		}
-		if errs := ad.ValidateConfig(pc); len(errs) > 0 {
-			for _, e := range errs {
-				fmt.Fprintf(stderr, "octo channel: %s config error: %s\n", name, e)
-			}
-			continue
-		}
-
-		go func(a channel.Adapter, platform string) {
-			_ = a.Start(ctx, func(ev channel.InboundEvent) {
-				ev.Platform = platform
-				if handleCommand(mgr, a, ev) {
-					return
-				}
-				// Run the agent off the adapter's read loop so commands —
-				// notably /stop — are still processed while a turn is in
-				// flight. Session.BeginRun serialises turns per session, so
-				// concurrent messages in one chat can't interleave.
-				go handleAgentMessage(ctx, mgr, a, ev, !*noTools)
-			})
-		}(ad, name)
-	}
-
-	fmt.Fprintln(stdout, "octo channel: running. Press Ctrl-C to stop.")
-
-	// Block on signal.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
-	<-sigCh
-
-	fmt.Fprintln(stdout, "\nocto channel: shutting down...")
-	_ = mgr.Stop()
-	// Reap any background processes the IM sessions started so they don't
-	// outlive the bridge — parity with the CLI/TUI and web-server shutdown.
-	tools.KillAllBackground()
-	return 0
-}
-
-// handleCommand processes slash commands. Returns true if the event was a command.
-func handleCommand(mgr *channel.Manager, ad channel.Adapter, ev channel.InboundEvent) bool {
-	text := strings.TrimSpace(ev.Text)
-	if !strings.HasPrefix(text, "/") {
-		return false
-	}
-	reply := mgr.CommandRouter(ev)
-	if reply != "" {
-		ad.SendText(ev.ChatID, reply, ev.MessageID)
-	}
-	return true
-}
-
-// handleAgentMessage runs the agent for a non-command inbound message.
-func handleAgentMessage(ctx context.Context, mgr *channel.Manager, ad channel.Adapter, ev channel.InboundEvent, toolsOn bool) {
-	sess := mgr.GetOrCreateSession(ev)
-	if sess == nil {
-		return
-	}
-
-	// Waits for any in-flight turn in this session, then makes this turn
-	// cancellable by /stop (Session.Interrupt).
-	ctx, done := sess.BeginRun(ctx)
-	defer done()
-
-	ctrl := channel.NewUIController(ad, ev.ChatID, ev.MessageID)
-
-	var toolDefs []agent.ToolDefinition
-	var executor agent.ToolExecutor
-	if toolsOn {
-		executor = tools.NewDefaultRegistry()
-		toolDefs = tools.DefaultToolsFor(sess.Agent.Model)
-
-		// Per-message sub-agent manager bound to THIS chat's agent, stamped into
-		// ctx so the sub-agent tools dispatch to it rather than the process-global
-		// gating sentinel. Synchronous — a chat message is request/response with no
-		// follow-up channel for an async result — and bound to sess.Agent so
-		// concurrent chats stay isolated.
-		spawner := app.NewSpawner(sess.Agent, executor, func() []agent.ToolDefinition {
-			return tools.DefaultToolsFor(sess.Agent.Model)
-		})
-		subMgr := tools.NewSubAgentManager(spawner)
-		subMgr.SetSynchronous(true)
-		ctx = tools.WithSubAgentManager(ctx, subMgr)
-		// The task store lives on the session, so the task list persists across
-		// messages in this chat (a fresh per-message store would reset it).
-		ctx = tools.WithTaskStore(ctx, sess.Tasks)
-		// Per-chat background manager: this chat's bg processes persist across
-		// messages and stay isolated from other chats; reaped on daemon shutdown.
-		bgMgr := tools.SessionBackgroundManager("im:" + string(sess.Key))
-		// Surface background completions to the model — parity with the
-		// CLI/TUI's SetBackgroundOnExit → Inbox wiring. sess.Agent persists
-		// across messages, so an idle-time completion waits in the Inbox and
-		// is drained at the start of the next message's turn. The note is a
-		// <system-reminder> block; the UIController never echoes steer events,
-		// so nothing leaks into the chat.
-		bgMgr.SetOnExit(func(e tools.BgExit) {
-			sess.Agent.Inbox.Enqueue(tools.FormatBgNote(e))
-		})
-		ctx = tools.WithBackgroundManager(ctx, bgMgr)
-	}
-
-	_, _ = channel.RunAgent(ctx, sess, toolDefs, executor, ctrl, ev.Text)
-}
-
-// newChannelGate builds the IM bridge's permission gate: strict mode with a nil
-// asker, so ask-class verdicts resolve to deny (a chat channel has no
-// interactive prompt). It reads ~/.octo/permissions.yml when present, falling
-// back to the built-in defaults otherwise — the same engine the CLI and HTTP
-// server use.
-func newChannelGate(cwd string) (agent.PermissionGate, error) {
-	engine, err := permission.New(permissionConfigPath(), cwd, permission.ModeStrict)
-	if err != nil {
-		return nil, fmt.Errorf("permission engine: %w", err)
-	}
-	return app.NewPermissionGate(engine, nil), nil
-}
-
-// registerChannelSubAgentTools installs the process-global sub-agent manager +
-// task store so DefaultToolsFor advertises sub_agent / task_* . These are gating
-// sentinels and a never-hit fallback — each message
-// stamps its own ctx-scoped, synchronous manager + store bound to that chat's
-// agent (handleAgentMessage), which dispatch prefers, so concurrent chats never
-// share sub-agent or task state. The template agent only seeds the sentinel
-// spawner. Returns a cleanup that clears the registrations.
-func registerChannelSubAgentTools(template *agent.Agent) func() {
-	executor := tools.NewDefaultRegistry()
-	spawner := app.NewSpawner(template, executor, func() []agent.ToolDefinition {
-		return tools.DefaultToolsFor(template.Model)
-	})
-	sub := tools.NewSubAgentManager(spawner)
-	sub.SetSynchronous(true)
-	tools.SetDefaultSubAgentManager(sub)
-	tools.SetTaskStore(tasks.New())
-	return func() {
-		tools.SetDefaultSubAgentManager(nil)
-		tools.SetTaskStore(nil)
-	}
 }

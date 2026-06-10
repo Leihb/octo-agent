@@ -407,10 +407,9 @@ func (a *Adapter) SendText(chatID, text, replyTo string) channel.SendResult {
 
 // sendStandalone delivers one message without Start(): credentials from disk
 // and the chat's last context_token from the write-through store maintained
-// by the receive loop. This is the path channel.SendOnce takes when octo
-// serve pushes a scheduled-task result — the inbound adapter runs in a
-// different process (octo channel start), so neither bot state nor the send
-// queue exist here. The send is synchronous; the caller owns retries.
+// by the receive loop. This is the path channel.SendOnce takes when the
+// weixin channel isn't running in this process, so neither bot state nor the
+// send queue exist. The send is synchronous; the caller owns retries.
 func (a *Adapter) sendStandalone(chatID, text string) channel.SendResult {
 	if a.credPath == "" {
 		return channel.SendResult{OK: false, Error: "not logged in"}
@@ -423,7 +422,7 @@ func (a *Adapter) sendStandalone(chatID, text string) channel.SendResult {
 	token := loadContextTokens(contextStorePath(a.credPath))[chatID]
 	if token == "" {
 		return channel.SendResult{OK: false, Error: "no stored context_token for " + chatID +
-			" — the user must message the bot at least once while `octo channel start` is running"}
+			" — the user must message the bot at least once while the weixin channel is running"}
 	}
 
 	plain := markdownToPlain(text)

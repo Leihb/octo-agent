@@ -98,9 +98,9 @@ octo chat --list-skills
 # Web server + dashboard (binds localhost by default)
 octo serve --addr 127.0.0.1:8080
 
-# IM bridge (WeChat iLink): scan-to-login, then run the daemon
+# IM bridge (WeChat iLink): scan-to-login; channels run inside `octo serve`
 octo channel login
-octo channel start
+octo serve
 
 # Autonomous long-horizon goal: plan into a subtask DAG and run it to completion
 octo conduct "Add a --json flag to octo config show"

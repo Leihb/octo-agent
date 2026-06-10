@@ -9,8 +9,8 @@ package weixin
 //
 // How long WeChat honours an old context_token is not documented; a send with
 // a stale token fails with an API error, which callers surface or log. Tokens
-// stay fresh as long as the user keeps talking to the bot while
-// `octo channel start` is running.
+// stay fresh as long as the user keeps talking to the bot while the weixin
+// channel is connected.
 
 import (
 	"encoding/json"

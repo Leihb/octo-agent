@@ -19,8 +19,10 @@ import (
 
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/app"
+	"github.com/Leihb/octo-agent/internal/channel"
 	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/memory"
+	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/prompt"
 	"github.com/Leihb/octo-agent/internal/scheduler"
 	"github.com/Leihb/octo-agent/internal/skills"
@@ -51,6 +53,11 @@ type Config struct {
 
 	// CORSOrigins lists allowed origins for CORS. Empty disables CORS.
 	CORSOrigins []string
+
+	// NoChannel disables IM channel (DingTalk, Feishu, etc.) startup.
+	// When false (default), channels are started from ~/.octo/channels.yml
+	// alongside the HTTP server.
+	NoChannel bool
 
 	// AccessKey is the shared secret used to authenticate Web UI and API
 	// requests. When empty, the server looks for OCTO_ACCESS_KEY env var.
@@ -137,6 +144,13 @@ type Server struct {
 	// lazy initialisation (handlers and server start may race).
 	scheduler   *scheduler.Scheduler
 	schedulerMu sync.Mutex
+
+	// channel manager for IM platform bridging (DingTalk, Feishu, etc.).
+	// nil when NoChannel is set or no channels are configured.
+	channelCfg      *channel.Config
+	channelMgr      *channel.Manager
+	channelCancel   context.CancelFunc
+	runningAdapters sync.Map // string -> channel.Adapter
 
 	// mcpCleanup unregisters + closes the MCP registry connected at start.
 	// Always non-nil after New (a no-op when no servers connected).
@@ -231,6 +245,7 @@ func New(cfg Config) (*Server, error) {
 		s.enableSubAgentTools()
 	}
 	s.enableMCP()
+	s.initChannels()
 
 	s.http = &http.Server{
 		Addr:         cfg.Addr,
@@ -307,12 +322,14 @@ func (s *Server) AccessKey() string {
 // on a task endpoint.
 func (s *Server) ListenAndServe() error {
 	s.initScheduler()
+	s.startChannels()
 	return s.http.ListenAndServe()
 }
 
 // Shutdown gracefully shuts down the server, releasing the process-global
 // sub-agent + task registrations installed by enableSubAgentTools.
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.stopChannels()
 	// Kill background processes started via web/IM sessions so they don't
 	// outlive the daemon — the same orphan-prevention the CLI/TUI do on exit.
 	// terminal background commands run through the process-global manager
@@ -812,4 +829,181 @@ func validateBindAddr(addr string) error {
 		return fmt.Errorf("bind address %q is not localhost: create %s to enable non-localhost binds", addr, permPath)
 	}
 	return nil
+}
+
+// ─── Channel (IM Bridge) ───────────────────────────────────────────────────
+
+// initChannels loads channel config and creates a manager when channels are
+// configured and not disabled via --no-channel.
+func (s *Server) initChannels() {
+	if s.cfg.NoChannel {
+		return
+	}
+	if s.sender == nil {
+		// Skip channel init when the server is in onboarding mode (no API key
+		// yet). Channels will be started on the next server restart after the
+		// user completes setup.
+		return
+	}
+	chCfg, err := channel.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "octo serve: channel config: %v\n", err)
+		return
+	}
+	platforms := chCfg.EnabledPlatforms()
+	if len(platforms) == 0 {
+		return
+	}
+
+	// Build agent factory that mirrors the server's agent setup.
+	gate, _ := s.buildChannelGate()
+	var memInjection string
+	if s.memDir != "" {
+		memInjection = memory.RenderInjection(s.memDir, s.homeMemDir)
+	}
+	factory := func() *agent.Agent {
+		a := agent.New(s.sender, s.model)
+		a.CWD = s.cwd
+		a.MaxTokens = s.cfg.MaxTokens
+		a.System = prompt.Compose(s.system, s.cwd, s.envCtx, s.skillsManifest, memInjection, true)
+		if gate != nil {
+			a.Gate = gate
+		}
+		return a
+	}
+
+	s.channelCfg = chCfg
+	s.channelMgr = channel.NewManager(chCfg, factory, channel.BindByChatUser)
+
+	fmt.Fprintf(os.Stderr, "octo serve: channels enabled: %s\n", strings.Join(platforms, ", "))
+}
+
+// buildChannelGate creates the IM bridge's permission gate: strict mode with
+// a nil asker, so ask-class verdicts resolve to deny — a chat channel has no
+// interactive prompt. Same posture the standalone bridge had before it merged
+// into serve.
+func (s *Server) buildChannelGate() (agent.PermissionGate, error) {
+	engine, err := permission.New(permissionConfigPath(), s.cwd, permission.ModeStrict, s.memDir, s.homeMemDir)
+	if err != nil {
+		return nil, fmt.Errorf("permission engine: %w", err)
+	}
+	return app.NewPermissionGate(engine, nil), nil
+}
+
+// startChannels launches all enabled channel adapters in background goroutines.
+func (s *Server) startChannels() {
+	if s.channelMgr == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.channelCancel = cancel
+
+	// For each enabled platform, create adapter and start it.
+	for _, name := range s.channelCfg.EnabledPlatforms() {
+		pc := s.channelCfg.Platform(name)
+		if pc == nil {
+			continue
+		}
+		ctor, err := channel.Find(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "octo serve: channel %s: %v\n", name, err)
+			continue
+		}
+		ad, err := ctor(pc)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "octo serve: channel %s adapter: %v\n", name, err)
+			continue
+		}
+		if errs := ad.ValidateConfig(pc); len(errs) > 0 {
+			for _, e := range errs {
+				fmt.Fprintf(os.Stderr, "octo serve: channel %s config: %s\n", name, e)
+			}
+			continue
+		}
+
+		s.runningAdapters.Store(name, ad)
+		go func(a channel.Adapter, platform string) {
+			_ = a.Start(ctx, func(ev channel.InboundEvent) {
+				ev.Platform = platform
+				if s.handleChannelCommand(a, ev) {
+					return
+				}
+				// Run the agent off the adapter's read loop so commands —
+				// notably /stop — are still processed while a turn is in
+				// flight. Session.BeginRun serialises turns per session, so
+				// concurrent messages in one chat can't interleave.
+				go s.handleChannelMessage(ctx, a, ev)
+			})
+		}(ad, name)
+	}
+}
+
+// handleChannelCommand processes slash commands (e.g. /bind, /stop). Returns
+// true if the event was a command. Without the "/" guard, plain text like
+// "你好" would be parsed as an unknown command and never reach the agent.
+func (s *Server) handleChannelCommand(ad channel.Adapter, ev channel.InboundEvent) bool {
+	text := strings.TrimSpace(ev.Text)
+	if !strings.HasPrefix(text, "/") {
+		return false
+	}
+	if reply := s.channelMgr.CommandRouter(ev); reply != "" {
+		ad.SendText(ev.ChatID, reply, ev.MessageID)
+	}
+	return true
+}
+
+// handleChannelMessage runs an agent turn for a channel inbound event.
+func (s *Server) handleChannelMessage(ctx context.Context, ad channel.Adapter, ev channel.InboundEvent) {
+	sess := s.channelMgr.GetOrCreateSession(ev)
+	if sess == nil {
+		return
+	}
+
+	// Waits for any in-flight turn in this session, then makes this turn
+	// cancellable by /stop (Session.Interrupt).
+	ctx, done := sess.BeginRun(ctx)
+	defer done()
+
+	ctrl := channel.NewUIController(ad, ev.ChatID, ev.MessageID)
+
+	var toolDefs []agent.ToolDefinition
+	var executor agent.ToolExecutor
+	if s.cfg.Tools {
+		executor = tools.NewDefaultRegistry()
+		toolDefs = tools.DefaultToolsFor(sess.Agent.Model)
+
+		// Per-message sub-agent manager bound to THIS chat's agent —
+		// synchronous, since a chat message is request/response with no
+		// follow-up channel for an async result.
+		spawner := app.NewSpawner(sess.Agent, executor, func() []agent.ToolDefinition {
+			return tools.DefaultToolsFor(sess.Agent.Model)
+		})
+		subMgr := tools.NewSubAgentManager(spawner)
+		subMgr.SetSynchronous(true)
+		ctx = tools.WithSubAgentManager(ctx, subMgr)
+		// The task store lives on the session, so the task list persists
+		// across messages in this chat.
+		ctx = tools.WithTaskStore(ctx, sess.Tasks)
+		// Per-chat background manager; completions are surfaced to the model
+		// via the Inbox so an idle-time exit is drained at the start of the
+		// next message's turn.
+		bgMgr := tools.SessionBackgroundManager("im:" + string(sess.Key))
+		bgMgr.SetOnExit(func(e tools.BgExit) {
+			sess.Agent.Inbox.Enqueue(tools.FormatBgNote(e))
+		})
+		ctx = tools.WithBackgroundManager(ctx, bgMgr)
+	}
+
+	_, _ = channel.RunAgent(ctx, sess, toolDefs, executor, ctrl, ev.Text)
+}
+
+// stopChannels shuts down all channel adapters and their sessions.
+func (s *Server) stopChannels() {
+	if s.channelCancel != nil {
+		s.channelCancel()
+	}
+	if s.channelMgr != nil {
+		_ = s.channelMgr.Stop()
+	}
+	s.runningAdapters = sync.Map{}
 }

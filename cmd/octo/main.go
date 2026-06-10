@@ -103,7 +103,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Commands:")
 	fmt.Fprintln(w, "  chat       Start an interactive session (or single-turn with a message)")
-	fmt.Fprintln(w, "  channel    Start IM platform bridges (e.g. `octo channel start`)")
+	fmt.Fprintln(w, "  channel    IM platform login (`octo channel login`); bridges run inside `octo serve`")
 	fmt.Fprintln(w, "  config     Set your default provider/model (~/.octo/config.yaml)")
 	fmt.Fprintln(w, "  serve      Start the HTTP server (REST + SSE + Web UI)")
 	fmt.Fprintln(w, "  init       Analyze the repo and generate/update .octorules")

@@ -253,11 +253,9 @@ func platformToInfo(name string, pc channel.PlatformConfig) channelInfo {
 }
 
 // isAdapterRunning reports whether the platform adapter is currently active.
-// The HTTP server no longer runs IM adapters — that moved to the standalone
-// `octo channel start` command, which lives in a separate process the server
-// can't observe — so this always reports false.
 func (s *Server) isAdapterRunning(platform string) bool {
-	return false
+	_, ok := s.runningAdapters.Load(platform)
+	return ok
 }
 
 func maskSecret(s string) string {

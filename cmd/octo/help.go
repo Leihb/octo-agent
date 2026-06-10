@@ -217,6 +217,7 @@ The server binds to localhost:8080 by default.
 Examples:
   octo serve                           Start on :8080
   octo serve --addr 127.0.0.1:3000     Bind to a specific address
+  octo serve --no-channel              Skip IM platform bridges
   octo serve --no-tools                Disable the agentic tool loop
 
 Common flags:
@@ -228,6 +229,7 @@ Common flags:
   --tools                  Enable agentic tool loop (default true)
   --no-tools               Disable agentic tool loop
   --cors <origins>         CORS allowed origins (comma-separated, * for any)
+  --no-channel             Disable IM channel startup
 
 Environment:
   ANTHROPIC_API_KEY        Required when --provider=anthropic

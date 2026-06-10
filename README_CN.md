@@ -96,9 +96,9 @@ octo chat --list-skills
 # Web 服务 + 仪表盘（默认绑定 localhost）
 octo serve --addr 127.0.0.1:8080
 
-# IM 桥接（微信 iLink）：扫码登录后启动守护进程
+# IM 桥接（微信 iLink）：扫码登录；渠道随 `octo serve` 一起运行
 octo channel login
-octo channel start
+octo serve
 
 # 自主长周期目标：拆成子任务 DAG 后跑到完成
 octo conduct "给 octo config show 加一个 --json 标志"

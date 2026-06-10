@@ -130,10 +130,25 @@ func (s *Server) RunTask(ctx context.Context, task scheduler.Task) (string, erro
 // failing must not silence the others.
 func (s *Server) notifyTaskResult(task scheduler.Task, text string) {
 	for _, n := range task.Notify {
-		if err := channel.SendOnce(n.Platform, n.ChatID, text); err != nil {
+		if err := s.channelSend(n.Platform, n.ChatID, text); err != nil {
 			log.Printf("[scheduler] task %q notify %s/%s: %v", task.Name, n.Platform, n.ChatID, err)
 		}
 	}
+}
+
+// channelSend delivers one message to an IM chat, preferring the live adapter
+// started by this server (connected, with fresh per-chat state like weixin
+// context tokens) and falling back to channel.SendOnce — a one-shot adapter
+// built from config — when the platform isn't running here (--no-channel,
+// disabled, or failed to start).
+func (s *Server) channelSend(platform, chatID, text string) error {
+	if v, ok := s.runningAdapters.Load(platform); ok {
+		if res := v.(channel.Adapter).SendText(chatID, text, ""); !res.OK {
+			return fmt.Errorf("send to %s chat %s: %s", platform, chatID, res.Error)
+		}
+		return nil
+	}
+	return channel.SendOnce(platform, chatID, text)
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
