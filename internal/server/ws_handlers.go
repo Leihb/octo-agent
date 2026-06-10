@@ -67,6 +67,25 @@ func (s *Server) replayLiveState(sessionID string, conn *wsConn) {
 		conn.send <- b
 	}
 
+	// Replay an outstanding interactive prompt. Its original broadcast only
+	// reached the tabs connected at the time; without this, a page refresh
+	// during ask_user_question / a permission confirmation leaves the new tab
+	// stuck on a spinner with no way to answer.
+	s.pendingPromptMu.Lock()
+	pendingQ, hasQ := s.pendingQuestions[sessionID]
+	pendingC, hasC := s.pendingConfirms[sessionID]
+	s.pendingPromptMu.Unlock()
+	if hasQ {
+		if b, err := json.Marshal(pendingQ); err == nil {
+			conn.send <- b
+		}
+	}
+	if hasC {
+		if b, err := json.Marshal(pendingC); err == nil {
+			conn.send <- b
+		}
+	}
+
 	s.liveStateMu.RLock()
 	state, ok := s.liveStates[sessionID]
 	s.liveStateMu.RUnlock()
@@ -889,29 +908,40 @@ func (s *Server) requestConfirmation(ctx context.Context, sessionID, message, ki
 	s.confirmations[confID] = ch
 	s.confirmMu.Unlock()
 
-	s.wsHub.broadcast(sessionID, wsEventRequestConfirmation{
+	ev := wsEventRequestConfirmation{
 		Type:    "request_confirmation",
 		ConfID:  confID,
 		Message: message,
 		Kind:    kind,
-	})
+	}
+
+	// Record the outstanding confirmation so a tab that (re)subscribes
+	// mid-ask — e.g. after a page refresh — gets it replayed.
+	s.pendingPromptMu.Lock()
+	s.pendingConfirms[sessionID] = ev
+	s.pendingPromptMu.Unlock()
+
+	cleanup := func() {
+		s.confirmMu.Lock()
+		delete(s.confirmations, confID)
+		s.confirmMu.Unlock()
+		s.pendingPromptMu.Lock()
+		delete(s.pendingConfirms, sessionID)
+		s.pendingPromptMu.Unlock()
+	}
+
+	s.wsHub.broadcast(sessionID, ev)
 
 	// Wait for response, timeout, or cancellation.
 	select {
 	case result := <-ch:
-		s.confirmMu.Lock()
-		delete(s.confirmations, confID)
-		s.confirmMu.Unlock()
+		cleanup()
 		return result, nil
 	case <-ctx.Done():
-		s.confirmMu.Lock()
-		delete(s.confirmations, confID)
-		s.confirmMu.Unlock()
+		cleanup()
 		return "", fmt.Errorf("confirmation cancelled")
 	case <-time.After(5 * time.Minute):
-		s.confirmMu.Lock()
-		delete(s.confirmations, confID)
-		s.confirmMu.Unlock()
+		cleanup()
 		return "", fmt.Errorf("confirmation timed out")
 	}
 }

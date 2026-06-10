@@ -122,6 +122,13 @@ type Server struct {
 	questionChans map[string]chan tools.AskResponse
 	questionMu    sync.Mutex
 
+	// pending interactive prompts per session, replayed on WS (re)subscribe so
+	// a page refresh doesn't orphan an in-flight question or confirmation —
+	// the original broadcast only reached the tabs connected at the time.
+	pendingQuestions map[string]wsEventRequestUserQuestion
+	pendingConfirms  map[string]wsEventRequestConfirmation
+	pendingPromptMu  sync.Mutex
+
 	// live state tracking per session for WS replay on subscribe.
 	liveStates  map[string]*sessionLiveState
 	liveStateMu sync.RWMutex
@@ -207,7 +214,10 @@ func New(cfg Config) (*Server, error) {
 		steerQueues:      make(map[string][]agent.InboxItem),
 		sessionAgents:    make(map[string]*agent.Agent),
 		accessKey:        accessKey,
+		confirmations:    make(map[string]chan string),
 		questionChans:    make(map[string]chan tools.AskResponse),
+		pendingQuestions: make(map[string]wsEventRequestUserQuestion),
+		pendingConfirms:  make(map[string]wsEventRequestConfirmation),
 		sessionInjectors: make(map[string]*memory.Injector),
 	}
 
@@ -706,30 +716,41 @@ func (a wsAsker) Ask(ctx context.Context, q tools.AskRequest) (tools.AskResponse
 	a.s.questionChans[qid] = ch
 	a.s.questionMu.Unlock()
 
-	a.s.wsHub.broadcast(sessionID, wsEventRequestUserQuestion{
+	ev := wsEventRequestUserQuestion{
 		Type:        "request_user_question",
 		QuestionID:  qid,
 		Question:    q.Question,
 		Options:     q.Options,
 		MultiSelect: q.MultiSelect,
 		Header:      q.Header,
-	})
+	}
+
+	// Record the outstanding question so a tab that (re)subscribes mid-ask —
+	// e.g. after a page refresh — gets it replayed instead of a dead spinner.
+	a.s.pendingPromptMu.Lock()
+	a.s.pendingQuestions[sessionID] = ev
+	a.s.pendingPromptMu.Unlock()
+
+	cleanup := func() {
+		a.s.questionMu.Lock()
+		delete(a.s.questionChans, qid)
+		a.s.questionMu.Unlock()
+		a.s.pendingPromptMu.Lock()
+		delete(a.s.pendingQuestions, sessionID)
+		a.s.pendingPromptMu.Unlock()
+	}
+
+	a.s.wsHub.broadcast(sessionID, ev)
 
 	select {
 	case res := <-ch:
-		a.s.questionMu.Lock()
-		delete(a.s.questionChans, qid)
-		a.s.questionMu.Unlock()
+		cleanup()
 		return res, nil
 	case <-ctx.Done():
-		a.s.questionMu.Lock()
-		delete(a.s.questionChans, qid)
-		a.s.questionMu.Unlock()
+		cleanup()
 		return tools.AskResponse{Cancelled: true}, nil
 	case <-time.After(5 * time.Minute):
-		a.s.questionMu.Lock()
-		delete(a.s.questionChans, qid)
-		a.s.questionMu.Unlock()
+		cleanup()
 		return tools.AskResponse{}, fmt.Errorf("ask_user_question: timed out waiting for user answer")
 	}
 }
