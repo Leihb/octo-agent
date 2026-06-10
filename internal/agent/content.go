@@ -42,6 +42,12 @@ type ContentBlock struct {
 	// The LLM can inspect Result for the error message and recover gracefully.
 	IsError bool `json:"is_error,omitempty"`
 
+	// UI is an optional structured rendering of the result for UI consumers
+	// (type=="tool_result"). Persisted with the session so history replay can
+	// render rich result cards. Provider adapters build their wire payloads
+	// field-by-field and never serialise this — it is invisible to the model.
+	UI any `json:"ui,omitempty"`
+
 	// Thinking is the reasoning trace text (type=="thinking"). Anthropic-protocol
 	// reasoning models (Claude, Kimi k2.6) return it as a first-class content
 	// block that must be preserved and replayed on subsequent requests when tool

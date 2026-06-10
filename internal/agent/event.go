@@ -104,7 +104,7 @@ const EventToolOutputCap = 512
 //   - EventToolInputDelta: ToolID, ToolName, InputDelta
 //   - EventToolStarted:    ToolID, ToolName, Input
 //   - EventToolProgress:   ToolID, ToolName, Chunk
-//   - EventToolDone:       ToolID, ToolName, Output
+//   - EventToolDone:       ToolID, ToolName, Output, UI (when the tool provides one)
 //   - EventToolError:      ToolID, ToolName, Output (may be empty), Err
 //   - EventTurnDone:       Reply
 //   - EventSteerInjected:  Messages
@@ -124,9 +124,14 @@ type AgentEvent struct {
 	Chunk      string         `json:"chunk,omitempty"`
 	Output     string         `json:"output,omitempty"`
 	Err        string         `json:"err,omitempty"`
-	Reply      *Reply         `json:"reply,omitempty"`
-	Messages   []string       `json:"messages,omitempty"`
-	Compact    *CompactStats  `json:"compact,omitempty"`
+
+	// UI is the tool's optional structured result payload (EventToolDone).
+	// Unlike Output it is never truncated — it is already a compact summary
+	// built by the tool itself (see ToolResult.UI).
+	UI       any           `json:"ui,omitempty"`
+	Reply    *Reply        `json:"reply,omitempty"`
+	Messages []string      `json:"messages,omitempty"`
+	Compact  *CompactStats `json:"compact,omitempty"`
 
 	// Steer carries the full inbox items behind an EventSteerInjected —
 	// including attachment blocks — for handlers that render more than the

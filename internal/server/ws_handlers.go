@@ -730,11 +730,15 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 		w.server.liveStateMu.Unlock()
 
 	case agent.EventToolDone:
-		w.hub.broadcast(w.sessionID, map[string]any{
+		toolResult := map[string]any{
 			"type":       "tool_result",
 			"session_id": w.sessionID,
 			"result":     ev.Output,
-		})
+		}
+		if ev.UI != nil {
+			toolResult["ui_payload"] = ev.UI
+		}
+		w.hub.broadcast(w.sessionID, toolResult)
 		// Signal sub-agent completion so the frontend can clear the live panel.
 		if ev.ToolName == "sub_agent" {
 			w.hub.broadcast(w.sessionID, map[string]any{
@@ -782,13 +786,21 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			}
 		}
 		for _, it := range items {
+			// <system-reminder> blocks (background-process completion notes,
+			// recalled memories) are model-facing context, not user speech —
+			// the TUI skips them and the web transcript must too.
+			text := strings.TrimSpace(agent.StripSystemReminders(it.Text))
+			imgs := imageRefsFromBlocks(it.Blocks)
+			if text == "" && len(imgs) == 0 {
+				continue
+			}
 			evt := map[string]any{
 				"type":       "history_user_message",
 				"session_id": w.sessionID,
-				"content":    it.Text,
+				"content":    text,
 				"created_at": time.Now().UnixMilli(),
 			}
-			if imgs := imageRefsFromBlocks(it.Blocks); len(imgs) > 0 {
+			if len(imgs) > 0 {
 				evt["images"] = imgs
 			}
 			w.hub.broadcast(w.sessionID, evt)

@@ -1056,10 +1056,20 @@ const Sessions = (() => {
 
     item.innerHTML =
       `<div class="tool-item-header">` +
+        `<span class="tool-item-chevron">▸</span>` +
         label +
         `<span class="tool-item-status running">…</span>` +
       `</div>` +
-      `<pre class="tool-item-stdout" style="display:none"></pre>`;
+      `<pre class="tool-item-stdout"></pre>`;
+    // The result area is collapsed to the one-line header by default;
+    // clicking the header toggles it (only meaningful once output exists).
+    // data-user-toggled records a manual choice so auto expand/collapse
+    // (streaming starts / tool completes) never fights the user.
+    item.querySelector(".tool-item-header").addEventListener("click", () => {
+      if (!item.classList.contains("has-output")) return;
+      item.dataset.userToggled = "1";
+      item.classList.toggle("expanded");
+    });
     return item;
   }
 
@@ -1114,6 +1124,13 @@ const Sessions = (() => {
     }).join("\n");
   }
 
+  // Mark a tool-item as having output and auto-expand it while the tool is
+  // still producing it — unless the user has toggled the item manually.
+  function _revealStdout(toolItem) {
+    toolItem.classList.add("has-output");
+    if (!toolItem.dataset.userToggled) toolItem.classList.add("expanded");
+  }
+
   // Render a diff block into the given tool-item's stdout area.
   function _applyDiffToItem(toolItem, diffText, truncated) {
     if (!toolItem) return;
@@ -1122,7 +1139,7 @@ const Sessions = (() => {
     let html = _formatDiffToHtml(diffText);
     if (truncated) html += '\n\n<span class="ansi-yellow">… diff truncated</span>';
     stdout.innerHTML = html;
-    if (stdout.style.display === "none") stdout.style.display = "";
+    _revealStdout(toolItem);
     stdout.scrollTop = stdout.scrollHeight;
   }
 
@@ -1339,13 +1356,27 @@ const Sessions = (() => {
     return item;
   }
 
-  // Mark the last tool-item in a group as done (update status indicator).
-  function _completeLastToolItem(group, result, uiPayload) {
-    const body  = group.querySelector(".tool-group-body");
-    const items = body.querySelectorAll(".tool-item");
-    if (!items.length) return;
-    const last   = items[items.length - 1];
-    const status = last.querySelector(".tool-item-status");
+  // Produce a short header hint from a structured payload (e.g. "5 results")
+  // so the collapsed one-line summary says what the tool found.
+  function _payloadHeaderMeta(p) {
+    switch (p.type) {
+      case "web_search": return `${p.total || (p.results || []).length || 0} results`;
+      case "search":     return `${p.total_matches || 0} matches`;
+      case "file_list":  return `${p.total || (p.entries || []).length || 0} items`;
+      case "file_read":  return p.lines_read != null ? `${p.lines_read} lines` : "";
+      case "edit":       return `${p.occurrences || 1} change(s)`;
+      case "write":      return p.size_bytes != null ? `${p.size_bytes} bytes` : "";
+      case "todo":       return p.progress || "";
+      default:           return "";
+    }
+  }
+
+  // Apply a finished tool result to one .tool-item: status tick, result
+  // content (rich card when a structured payload is available, raw text
+  // otherwise), header hint, and the default-collapsed state. Shared by the
+  // live path (_completeLastToolItem) and history replay.
+  function _applyResultToItem(item, result, uiPayload) {
+    const status = item.querySelector(".tool-item-status");
     if (status) {
       const st = uiPayload && uiPayload.status ? uiPayload.status : "ok";
       if (st === "error" || st === "failed") {
@@ -1356,29 +1387,47 @@ const Sessions = (() => {
         status.textContent = "✓";
       }
     }
-    // Render the result string (e.g. "waiting (#4) — 128B\nstep1\nstep2…")
-    // into the stdout area so the user can see what actually happened.
-    // If the area already has streamed content (future feature), leave it.
-    const stdout = last.querySelector(".tool-item-stdout");
+    const stdout = item.querySelector(".tool-item-stdout");
     if (stdout) {
       const existing = stdout.textContent.trim();
+      let hasContent = !!existing;
+      let rendered = false;
       if (uiPayload && uiPayload.type) {
         const rich = _renderRichResult(uiPayload);
         if (rich) {
           stdout.innerHTML = rich;
-          stdout.style.display = "";
-          return;
+          hasContent = true;
+          rendered = true;
+          const meta = _payloadHeaderMeta(uiPayload);
+          if (meta && status) {
+            const el = document.createElement("span");
+            el.className = "tool-item-meta";
+            el.textContent = meta;
+            status.before(el);
+          }
         }
       }
-      const resultStr = (result == null) ? "" : String(result).trim();
-      if (!existing && resultStr) {
-        stdout.innerHTML = _ansiToHtml(resultStr);
-        stdout.style.display = "";
-      } else if (!existing && !resultStr) {
-        stdout.style.display = "none";
+      if (!rendered) {
+        // Render the raw result string (e.g. "waiting (#4) — 128B\nstep1…").
+        // If the area already has streamed content, leave it as-is.
+        const resultStr = (result == null) ? "" : String(result).trim();
+        if (!existing && resultStr) {
+          stdout.innerHTML = _ansiToHtml(resultStr);
+          hasContent = true;
+        }
       }
-      // else: leave existing content as-is
+      item.classList.toggle("has-output", hasContent);
     }
+    // Collapse back to the one-line summary unless the user expanded manually.
+    if (!item.dataset.userToggled) item.classList.remove("expanded");
+  }
+
+  // Mark the last tool-item in a group as done.
+  function _completeLastToolItem(group, result, uiPayload) {
+    const body  = group.querySelector(".tool-group-body");
+    const items = body.querySelectorAll(".tool-item");
+    if (!items.length) return;
+    _applyResultToItem(items[items.length - 1], result, uiPayload);
   }
 
   // Collapse a tool group (called when AI responds or task finishes).
@@ -1501,35 +1550,7 @@ const Sessions = (() => {
         // assistant_message collapses the group and clears it, but the lastItem
         // is still the correct target for the result.
         if (historyCtx.lastItem) {
-          const status = historyCtx.lastItem.querySelector(".tool-item-status");
-          if (status) {
-            const st = ev.ui_payload && ev.ui_payload.status ? ev.ui_payload.status : "ok";
-            if (st === "error" || st === "failed") {
-              status.className = "tool-item-status failed";
-              status.textContent = "✗";
-            } else {
-              status.className = "tool-item-status ok";
-              status.textContent = "✓";
-            }
-          }
-          const stdout = historyCtx.lastItem.querySelector(".tool-item-stdout");
-          if (stdout) {
-            if (ev.ui_payload && ev.ui_payload.type) {
-              const rich = _renderRichResult(ev.ui_payload);
-              if (rich) {
-                stdout.innerHTML = rich;
-                stdout.style.display = "";
-              }
-            } else {
-              const resultStr = (ev.result == null) ? "" : String(ev.result).trim();
-              if (resultStr && !stdout.textContent.trim()) {
-                stdout.innerHTML = _ansiToHtml(resultStr);
-                stdout.style.display = "";
-              } else if (!resultStr && !stdout.textContent.trim()) {
-                stdout.style.display = "none";
-              }
-            }
-          }
+          _applyResultToItem(historyCtx.lastItem, ev.result, ev.ui_payload);
           historyCtx.lastItem = null;
         }
         break;
@@ -1553,7 +1574,7 @@ const Sessions = (() => {
     const stdout = toolItem.querySelector(".tool-item-stdout");
     if (!stdout) return;
     stdout.innerHTML += lines.map(_ansiToHtml).join("");
-    if (stdout.style.display === "none") stdout.style.display = "";
+    _revealStdout(toolItem);
     stdout.scrollTop = stdout.scrollHeight;
     const messages = $("messages");
     _scrollToBottomIfNeeded(messages);

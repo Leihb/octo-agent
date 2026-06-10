@@ -129,9 +129,12 @@ func (t TerminalTool) ExecuteStream(
 		if err != nil {
 			return agent.ToolResult{Text: ""}, err
 		}
-		return agent.ToolResult{Text: fmt.Sprintf(
-			"Started detached process (pid %d). It runs independently of octo and will NOT be tracked or stopped when this session ends — manage it yourself (e.g. `kill %d`). stdout+stderr → %s",
-			pid, pid, logPath)}, nil
+		return agent.ToolResult{
+			Text: fmt.Sprintf(
+				"Started detached process (pid %d). It runs independently of octo and will NOT be tracked or stopped when this session ends — manage it yourself (e.g. `kill %d`). stdout+stderr → %s",
+				pid, pid, logPath),
+			UI: terminalUI(command, "running", fmt.Sprintf("detached, pid %d → %s", pid, logPath)),
+		}, nil
 	}
 
 	// Background launch: detach, no timeout, return the id immediately. The
@@ -141,7 +144,10 @@ func (t TerminalTool) ExecuteStream(
 		if err != nil {
 			return agent.ToolResult{Text: ""}, err
 		}
-		return agent.ToolResult{Text: fmt.Sprintf("Started background process %s.\n\n%s", id, BgPollNotice)}, nil
+		return agent.ToolResult{
+			Text: fmt.Sprintf("Started background process %s.\n\n%s", id, BgPollNotice),
+			UI:   terminalUI(command, "running", fmt.Sprintf("background process %s", id)),
+		}, nil
 	}
 
 	// Synchronous path: start as a background process so that if we hit the
@@ -204,14 +210,20 @@ func (t TerminalTool) ExecuteStream(
 			// readable via terminal_output.
 			t.managerFor(ctx).Promote(id)
 			body := MaybeSpillOutput(id, snapshot())
-			return agent.ToolResult{Text: fmt.Sprintf("%s\n\n[timeout: command exceeded %s and continues as background process %s]\n\n%s", body, TerminalTimeout, id, BgPollNotice)}, nil
+			return agent.ToolResult{
+				Text: fmt.Sprintf("%s\n\n[timeout: command exceeded %s and continues as background process %s]\n\n%s", body, TerminalTimeout, id, BgPollNotice),
+				UI:   terminalUI(command, "running", body),
+			}, nil
 		case <-ctx.Done():
 			// User cancelled (Esc / Ctrl-C): kill the hidden process and reap
 			// it — the output is returned here and now, nothing will poll it.
 			t.managerFor(ctx).Kill(id)
 			body := snapshot()
 			t.managerFor(ctx).Remove(id)
-			return agent.ToolResult{Text: body + "\n[exit: signal: killed]"}, nil
+			return agent.ToolResult{
+				Text: body + "\n[exit: signal: killed]",
+				UI:   terminalUI(command, "failed", body+"\n[exit: signal: killed]"),
+			}, nil
 		default:
 		}
 
@@ -222,11 +234,23 @@ func (t TerminalTool) ExecuteStream(
 			// returned, so the bgProcess (and its retained buffer) can go.
 			t.managerFor(ctx).Remove(id)
 			if status != "exited: 0" {
-				return agent.ToolResult{Text: body + "\n[exit: " + strings.TrimPrefix(status, "exited: ") + "]"}, nil
+				text := body + "\n[exit: " + strings.TrimPrefix(status, "exited: ") + "]"
+				return agent.ToolResult{Text: text, UI: terminalUI(command, "failed", text)}, nil
 			}
-			return agent.ToolResult{Text: body}, nil
+			return agent.ToolResult{Text: body, UI: terminalUI(command, "success", body)}, nil
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// terminalUI builds the "terminal" UI payload. The preview keeps the TAIL of
+// the output — for shell commands the error/summary is at the bottom.
+func terminalUI(command, status, output string) map[string]any {
+	return map[string]any{
+		"type":           "terminal",
+		"command":        uiHead(command, 2, 200),
+		"status":         status,
+		"output_preview": uiTail(output, 16, 1200),
 	}
 }
 

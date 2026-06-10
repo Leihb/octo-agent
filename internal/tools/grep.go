@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -124,15 +125,19 @@ func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (ag
 	}
 
 	// Context lines only make sense for mode=content.
+	hasContext := false
 	if mode == "content" {
 		if c := intArg(input, "context_lines", 0); c > 0 {
 			args = append(args, "-C", strconv.Itoa(c))
+			hasContext = true
 		}
 		if b := intArg(input, "before", 0); b > 0 {
 			args = append(args, "-B", strconv.Itoa(b))
+			hasContext = true
 		}
 		if a := intArg(input, "after", 0); a > 0 {
 			args = append(args, "-A", strconv.Itoa(a))
+			hasContext = true
 		}
 	}
 
@@ -151,12 +156,12 @@ func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (ag
 		// the LLM's perspective — surface it as a normal result.
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return agent.ToolResult{Text: "(no matches)"}, nil
+			return agent.ToolResult{Text: "(no matches)", UI: grepUIEmpty(pattern)}, nil
 		}
 		return agent.ToolResult{Text: ""}, fmt.Errorf("grep: rg failed: %w", err)
 	}
 	if len(out) == 0 {
-		return agent.ToolResult{Text: "(no matches)"}, nil
+		return agent.ToolResult{Text: "(no matches)", UI: grepUIEmpty(pattern)}, nil
 	}
 
 	text := strings.TrimRight(string(out), "\n")
@@ -167,9 +172,69 @@ func (GrepTool) Execute(ctx context.Context, _ string, input map[string]any) (ag
 		// "lines" not "matches" — in content mode context lines and `--`
 		// separators count too.
 		kept := strings.Join(lines[:GrepMaxLines], "\n")
-		return agent.ToolResult{Text: fmt.Sprintf(
-			"%s\n\n[truncated to first %d of %d lines — narrow the pattern, add include='*.ext', or set a more specific path]",
-			kept, GrepMaxLines, len(lines))}, nil
+		return agent.ToolResult{
+			Text: fmt.Sprintf(
+				"%s\n\n[truncated to first %d of %d lines — narrow the pattern, add include='*.ext', or set a more specific path]",
+				kept, GrepMaxLines, len(lines)),
+			UI: grepUI(pattern, mode, hasContext, kept),
+		}, nil
 	}
-	return agent.ToolResult{Text: text}, nil
+	return agent.ToolResult{Text: text, UI: grepUI(pattern, mode, hasContext, text)}, nil
+}
+
+// grepUIMatchRe splits an rg content line "path:lineNo:content". The
+// non-greedy path group still survives Windows drive prefixes ("C:\…")
+// because the engine settles on the first ":<digits>:" boundary.
+var grepUIMatchRe = regexp.MustCompile(`^(.+?):(\d+):(.*)$`)
+
+// grepUIEmpty is the zero-match "search" payload.
+func grepUIEmpty(pattern string) map[string]any {
+	return map[string]any{
+		"type":               "search",
+		"pattern":            pattern,
+		"matches":            []map[string]any{},
+		"total_matches":      0,
+		"files_with_matches": 0,
+	}
+}
+
+// grepUI builds the "search" UI payload from rg content-mode output.
+// Context runs and non-content modes produce line shapes that would
+// mis-parse, so they get no payload (the raw text still renders). Returns
+// nil too when nothing parses — e.g. a single-file search, where rg omits
+// the leading path. The return type is `any` (not the map type) so a nil
+// result stays a true nil inside ToolResult.UI.
+func grepUI(pattern, mode string, hasContext bool, text string) any {
+	if mode != "content" || hasContext {
+		return nil
+	}
+	var matches []map[string]any
+	files := make(map[string]struct{})
+	total := 0
+	for _, line := range strings.Split(text, "\n") {
+		m := grepUIMatchRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		total++
+		files[m[1]] = struct{}{}
+		if len(matches) < 10 {
+			lineNo, _ := strconv.Atoi(m[2])
+			matches = append(matches, map[string]any{
+				"file":    m[1],
+				"line_no": lineNo,
+				"line":    uiHead(strings.TrimSpace(m[3]), 1, 200),
+			})
+		}
+	}
+	if total == 0 {
+		return nil
+	}
+	return map[string]any{
+		"type":               "search",
+		"pattern":            pattern,
+		"matches":            matches,
+		"total_matches":      total,
+		"files_with_matches": len(files),
+	}
 }

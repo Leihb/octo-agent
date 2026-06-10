@@ -131,13 +131,31 @@ func (GlobTool) Execute(ctx context.Context, _ string, input map[string]any) (ag
 		out.WriteString(m.path)
 		out.WriteByte('\n')
 	}
+
+	// UI payload: entries are relative to the search root to keep the card
+	// (and the session JSON it persists in) compact.
+	entries := make([]map[string]any, 0, min(len(matches), 20))
+	for _, m := range matches[:min(len(matches), 20)] {
+		name := m.path
+		if rel, relErr := filepath.Rel(absRoot, m.path); relErr == nil {
+			name = rel
+		}
+		entries = append(entries, map[string]any{"name": name})
+	}
+	ui := map[string]any{
+		"type":    "file_list",
+		"path":    absRoot,
+		"entries": entries,
+		"total":   totalMatches,
+	}
+
 	if out.Len() == 0 {
-		return agent.ToolResult{Text: fmt.Sprintf("(no matches for %q under %s)", pattern, absRoot)}, nil
+		return agent.ToolResult{Text: fmt.Sprintf("(no matches for %q under %s)", pattern, absRoot), UI: ui}, nil
 	}
 	if truncated {
 		fmt.Fprintf(&out, "\n[truncated to first %d of %d matches]\n", GlobMaxResults, totalMatches)
 	}
-	return agent.ToolResult{Text: out.String()}, nil
+	return agent.ToolResult{Text: out.String(), UI: ui}, nil
 }
 
 // listProjectFiles enumerates every file under root that ripgrep would search,

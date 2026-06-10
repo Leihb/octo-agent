@@ -173,6 +173,21 @@ func (ReadFileTool) Execute(_ context.Context, _ string, input map[string]any) (
 	if returned == 0 {
 		return agent.ToolResult{Text: "[empty file]"}, nil
 	}
+
+	// UI payload built before the truncation/EOF footers land in out, so the
+	// preview shows file content only. Total line count is unknown when the
+	// scan stopped early at the cap.
+	ui := map[string]any{
+		"type":            "file_read",
+		"path":            path,
+		"lines_read":      returned,
+		"truncated":       truncated,
+		"content_preview": uiHead(out.String(), 8, 600),
+	}
+	if !truncated {
+		ui["total_lines"] = lineNum
+	}
+
 	if truncated {
 		// Without this footer the read stops silently at the cap, so the
 		// model can't tell a complete read from a truncated one — it then
@@ -187,7 +202,7 @@ func (ReadFileTool) Execute(_ context.Context, _ string, input map[string]any) (
 		fmt.Fprintf(&out, "\n[end of file: %d lines total]\n", lineNum)
 	}
 
-	result := agent.ToolResult{Text: out.String()}
+	result := agent.ToolResult{Text: out.String(), UI: ui}
 	if isMemory {
 		memCount := memory.CountMemories(out.String())
 		result.Text = fmt.Sprintf("Recalled %d %s from %s\n\n%s", memCount, pluralize(memCount, "memory", "memories"), filepath.Base(abs), out.String())

@@ -113,6 +113,7 @@ func (WebFetchTool) Execute(ctx context.Context, _ string, input map[string]any)
 	out, jinaErr := fetchViaJina(jinaCtx, raw)
 	jinaCancel()
 	if jinaErr == nil {
+		out.UI = webFetchUI(raw, out.Text)
 		return out, nil
 	}
 
@@ -125,6 +126,7 @@ func (WebFetchTool) Execute(ctx context.Context, _ string, input map[string]any)
 		out, directErr := fetchDirect(directCtx, raw)
 		directCancel()
 		if directErr == nil {
+			out.UI = webFetchUI(raw, out.Text)
 			return out, nil
 		}
 		// Both failed — surface both errors so the LLM knows what happened.
@@ -132,6 +134,17 @@ func (WebFetchTool) Execute(ctx context.Context, _ string, input map[string]any)
 	}
 
 	return agent.ToolResult{Text: ""}, fmt.Errorf("web_fetch: %w", jinaErr)
+}
+
+// webFetchUI builds the "web_fetch" UI payload. Title and status code are
+// not surfaced by the fetch pipeline, so the card shows URL + a short
+// preview of the rendered text.
+func webFetchUI(url, text string) map[string]any {
+	return map[string]any{
+		"type":            "web_fetch",
+		"url":             url,
+		"content_preview": uiHead(text, 4, 300),
+	}
 }
 
 // shouldFallback returns true when a Jina proxy error is worth retrying

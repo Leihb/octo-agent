@@ -1040,6 +1040,7 @@ func emitToolResultEvents(handler EventHandler, useBlocks, resultBlocks []Conten
 			ToolID:   r.ToolUseID,
 			ToolName: nameByID[r.ToolUseID],
 			Output:   truncateOutput(r.Result),
+			UI:       r.UI,
 		}
 		if r.IsError {
 			ev.Kind = EventToolError
@@ -1182,7 +1183,9 @@ func toolResultBlocks(id string, result ToolResult, err error) []ContentBlock {
 		return []ContentBlock{NewToolResultBlock(id, microCompact(err.Error()), true)}
 	}
 	blocks := make([]ContentBlock, 0, 1+len(result.Blocks))
-	blocks = append(blocks, NewToolResultBlock(id, microCompact(result.Text), false))
+	rb := NewToolResultBlock(id, microCompact(result.Text), false)
+	rb.UI = result.UI
+	blocks = append(blocks, rb)
 	blocks = append(blocks, result.Blocks...)
 	return blocks
 }

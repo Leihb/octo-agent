@@ -72,6 +72,13 @@ func TestWebSearch_BravePreferred(t *testing.T) {
 	if len(resp.Results) != 2 || resp.Results[0].URL != "https://r1" {
 		t.Errorf("results = %+v", resp.Results)
 	}
+	ui, ok := out.UI.(map[string]any)
+	if !ok {
+		t.Fatalf("UI payload = %T, want map", out.UI)
+	}
+	if ui["type"] != "web_search" || ui["query"] != "go generics" || ui["total"] != 2 {
+		t.Errorf("UI payload = %+v", ui)
+	}
 }
 
 func TestWebSearch_TavilyWhenBraveAbsent(t *testing.T) {
@@ -215,6 +222,9 @@ func TestWebSearch_AllBackendsFail(t *testing.T) {
 	}
 	if resp.Count != 0 {
 		t.Errorf("expected zero results, got %d", resp.Count)
+	}
+	if out.UI != nil {
+		t.Errorf("failed search should carry no UI payload, got %+v", out.UI)
 	}
 }
 

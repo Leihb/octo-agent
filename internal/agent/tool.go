@@ -19,6 +19,12 @@ type ToolDefinition struct {
 type ToolResult struct {
 	Text   string         // required textual summary
 	Blocks []ContentBlock // optional rich content (images, etc.)
+
+	// UI is an optional structured rendering of the result for UI consumers
+	// (the web frontend's rich result cards). It never reaches the model —
+	// only Text/Blocks do. It travels on the tool_result ContentBlock (and
+	// therefore persists with the session) and on the EventToolDone event.
+	UI any
 }
 
 // ToolExecutor dispatches tool calls on behalf of the agentic loop. Each

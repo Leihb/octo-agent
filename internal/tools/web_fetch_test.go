@@ -129,6 +129,10 @@ func TestWebFetch_AgainstHTTPTest(t *testing.T) {
 	if !strings.Contains(out.Text, "Hello") || !strings.Contains(out.Text, "markdown") {
 		t.Errorf("unexpected body: %q", out.Text)
 	}
+	ui, ok := out.UI.(map[string]any)
+	if !ok || ui["type"] != "web_fetch" || ui["url"] != "https://example.com/article" {
+		t.Errorf("UI payload = %#v", out.UI)
+	}
 }
 
 func TestWebFetch_RefusesCrossHostRedirect(t *testing.T) {

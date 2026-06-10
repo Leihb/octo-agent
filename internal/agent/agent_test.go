@@ -1618,3 +1618,43 @@ func TestCleanSuggestion(t *testing.T) {
 		}
 	}
 }
+
+// The UI payload set by a tool must survive the trip onto the tool_result
+// ContentBlock (so it persists with the session) and onto the EventToolDone
+// event (so the web server can broadcast it without re-parsing Output).
+func TestToolResultUIPayload_FlowsToBlockAndEvent(t *testing.T) {
+	ui := map[string]any{"type": "web_search", "total": 2}
+
+	blocks := toolResultBlocks("call_1", ToolResult{Text: "ok", UI: ui}, nil)
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %d, want 1", len(blocks))
+	}
+	if got, ok := blocks[0].UI.(map[string]any); !ok || got["type"] != "web_search" {
+		t.Fatalf("block UI = %#v, want the tool's payload", blocks[0].UI)
+	}
+
+	var events []AgentEvent
+	emitToolResultEvents(
+		func(ev AgentEvent) { events = append(events, ev) },
+		[]ContentBlock{NewToolUseBlock("call_1", "web_search", nil)},
+		blocks,
+	)
+	if len(events) != 1 || events[0].Kind != EventToolDone {
+		t.Fatalf("events = %+v, want one EventToolDone", events)
+	}
+	if got, ok := events[0].UI.(map[string]any); !ok || got["total"] != 2 {
+		t.Fatalf("event UI = %#v, want the tool's payload", events[0].UI)
+	}
+}
+
+// An error result must not carry a UI payload — the error path builds its
+// block from the error string, never from ToolResult.UI.
+func TestToolResultUIPayload_DroppedOnError(t *testing.T) {
+	blocks := toolResultBlocks("call_1", ToolResult{UI: map[string]any{"type": "x"}}, errors.New("boom"))
+	if len(blocks) != 1 || !blocks[0].IsError {
+		t.Fatalf("blocks = %+v, want one error block", blocks)
+	}
+	if blocks[0].UI != nil {
+		t.Fatalf("error block UI = %#v, want nil", blocks[0].UI)
+	}
+}

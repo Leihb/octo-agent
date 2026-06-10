@@ -270,10 +270,36 @@ func (EditFileTool) Execute(_ context.Context, _ string, input map[string]any) (
 		return agent.ToolResult{Text: ""}, fmt.Errorf("edit_file: write %q: %w", path, err)
 	}
 
+	occurrences := 1
 	if replaceAll {
-		return agent.ToolResult{Text: fmt.Sprintf("Replaced %d occurrence(s) in %s", count, abs)}, nil
+		occurrences = count
 	}
-	return agent.ToolResult{Text: fmt.Sprintf("Replaced 1 occurrence in %s", abs)}, nil
+	ui := map[string]any{
+		"type":        "edit",
+		"path":        abs,
+		"occurrences": occurrences,
+		"diff":        editUIDiff(actualOldStr, actualNewStr),
+	}
+	if replaceAll {
+		return agent.ToolResult{Text: fmt.Sprintf("Replaced %d occurrence(s) in %s", count, abs), UI: ui}, nil
+	}
+	return agent.ToolResult{Text: fmt.Sprintf("Replaced 1 occurrence in %s", abs), UI: ui}, nil
+}
+
+// editUIDiff renders the replacement as a removed/added block for the web
+// UI's diff view. The edit is an exact substring swap, so old/new lines ARE
+// the change — no diff algorithm needed.
+func editUIDiff(oldStr, newStr string) string {
+	var b strings.Builder
+	for _, l := range strings.Split(strings.TrimRight(oldStr, "\n"), "\n") {
+		b.WriteString("- " + l + "\n")
+	}
+	if newStr != "" {
+		for _, l := range strings.Split(strings.TrimRight(newStr, "\n"), "\n") {
+			b.WriteString("+ " + l + "\n")
+		}
+	}
+	return uiHead(b.String(), 24, 1600)
 }
 
 // preserveQuoteStyle copies curly quote style from actualOldStr to newStr

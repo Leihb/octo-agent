@@ -260,7 +260,7 @@ func firstUserSnippet(msgs []Message) string {
 				}
 			}
 		}
-		text = stripSystemReminders(text)
+		text = StripSystemReminders(text)
 		// Collapse to the first non-empty line.
 		for _, line := range strings.Split(text, "\n") {
 			line = strings.TrimSpace(line)
@@ -276,9 +276,12 @@ func firstUserSnippet(msgs []Message) string {
 	return ""
 }
 
-// stripSystemReminders removes <system-reminder>…</system-reminder> spans the
-// harness injects into user turns so they don't leak into the preview.
-func stripSystemReminders(s string) string {
+// StripSystemReminders removes <system-reminder>…</system-reminder> spans the
+// harness injects into user turns (background-process completion notes,
+// recalled memories, …). They are model-facing context, not user speech —
+// strip them anywhere user text is rendered (session previews, the web
+// transcript) so they don't leak into the UI.
+func StripSystemReminders(s string) string {
 	for {
 		start := strings.Index(s, "<system-reminder>")
 		if start < 0 {

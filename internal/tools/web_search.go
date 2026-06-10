@@ -177,7 +177,18 @@ func (WebSearchTool) Execute(ctx context.Context, _ string, input map[string]any
 	if err != nil {
 		return agent.ToolResult{}, fmt.Errorf("web_search: marshal: %w", err)
 	}
-	return agent.ToolResult{Text: string(body)}, nil
+	res := agent.ToolResult{Text: string(body)}
+	if succeeded {
+		// Structured payload for the web frontend's rich result card
+		// (sessions.js _renderWebSearchResult expects query/results/total).
+		res.UI = map[string]any{
+			"type":    "web_search",
+			"query":   response.Query,
+			"results": response.Results,
+			"total":   response.Count,
+		}
+	}
+	return res, nil
 }
 
 // ───────────────────── paid API backends ─────────────────────

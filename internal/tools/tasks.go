@@ -121,7 +121,10 @@ func (TaskCreateTool) Execute(ctx context.Context, _ string, input map[string]an
 	if err != nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("task_create: %w", err)
 	}
-	return agent.ToolResult{Text: fmt.Sprintf("Created task #%d: %s", id, subject)}, nil
+	return agent.ToolResult{
+		Text: fmt.Sprintf("Created task #%d: %s", id, subject),
+		UI:   taskUI(fmt.Sprintf("Created #%d", id), store),
+	}, nil
 }
 
 // ============================================================================
@@ -216,7 +219,10 @@ func (TaskUpdateTool) Execute(ctx context.Context, _ string, input map[string]an
 	if u.Status != nil && oldTask.Status != got.Status {
 		statusClause = fmt.Sprintf("%s → %s", oldTask.Status, got.Status)
 	}
-	return agent.ToolResult{Text: fmt.Sprintf("Updated task #%d (%s): %s", got.ID, statusClause, got.Subject)}, nil
+	return agent.ToolResult{
+		Text: fmt.Sprintf("Updated task #%d (%s): %s", got.ID, statusClause, got.Subject),
+		UI:   taskUI(fmt.Sprintf("Updated #%d", got.ID), store),
+	}, nil
 }
 
 // ============================================================================
@@ -246,7 +252,35 @@ func (TaskListTool) Execute(ctx context.Context, _ string, _ map[string]any) (ag
 	if store == nil {
 		return agent.ToolResult{}, fmt.Errorf("task_list: task tracking is not configured for this session")
 	}
-	return agent.ToolResult{Text: FormatTaskList(store.List())}, nil
+	return agent.ToolResult{Text: FormatTaskList(store.List()), UI: taskUI("Tasks", store)}, nil
+}
+
+// taskUI builds the "todo" UI payload: the current list (deleted tasks
+// hidden) plus a done-count progress line for the collapsed summary.
+func taskUI(action string, store TaskStore) map[string]any {
+	var todos []map[string]any
+	done, total := 0, 0
+	for _, t := range store.List() {
+		if t.Status == tasks.Deleted {
+			continue
+		}
+		total++
+		if t.Status == tasks.Completed {
+			done++
+		}
+		if len(todos) < 20 {
+			todos = append(todos, map[string]any{
+				"task":   t.Subject,
+				"status": string(t.Status),
+			})
+		}
+	}
+	return map[string]any{
+		"type":     "todo",
+		"action":   action,
+		"progress": fmt.Sprintf("%d/%d done", done, total),
+		"todos":    todos,
+	}
 }
 
 // FormatTaskList renders a slice of tasks for display. Used both by the

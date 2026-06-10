@@ -70,9 +70,10 @@ func (WriteFileTool) Execute(_ context.Context, _ string, input map[string]any) 
 	if len(content) > 0 && !strings.HasSuffix(content, "\n") {
 		lineCount++
 	}
+	ui := map[string]any{"type": "write", "path": abs, "size_bytes": len(content)}
 	if memory.IsMemoryPath(abs) {
 		memCount := memory.CountMemories(content)
-		return agent.ToolResult{Text: fmt.Sprintf("Saved %d %s to %s", memCount, pluralize(memCount, "memory", "memories"), filepath.Base(abs))}, nil
+		return agent.ToolResult{Text: fmt.Sprintf("Saved %d %s to %s", memCount, pluralize(memCount, "memory", "memories"), filepath.Base(abs)), UI: ui}, nil
 	}
-	return agent.ToolResult{Text: fmt.Sprintf("Wrote %d bytes (%d lines) to %s", len(content), lineCount, abs)}, nil
+	return agent.ToolResult{Text: fmt.Sprintf("Wrote %d bytes (%d lines) to %s", len(content), lineCount, abs), UI: ui}, nil
 }
