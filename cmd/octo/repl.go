@@ -116,7 +116,7 @@ func runOnce(cfg replConfig, prompt string, stream bool) int {
 			cfg.subAgentMgr.KillAll()
 		}()
 	}
-	tools.SetBackgroundOnExit(func(e tools.BgExit) { a.Inbox.Enqueue(formatBgNote(e)) })
+	tools.SetBackgroundOnExit(func(e tools.BgExit) { a.Inbox.Enqueue(tools.FormatBgNote(e)) })
 	defer tools.SetBackgroundOnExit(nil)
 
 	// The view sink renders the turn (spinner, streamed text, tool-event lines,

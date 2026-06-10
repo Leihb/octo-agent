@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
 
@@ -41,10 +42,11 @@ func (s *Server) broadcastBackgroundTasks(sessionID string) {
 }
 
 // wireBackgroundTaskNotices registers the session manager's exit hook so a
-// finished background process surfaces as a chat notice and the badge count
-// drops. Re-registered (idempotently) at each turn start; the hook outlives
-// the turn, so a process finishing between turns still notifies subscribed
-// tabs — broadcasting to a session with no subscribers is a no-op.
+// finished background process surfaces as a chat notice, the badge count
+// drops, and the model is notified. Re-registered (idempotently) at each turn
+// start; the hook outlives the turn, so a process finishing between turns
+// still notifies subscribed tabs — broadcasting to a session with no
+// subscribers is a no-op.
 func (s *Server) wireBackgroundTaskNotices(sessionID string) {
 	tools.SessionBackgroundManager(sessionID).SetOnExit(func(e tools.BgExit) {
 		s.wsHub.broadcast(sessionID, wsEventBackgroundTaskNotice{
@@ -55,7 +57,26 @@ func (s *Server) wireBackgroundTaskNotices(sessionID string) {
 			Status:    bgNoticeStatus(e.Status),
 		})
 		s.broadcastBackgroundTasks(sessionID)
+		s.notifyAgentBgExit(sessionID, e)
 	})
+}
+
+// notifyAgentBgExit pushes a background-completion note to the model — parity
+// with the CLI/TUI's SetBackgroundOnExit → Inbox wiring. Mid-turn the note
+// goes straight into the running Agent's Inbox (drained between loop
+// iterations); while idle it goes to the steer queue, which the next turn
+// flushes into its Inbox at start. The note is a <system-reminder> block, so
+// the web transcript never renders it as user speech.
+func (s *Server) notifyAgentBgExit(sessionID string, e tools.BgExit) {
+	note := tools.FormatBgNote(e)
+	s.sessionAgentsMu.Lock()
+	a := s.sessionAgents[sessionID]
+	s.sessionAgentsMu.Unlock()
+	if a != nil {
+		a.Inbox.Enqueue(note)
+		return
+	}
+	s.enqueueSteer(sessionID, agent.InboxItem{Text: note})
 }
 
 // bgNoticeStatus maps a BackgroundManager exit status ("exited: 0",

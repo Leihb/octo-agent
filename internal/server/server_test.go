@@ -307,6 +307,8 @@ func mustServer(t *testing.T, cfg Config) *Server {
 		turnLocks:      map[string]*sync.Mutex{},
 		sender:         &stubSender{},
 		accessKey:      resolveAccessKey(cfg.AccessKey, config.Config{}),
+		sessionAgents:  make(map[string]*agent.Agent),
+		steerQueues:    make(map[string][]agent.InboxItem),
 	}
 	srv.registerRoutes()
 	// Wrap with CORS middleware so tests that exercise CORS hit the right layer.
