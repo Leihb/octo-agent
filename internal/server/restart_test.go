@@ -23,6 +23,11 @@ func TestHandleRestart_Returns202AndMarksPending(t *testing.T) {
 	if !srv.restartPending.Load() {
 		t.Error("restartPending = false after POST /api/restart, want true")
 	}
+
+	// Join the background shutdown goroutine (Shutdown is single-flight: a
+	// second call waits for the first) so it can't race the next test on the
+	// process-global tool registries.
+	_ = srv.Shutdown(context.Background())
 }
 
 func TestRestart_Idempotent(t *testing.T) {
@@ -34,6 +39,30 @@ func TestRestart_Idempotent(t *testing.T) {
 	if !srv.restartPending.Load() {
 		t.Error("restartPending = false after Restart, want true")
 	}
+	_ = srv.Shutdown(context.Background())
+}
+
+// TestShutdown_SingleFlight runs concurrent Shutdown calls; under -race this
+// proves the process-global registry teardown is not executed twice in
+// parallel (the Restart-goroutine vs Ctrl-C-handler race).
+func TestShutdown_SingleFlight(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+
+	const callers = 4
+	errs := make(chan error, callers)
+	for i := 0; i < callers; i++ {
+		go func() { errs <- srv.Shutdown(context.Background()) }()
+	}
+	for i := 0; i < callers; i++ {
+		select {
+		case err := <-errs:
+			if err != nil {
+				t.Errorf("Shutdown returned %v, want nil", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("concurrent Shutdown calls did not all return")
+		}
+	}
 }
 
 // TestListenAndServe_RestartReturnsSentinel binds a real listener on an
@@ -41,7 +70,6 @@ func TestRestart_Idempotent(t *testing.T) {
 // with ErrRestartRequested rather than the plain http.ErrServerClosed.
 func TestListenAndServe_RestartReturnsSentinel(t *testing.T) {
 	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
-	srv.http.Addr = "127.0.0.1:0"
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

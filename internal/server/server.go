@@ -188,6 +188,13 @@ type Server struct {
 	// one (exit 0).
 	restartPending atomic.Bool
 
+	// shutdownMu/shutdownDone/shutdownErr make Shutdown single-flight: the
+	// first caller runs it, later callers wait on shutdownDone and read
+	// shutdownErr. All zero-valued until the first Shutdown call.
+	shutdownMu   sync.Mutex
+	shutdownDone chan struct{}
+	shutdownErr  error
+
 	// senderMu serialises lazy initialisation of sender when the server starts
 	// in onboarding mode (API key missing) and the user completes setup later.
 	senderMu sync.Mutex
@@ -368,7 +375,41 @@ func (s *Server) serveOn(ln net.Listener) error {
 
 // Shutdown gracefully shuts down the server, releasing the process-global
 // sub-agent + task registrations installed by enableSubAgentTools.
+//
+// It is single-flight: Restart's background shutdown and the Ctrl-C signal
+// path can race here, and the body mutates process-global registries that
+// must not be torn down twice concurrently. The first caller runs the
+// shutdown; later callers wait for it to finish (or their ctx to expire)
+// and return the same error.
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.shutdownMu.Lock()
+	if s.shutdownDone == nil {
+		done := make(chan struct{})
+		s.shutdownDone = done
+		s.shutdownMu.Unlock()
+
+		err := s.doShutdown(ctx)
+
+		s.shutdownMu.Lock()
+		s.shutdownErr = err
+		s.shutdownMu.Unlock()
+		close(done)
+		return err
+	}
+	done := s.shutdownDone
+	s.shutdownMu.Unlock()
+
+	select {
+	case <-done:
+		s.shutdownMu.Lock()
+		defer s.shutdownMu.Unlock()
+		return s.shutdownErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Server) doShutdown(ctx context.Context) error {
 	s.stopChannels()
 	// Kill background processes started via web/IM sessions so they don't
 	// outlive the daemon — the same orphan-prevention the CLI/TUI do on exit.

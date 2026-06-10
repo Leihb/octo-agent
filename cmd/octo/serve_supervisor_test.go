@@ -178,3 +178,21 @@ func TestServeExitCode(t *testing.T) {
 		}
 	}
 }
+
+// TestSuperviseLoop_QueuedSignalSkipsRespawn: a signal that lands together
+// with an ExitRestart exit must not spawn a doomed replacement worker.
+func TestSuperviseLoop_QueuedSignalSkipsRespawn(t *testing.T) {
+	f := &fakeSpawner{codes: []int{server.ExitRestart}}
+	sigCh := make(chan os.Signal, 1)
+	sigCh <- syscall.SIGINT
+	var errBuf bytes.Buffer
+
+	code := superviseLoop(f.spawn, sigCh, &errBuf)
+
+	if code != server.ExitRestart {
+		t.Errorf("code = %d, want %d", code, server.ExitRestart)
+	}
+	if f.spawned != 1 {
+		t.Errorf("spawned = %d, want 1 (queued signal must suppress respawn)", f.spawned)
+	}
+}

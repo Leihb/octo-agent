@@ -51,6 +51,15 @@ func superviseLoop(spawn func() (func() int, func(os.Signal), error), sigCh <-ch
 			}
 		}
 
+		// A signal racing the worker's exit may still be queued (select picks
+		// randomly when both are ready); drain it so we don't respawn a
+		// worker that is already doomed.
+		select {
+		case <-sigCh:
+			quitting = true
+		default:
+		}
+
 		if code == server.ExitRestart && !quitting {
 			fmt.Fprintln(stderr, "octo serve: restarting worker")
 			continue
@@ -85,21 +94,26 @@ func spawnServeWorker(args []string, stdout, stderr io.Writer) func() (func() in
 			}
 			var ee *exec.ExitError
 			if errors.As(err, &ee) {
-				return ee.ExitCode()
+				// Signal-killed workers report -1; normalise to a defined
+				// crash code instead of leaking it through os.Exit (255).
+				if c := ee.ExitCode(); c >= 0 {
+					return c
+				}
 			}
-			// Wait failed without an exit code (I/O error, killed before
-			// start completed); treat as a crash.
+			// Wait failed without a usable exit code (I/O error, killed by
+			// signal, killed before start completed); treat as a crash.
 			return 1
 		}
 		forward := func(sig os.Signal) {
 			if cmd.Process == nil {
 				return
 			}
-			// Windows has no Unix signals; the graceful path there is the
-			// console Ctrl-C event the worker already received. Forwarding
-			// means terminating the process.
+			// Windows: a console Ctrl-C event was already delivered to the
+			// worker (same console group), so forwarding is redundant — and
+			// the only mechanism available, Process.Kill, would land before
+			// the worker's graceful Shutdown and orphan its background
+			// processes. Let the worker handle the event it already has.
 			if runtime.GOOS == "windows" {
-				_ = cmd.Process.Kill()
 				return
 			}
 			_ = cmd.Process.Signal(sig)
