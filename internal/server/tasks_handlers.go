@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/channel"
 	"github.com/Leihb/octo-agent/internal/scheduler"
 	"github.com/Leihb/octo-agent/internal/tools"
 )
@@ -15,24 +17,26 @@ import (
 // ─── Tasks REST API ─────────────────────────────────────────────────────────
 
 type taskRequest struct {
-	Name   string `json:"name"`
-	Cron   string `json:"cron"`
-	Prompt string `json:"prompt"`
-	Model  string `json:"model,omitempty"`
-	Agent  string `json:"agent,omitempty"`
+	Name   string                  `json:"name"`
+	Cron   string                  `json:"cron"`
+	Prompt string                  `json:"prompt"`
+	Model  string                  `json:"model,omitempty"`
+	Agent  string                  `json:"agent,omitempty"`
+	Notify *scheduler.NotifyTarget `json:"notify,omitempty"`
 }
 
 type taskResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Cron      string `json:"cron"`
-	Prompt    string `json:"prompt"`
-	Model     string `json:"model,omitempty"`
-	Agent     string `json:"agent,omitempty"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"created_at,omitempty"`
-	LastRun   string `json:"last_run,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
+	ID        string                  `json:"id"`
+	Name      string                  `json:"name"`
+	Cron      string                  `json:"cron"`
+	Prompt    string                  `json:"prompt"`
+	Model     string                  `json:"model,omitempty"`
+	Agent     string                  `json:"agent,omitempty"`
+	Notify    *scheduler.NotifyTarget `json:"notify,omitempty"`
+	Enabled   bool                    `json:"enabled"`
+	CreatedAt string                  `json:"created_at,omitempty"`
+	LastRun   string                  `json:"last_run,omitempty"`
+	SessionID string                  `json:"session_id,omitempty"`
 }
 
 // initScheduler creates the scheduler if not already initialized. It is
@@ -100,16 +104,29 @@ func (s *Server) RunTask(ctx context.Context, task scheduler.Task) (string, erro
 	if err != nil {
 		sess.SyncFrom(a.History)
 		_ = sess.Save()
+		s.notifyTaskResult(task, fmt.Sprintf("⏰ %s failed: %v", task.Name, err))
 		return sess.ID, fmt.Errorf("run task: %w", err)
 	}
+	s.notifyTaskResult(task, fmt.Sprintf("⏰ %s\n\n%s", task.Name, reply.Content))
 
 	sess.SyncFrom(a.History)
 	if err := sess.Save(); err != nil {
 		return sess.ID, fmt.Errorf("save session: %w", err)
 	}
 
-	_ = reply
 	return sess.ID, nil
+}
+
+// notifyTaskResult pushes a task run's outcome to its IM notify target, if
+// one is configured. Delivery failures are logged, never fatal — the run
+// itself already happened and is recorded in the session.
+func (s *Server) notifyTaskResult(task scheduler.Task, text string) {
+	if task.Notify == nil {
+		return
+	}
+	if err := channel.SendOnce(task.Notify.Platform, task.Notify.ChatID, text); err != nil {
+		log.Printf("[scheduler] task %q notify: %v", task.Name, err)
+	}
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
@@ -147,6 +164,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Prompt:  req.Prompt,
 		Model:   req.Model,
 		Agent:   req.Agent,
+		Notify:  req.Notify,
 		Enabled: true,
 	}
 	if err := s.scheduler.Add(&task); err != nil {
@@ -200,6 +218,7 @@ func taskToResponse(t scheduler.Task) taskResponse {
 		Prompt:  t.Prompt,
 		Model:   t.Model,
 		Agent:   t.Agent,
+		Notify:  t.Notify,
 		Enabled: t.Enabled,
 	}
 	if !t.CreatedAt.IsZero() {

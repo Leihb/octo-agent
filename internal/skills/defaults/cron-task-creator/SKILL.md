@@ -21,6 +21,7 @@ history from previous executions.
 | `model` | no | Model override; defaults to the server's model |
 | `agent` | no | `"general"` or `"coding"` |
 | `directory` | no | Working directory hint, prepended to the task session's system prompt |
+| `notify` | no | `{"platform": "feishu", "chat_id": "oc_..."}` — push each run's final reply (or a failure note) to an IM chat |
 | `enabled` | yes | Whether the schedule is active |
 
 ## Cron expression format — 6 fields, seconds first
@@ -108,3 +109,9 @@ curl -s -X PATCH  http://127.0.0.1:8080/api/cron-tasks/{name} \
   creation time by the API, but a hand-written JSON file with a bad expression
   fails silently at load (logged to stderr only) — double-check the 6-field
   format when writing files directly.
+- **IM notification (`notify`) requires the platform to support proactive
+  sends.** Feishu works (app credentials from `~/.octo/channels.yml`);
+  DingTalk and Weixin cannot push without a prior inbound message, so a
+  `notify` pointing at them fails (logged on the server, run unaffected). The
+  Feishu `chat_id` looks like `oc_…` — get it from the chat's settings or by
+  messaging the bot and reading the server log.

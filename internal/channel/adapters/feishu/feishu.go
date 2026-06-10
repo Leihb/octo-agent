@@ -210,11 +210,24 @@ func (a *Adapter) refreshToken() error {
 
 func (a *Adapter) getToken() string {
 	a.tokenMu.Lock()
-	defer a.tokenMu.Unlock()
-	if time.Now().After(a.tokenExpiry) {
+	tok := a.accessToken
+	expired := time.Now().After(a.tokenExpiry)
+	a.tokenMu.Unlock()
+
+	// No token yet: this adapter is being used for an outbound send without
+	// Start() (e.g. channel.SendOnce). Fetch synchronously or the first send
+	// goes out with an empty Authorization header.
+	if tok == "" {
+		_ = a.refreshToken()
+		a.tokenMu.Lock()
+		tok = a.accessToken
+		a.tokenMu.Unlock()
+		return tok
+	}
+	if expired {
 		go a.refreshToken()
 	}
-	return a.accessToken
+	return tok
 }
 
 // ─── WebSocket ─────────────────────────────────────────────────────────────

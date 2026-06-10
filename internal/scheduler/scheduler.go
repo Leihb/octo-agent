@@ -21,20 +21,28 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// NotifyTarget routes a task run's outcome to an IM chat: the final reply on
+// success, a short failure note on error.
+type NotifyTarget struct {
+	Platform string `json:"platform"` // e.g. "feishu"
+	ChatID   string `json:"chat_id"`
+}
+
 // Task represents a scheduled agent task.
 type Task struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Cron      string    `json:"cron"`
-	Prompt    string    `json:"prompt"`
-	Model     string    `json:"model,omitempty"`
-	Agent     string    `json:"agent,omitempty"` // "general" | "coding"
-	Directory string    `json:"directory,omitempty"`
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
-	LastRun   time.Time `json:"last_run,omitempty"`
-	NextRun   time.Time `json:"next_run,omitempty"`
-	SessionID string    `json:"session_id,omitempty"` // last session ID
+	ID        string        `json:"id"`
+	Name      string        `json:"name"`
+	Cron      string        `json:"cron"`
+	Prompt    string        `json:"prompt"`
+	Model     string        `json:"model,omitempty"`
+	Agent     string        `json:"agent,omitempty"` // "general" | "coding"
+	Directory string        `json:"directory,omitempty"`
+	Notify    *NotifyTarget `json:"notify,omitempty"`
+	Enabled   bool          `json:"enabled"`
+	CreatedAt time.Time     `json:"created_at"`
+	LastRun   time.Time     `json:"last_run,omitempty"`
+	NextRun   time.Time     `json:"next_run,omitempty"`
+	SessionID string        `json:"session_id,omitempty"` // last session ID
 }
 
 // Runner is the interface the scheduler calls to execute a task.
@@ -138,6 +146,7 @@ func (s *Scheduler) Update(task Task) error {
 	existing.Model = task.Model
 	existing.Agent = task.Agent
 	existing.Directory = task.Directory
+	existing.Notify = task.Notify
 	existing.Enabled = task.Enabled
 	cp := *existing
 	s.mu.Unlock()
