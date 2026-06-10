@@ -69,6 +69,14 @@ const MCP = (() => {
                     : s.disabled ? I18n.t("mcp.toggle.enable")
                     : I18n.t("mcp.toggle.disable");
 
+    // OAuth servers that aren't connected get an explicit Authorize button —
+    // the serve process can't run a device flow on its own.
+    const authorizeHtml = (s.auth === "oauth" && !s.disabled && !s.invalid && s.status !== "connected")
+      ? `<button class="btn-mcp-action btn-mcp-authorize" data-name="${escapeHtml(s.name)}" title="${escapeHtml(I18n.t("mcp.btn.authorize"))}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        </button>`
+      : "";
+
     const reconnectHtml = (!s.disabled && !s.invalid)
       ? `<button class="btn-mcp-action btn-mcp-reconnect" data-name="${escapeHtml(s.name)}" title="${escapeHtml(I18n.t("mcp.btn.reconnect"))}">
           <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
@@ -96,6 +104,7 @@ const MCP = (() => {
           <div class="mcp-card-desc">${escapeHtml(_endpointSummary(s))}</div>
         </div>
         <div class="mcp-card-actions">
+          ${authorizeHtml}
           ${reconnectHtml}
           ${editDeleteHtml}
           <label class="skill-toggle ${toggleDisabled ? "skill-toggle-disabled" : ""}" data-tooltip="${escapeHtml(toggleTip)}">
@@ -109,6 +118,8 @@ const MCP = (() => {
     if (!toggleDisabled) {
       card.querySelector(".skill-toggle-input").addEventListener("change", () => _toggle(s.name));
     }
+    const authorizeBtn = card.querySelector(".btn-mcp-authorize");
+    if (authorizeBtn) authorizeBtn.addEventListener("click", () => _authorize(s.name));
     const reconnectBtn = card.querySelector(".btn-mcp-reconnect");
     if (reconnectBtn) reconnectBtn.addEventListener("click", () => _reconnect(s.name));
     const editBtn = card.querySelector(".btn-mcp-edit");
@@ -300,6 +311,75 @@ const MCP = (() => {
     if (ok) _closeForm();
   }
 
+  // ── OAuth device flow ──────────────────────────────────────────────────
+
+  let _oauthTimer = null;
+
+  function _closeOAuthModal() {
+    if (_oauthTimer) { clearInterval(_oauthTimer); _oauthTimer = null; }
+    $("mcp-oauth-modal").style.display = "none";
+  }
+
+  function _renderOAuthState(data) {
+    const body = $("mcp-oauth-body");
+    const state = data.state || "starting";
+    if (state === "starting") {
+      body.innerHTML = `<div class="mcp-oauth-waiting">${I18n.t("mcp.oauth.starting")}</div>`;
+      return false;
+    }
+    if (state === "authorizing") {
+      const link = data.verification_uri_complete || data.verification_uri || "";
+      body.innerHTML = `
+        <div class="mcp-oauth-instruction">${I18n.t("mcp.oauth.instruction")}</div>
+        <div class="mcp-oauth-code">${escapeHtml(data.user_code || "")}</div>
+        ${link ? `<a class="mcp-oauth-link" href="${escapeHtml(link)}" target="_blank" rel="noopener">${I18n.t("mcp.oauth.openLink")}</a>` : ""}
+        <div class="mcp-oauth-waiting">${I18n.t("mcp.oauth.waiting")}</div>`;
+      return false;
+    }
+    if (state === "connected") {
+      body.innerHTML = `<div class="mcp-oauth-success">${I18n.t("mcp.oauth.success")}</div>`;
+      return true;
+    }
+    body.innerHTML = `
+      <div class="mcp-oauth-failed">${I18n.t("mcp.oauth.failed")}</div>
+      <div class="mcp-card-error">${escapeHtml(data.error || "")}</div>`;
+    return true;
+  }
+
+  async function _authorize(name) {
+    let res, data;
+    try {
+      res  = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}/oauth/start`, { method: "POST" });
+      data = await res.json().catch(() => ({}));
+    } catch (e) {
+      alert(I18n.t("mcp.error.request") + e.message);
+      return;
+    }
+    if (!res.ok) {
+      alert(I18n.t("mcp.error.request") + (data.error || res.status));
+      return;
+    }
+
+    $("mcp-oauth-title").textContent = I18n.t("mcp.oauth.title", { name });
+    $("mcp-oauth-modal").style.display = "flex";
+    _renderOAuthState(data);
+
+    _oauthTimer = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}/oauth/status`);
+        if (!r.ok) return; // transient — keep polling until the modal closes
+        const d = await r.json();
+        const settled = _renderOAuthState(d);
+        if (settled) {
+          clearInterval(_oauthTimer);
+          _oauthTimer = null;
+          await _load(); // refresh statuses (connected / error)
+          if (d.state === "connected") setTimeout(_closeOAuthModal, 1200);
+        }
+      } catch { /* transient — keep polling */ }
+    }, 1500);
+  }
+
   // ── Import (paste mcp.json) ────────────────────────────────────────────
 
   async function _submitImport() {
@@ -347,6 +427,8 @@ const MCP = (() => {
     $("btn-mcp-import-cancel").addEventListener("click", () => {
       $("mcp-import-bar").style.display = "none";
     });
+
+    $("btn-mcp-oauth-close").addEventListener("click", _closeOAuthModal);
 
     document.querySelectorAll(".mcp-ts-option").forEach(btn => {
       btn.addEventListener("click", () => _setToolSearch(btn.dataset.value));

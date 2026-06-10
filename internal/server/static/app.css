@@ -7695,3 +7695,40 @@ body.setup-mode {
     grid-template-columns: 1fr;
   }
 }
+
+/* MCP OAuth modal */
+.mcp-oauth-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  text-align: center;
+}
+
+.mcp-oauth-instruction,
+.mcp-oauth-waiting {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+
+.mcp-oauth-code {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-primary);
+  background: var(--color-surface-muted, rgba(127,127,127,.12));
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  user-select: all;
+}
+
+.mcp-oauth-link {
+  font-size: 0.8125rem;
+  color: var(--color-accent, #4f7cff);
+  word-break: break-all;
+}
+
+.mcp-oauth-success { color: #3fb950; font-size: 0.875rem; font-weight: 600; }
+.mcp-oauth-failed  { color: var(--color-danger, #e5534b); font-size: 0.875rem; font-weight: 600; }

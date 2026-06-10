@@ -88,20 +88,37 @@ func SwapMCP(ctx context.Context, cwd string, warn io.Writer) error {
 	return nil
 }
 
+// mcpOAuthConnectTimeout bounds a connect that runs an interactive device
+// flow: the user has to visit a URL and approve, so it gets minutes, not
+// seconds. Slightly above connectOne's internal 5-minute OAuth window so
+// that window — and its clearer error — wins.
+const mcpOAuthConnectTimeout = 6 * time.Minute
+
 // ConnectMCPServer connects (or reconnects) a single named server into the
 // active registry, installing an empty registry first if none is active —
 // the incremental path the web management API uses so adding one server
 // doesn't restart every other connection. The connect error (if any) is
 // recorded on the registry and returned.
 func ConnectMCPServer(ctx context.Context, name string, entry mcp.ServerEntry, childStderr io.Writer) error {
+	return ConnectMCPServerAuth(ctx, name, entry, nil /* no interactive OAuth */, childStderr)
+}
+
+// ConnectMCPServerAuth is ConnectMCPServer with an interactive OAuth prompt.
+// A non-nil prompt on an oauth entry widens the connect window to fit a
+// device flow.
+func ConnectMCPServerAuth(ctx context.Context, name string, entry mcp.ServerEntry, prompt mcp.OAuthPrompt, childStderr io.Writer) error {
 	reg := tools.ActiveMCPRegistry()
 	if reg == nil {
 		reg = mcp.NewRegistry()
 		tools.SetMCPRegistry(reg)
 	}
-	connectCtx, cancel := context.WithTimeout(ctx, mcpConnectTimeout)
+	timeout := mcpConnectTimeout
+	if prompt != nil && entry.Auth == "oauth" {
+		timeout = mcpOAuthConnectTimeout
+	}
+	connectCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return reg.Connect(connectCtx, name, entry, mcpInfo(), nil /* no interactive OAuth */, childStderr)
+	return reg.Connect(connectCtx, name, entry, mcpInfo(), prompt, childStderr)
 }
 
 // DisconnectMCPServer drops one server's live connection (and recorded

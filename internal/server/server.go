@@ -135,8 +135,12 @@ type Server struct {
 
 	// mcpMu serialises MCP config mutations + registry swaps from the web
 	// management API (and Shutdown) — SwapMCP must not run concurrently
-	// with itself or with incremental connects.
+	// with itself or with incremental connects. Also guards mcpOAuthFlows.
 	mcpMu sync.Mutex
+
+	// mcpOAuthFlows tracks in-flight web device-flow authorizations by
+	// server name. Lazily initialised by the oauth/start handler.
+	mcpOAuthFlows map[string]*mcpOAuthFlow
 
 	// accessKey is the shared secret for Web UI / API authentication.
 	accessKey string
@@ -371,6 +375,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/mcp/servers/{name}", s.requireAuth(s.handleDeleteMCPServer))
 	s.mux.HandleFunc("PATCH /api/mcp/servers/{name}/toggle", s.requireAuth(s.handleToggleMCPServer))
 	s.mux.HandleFunc("POST /api/mcp/servers/{name}/reconnect", s.requireAuth(s.handleReconnectMCPServer))
+	s.mux.HandleFunc("POST /api/mcp/servers/{name}/oauth/start", s.requireAuth(s.handleStartMCPOAuth))
+	s.mux.HandleFunc("GET /api/mcp/servers/{name}/oauth/status", s.requireAuth(s.handleMCPOAuthStatus))
 	s.mux.HandleFunc("POST /api/mcp/reload", s.requireAuth(s.handleReloadMCP))
 	s.mux.HandleFunc("GET /api/config/toolsearch", s.requireAuth(s.handleGetToolSearch))
 	s.mux.HandleFunc("PUT /api/config/toolsearch", s.requireAuth(s.handlePutToolSearch))
