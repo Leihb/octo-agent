@@ -7,10 +7,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/channel"
 	"github.com/Leihb/octo-agent/internal/scheduler"
 )
 
@@ -217,5 +219,36 @@ func TestRunTask_DrainingRefused(t *testing.T) {
 	_, err := srv.RunTask(context.Background(), scheduler.Task{Name: "t", Prompt: "p"})
 	if !errors.Is(err, errDraining) {
 		t.Fatalf("RunTask during drain = %v, want errDraining", err)
+	}
+}
+
+// drainTestAdapter records SendText calls; every other Adapter method is
+// unused on the draining path and inherited from the embedded nil interface
+// (calling one would panic, which is what we want in this test).
+type drainTestAdapter struct {
+	channel.Adapter
+	sent []string
+}
+
+func (a *drainTestAdapter) SendText(chatID, text, replyTo string) channel.SendResult {
+	a.sent = append(a.sent, text)
+	return channel.SendResult{}
+}
+
+// TestHandleChannelMessage_DrainingRepliesPolitely pins the design deviation:
+// IM adapters stay up through the drain, and a message arriving mid-drain
+// gets an explicit "try again" reply instead of being dropped silently.
+func TestHandleChannelMessage_DrainingRepliesPolitely(t *testing.T) {
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+	srv.drain.drain(0)
+
+	ad := &drainTestAdapter{}
+	srv.handleChannelMessage(context.Background(), ad, channel.InboundEvent{ChatID: "c1", Text: "hi"})
+
+	if len(ad.sent) != 1 {
+		t.Fatalf("SendText calls = %d, want 1", len(ad.sent))
+	}
+	if !strings.Contains(ad.sent[0], "restarting") {
+		t.Errorf("reply %q should mention the restart", ad.sent[0])
 	}
 }

@@ -42,10 +42,23 @@ func (g *drainGate) end() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.active--
+	if g.active < 0 {
+		// An unmatched end would otherwise silently make every drain hang
+		// its full timeout (active never reaches 0 again). Fail loud.
+		panic("drainGate: end without begin")
+	}
 	if g.draining && g.active == 0 && g.idle != nil {
 		close(g.idle)
 		g.idle = nil
 	}
+}
+
+// isDraining reports whether a drain has started. Turn loops use it to stop
+// chaining queued follow-up turns once a restart is underway.
+func (g *drainGate) isDraining() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.draining
 }
 
 // drain blocks new turns and waits up to timeout for active ones to finish.
@@ -58,8 +71,12 @@ func (g *drainGate) drain(timeout time.Duration) bool {
 		g.mu.Unlock()
 		return true
 	}
-	idle := make(chan struct{})
-	g.idle = idle
+	// Reuse an existing waiter channel so a second drain call doesn't strand
+	// the first caller on a channel nobody will ever close.
+	if g.idle == nil {
+		g.idle = make(chan struct{})
+	}
+	idle := g.idle
 	g.mu.Unlock()
 
 	select {
