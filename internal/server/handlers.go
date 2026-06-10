@@ -339,12 +339,24 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// While a turn is in flight its progress is saved to disk incrementally,
+	// and the WS replay buffer delivers those same rounds to (re)subscribing
+	// tabs. Serve only the messages that predate the turn so the two sources
+	// never overlap — without this cap a mid-turn refresh would render every
+	// tool card twice.
+	msgs := sess.Messages
+	s.liveStateMu.RLock()
+	if ls, ok := s.liveStates[id]; ok && ls.historyWatermark > 0 && ls.historyWatermark < len(msgs) {
+		msgs = msgs[:ls.historyWatermark]
+	}
+	s.liveStateMu.RUnlock()
+
 	// The Web UI expects an event stream that mirrors the live WS traffic.
 	// We translate the persisted message list into user/assistant events and
 	// reconstruct tool_call / tool_result pairs from tool_use / tool_result
 	// blocks so the history replay is visually complete.
-	events := make([]map[string]any, 0, len(sess.Messages)*2)
-	for i, m := range sess.Messages {
+	events := make([]map[string]any, 0, len(msgs)*2)
+	for i, m := range msgs {
 		switch m.Role {
 		case agent.RoleUser:
 			// Emit tool_result events for any tool_result blocks before the

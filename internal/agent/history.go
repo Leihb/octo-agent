@@ -13,6 +13,14 @@ import "sync"
 type History struct {
 	mu       sync.RWMutex
 	messages []Message
+
+	// rewritten is set by every mutation that isn't a plain Append (compaction,
+	// overflow recovery, tool-pairing repair, popLast). Session.SyncFrom
+	// consumes it to learn that the persisted file's prefix may no longer match
+	// memory, so the next Save must rewrite the file instead of appending. A
+	// pure length comparison can't detect this: a rewrite can leave history at
+	// or above the persisted length while changing earlier messages.
+	rewritten bool
 }
 
 // NewHistory returns an empty History.
@@ -49,6 +57,7 @@ func (h *History) Reset() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.messages = nil
+	h.rewritten = true
 }
 
 // TruncateTo keeps only the first n messages.
@@ -58,6 +67,7 @@ func (h *History) TruncateTo(n int) {
 	defer h.mu.Unlock()
 	if n < len(h.messages) {
 		h.messages = h.messages[:n]
+		h.rewritten = true
 	}
 }
 
@@ -68,6 +78,7 @@ func (h *History) ReplaceAll(msgs []Message) {
 	defer h.mu.Unlock()
 	h.messages = make([]Message, len(msgs))
 	copy(h.messages, msgs)
+	h.rewritten = true
 }
 
 // Tail returns the last n messages (or all if fewer).
@@ -95,6 +106,26 @@ func (h *History) replaceLast(m Message) {
 		return
 	}
 	h.messages[len(h.messages)-1] = m
+	h.rewritten = true
+}
+
+// RewriteDirty reports whether history has been rewritten (any non-append
+// mutation) since the flag was last consumed by takeRewriteDirty. Callers use
+// it as a cheap "do I need to re-sync" check; it does not clear the flag.
+func (h *History) RewriteDirty() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.rewritten
+}
+
+// takeRewriteDirty returns the rewritten flag and clears it. Consumed by
+// Session.SyncFrom, which translates it into a full-file rewrite on Save.
+func (h *History) takeRewriteDirty() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	d := h.rewritten
+	h.rewritten = false
+	return d
 }
 
 // FindSystemMsg returns the first system message index, or -1.

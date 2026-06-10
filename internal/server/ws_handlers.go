@@ -32,6 +32,16 @@ type sessionLiveState struct {
 	// tool call; anything still unflushed is replayed directly after events.
 	textBuf     strings.Builder
 	thinkingBuf strings.Builder
+
+	// historyWatermark is how many persisted messages predate this turn
+	// (including the turn's own user message). The turn's progress is saved
+	// to disk incrementally, so without a cut-off a mid-turn history fetch
+	// would reconstruct the same rounds the replay buffer resends — every
+	// tool card twice. The history endpoint serves messages below the
+	// watermark; the buffer owns everything above it. Mid-turn compaction
+	// shifts it (see the EventCompactDone handler). 0 means unset (no cap):
+	// a real watermark is always ≥ 1 because the user message saves first.
+	historyWatermark int
 }
 
 // maxLiveTurnEvents caps the replay buffer; a turn that somehow exceeds it
@@ -511,9 +521,12 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 	// Persist the user message right away so a page refresh mid-turn doesn't
 	// lose it.  We append it for Save(), then pop it back off so buildAgent
 	// doesn't double-count it — RunStream will add the same message to
-	// a.History via appendUserInput.
+	// a.History via appendUserInput. The count including the user message is
+	// the turn's history watermark: while the turn runs, the history endpoint
+	// serves only messages below it and the WS replay buffer owns the rest.
 	sess.Messages = append(sess.Messages, userMsg)
 	_ = sess.Save()
+	historyWatermark := len(sess.Messages)
 	sess.Messages = sess.Messages[:len(sess.Messages)-1]
 
 	sw := s.newWSStreamWriter(sess.ID)
@@ -541,6 +554,7 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 			Phase:        "active",
 			StartedAt:    startedAt,
 		},
+		historyWatermark: historyWatermark,
 	}
 	s.liveStateMu.Unlock()
 	s.wsHub.broadcast(sess.ID, map[string]any{
@@ -625,7 +639,27 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 		s.wireBackgroundTaskNotices(sess.ID)
 	}
 
-	reply, err := a.RunStream(runCtx, content, toolDefs, executor, sw.handleEvent)
+	// Persist the turn's progress incrementally: after any event that grew or
+	// rewrote history, flush it to disk so a server crash mid-turn loses at
+	// most the round in flight, not the whole turn. The length/dirty gate
+	// makes the per-delta calls free — Save itself is also a no-op when
+	// nothing changed. RunStream invokes the handler synchronously on this
+	// goroutine, so sess needs no extra locking.
+	lastSavedLen := -1
+	persistTurnProgress := func() {
+		if n := a.History.Len(); n != lastSavedLen || a.History.RewriteDirty() {
+			sess.SyncFrom(a.History)
+			if sess.Save() == nil {
+				lastSavedLen = n
+			}
+		}
+	}
+	handler := func(ev agent.AgentEvent) {
+		sw.handleEvent(ev)
+		persistTurnProgress()
+	}
+
+	reply, err := a.RunStream(runCtx, content, toolDefs, executor, handler)
 
 	// Save history even on interrupt — finishInterrupted repairs it so the
 	// session stays well-formed for the next turn.
@@ -635,9 +669,9 @@ func (s *Server) doAgentTurn(sess *agent.Session, content string, blocks []agent
 	// The turn is persisted: drop the live state (and its replay buffer) now,
 	// before any further broadcasts, so a tab subscribing from here on
 	// rebuilds from history alone instead of also replaying buffered events
-	// on top of it. On success/interrupt EventTurnDone already cleared it;
-	// this covers provider-error returns. The deferred delete stays as a
-	// backstop for panics.
+	// on top of it. (This is the primary cleanup point — the EventTurnDone
+	// handler deliberately leaves the state alone; the deferred delete stays
+	// as a backstop for panics.)
 	s.liveStateMu.Lock()
 	delete(s.liveStates, sess.ID)
 	s.liveStateMu.Unlock()
@@ -951,6 +985,25 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			ls.thinkingBuf.WriteString(ev.Text)
 		}
 		w.server.liveStateMu.Unlock()
+
+	case agent.EventCompactDone:
+		// Compaction folded the FoldedMsgs oldest messages into one summary
+		// message, shifting every later index down — including the turn's
+		// history watermark. Skip no-op compactions (summarization failed or
+		// returned nothing; history untouched), signalled by before == after.
+		if c := ev.Compact; c != nil && c.FoldedMsgs > 0 && c.BeforeTokens != c.AfterTokens {
+			w.server.liveStateMu.Lock()
+			if ls, ok := w.server.liveStates[w.sessionID]; ok && ls.historyWatermark > 0 {
+				if nw := ls.historyWatermark - c.FoldedMsgs + 1; nw > 1 {
+					ls.historyWatermark = nw
+				} else {
+					// Compaction reached into the current turn: only the
+					// summary message itself predates the turn now.
+					ls.historyWatermark = 1
+				}
+			}
+			w.server.liveStateMu.Unlock()
+		}
 
 	case agent.EventSteerInjected:
 		// Prefer the full inbox items (text + attachment blocks) so a steer

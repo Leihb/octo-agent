@@ -1296,5 +1296,6 @@ func (h *History) popLast() {
 	defer h.mu.Unlock()
 	if n := len(h.messages); n > 0 {
 		h.messages = h.messages[:n-1]
+		h.rewritten = true
 	}
 }

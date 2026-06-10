@@ -36,6 +36,12 @@ type Session struct {
 	// persisted is how many messages are already on disk. Save appends
 	// Messages[persisted:]; it's not serialized.
 	persisted int
+
+	// forceRewrite is set when SyncFrom observes that the source History was
+	// rewritten (compaction, repair, popLast): the on-disk prefix may no
+	// longer match Messages, so the next Save must rewrite the whole file.
+	// Cleared by a successful rewriteAll. Not serialized.
+	forceRewrite bool
 }
 
 // NewSession creates a Session with an ID derived from the current time plus
@@ -134,12 +140,20 @@ func messageRecord(m Message) sessionRecord {
 }
 
 // Save persists the session. The common case appends only the messages added
-// since the last Save. When the in-memory history is shorter than what's on
-// disk — which happens when compaction rewrites history into a summary — the
-// file is rewritten from scratch instead (an infrequent O(n) event).
+// since the last Save. The file is rewritten from scratch (an infrequent O(n)
+// event) when the on-disk prefix can't be trusted: a history rewrite observed
+// by SyncFrom (forceRewrite), or an in-memory list shorter than what's on disk
+// — the length check is kept as a belt-and-braces fallback for callers that
+// assign Messages directly instead of going through SyncFrom. With no new
+// messages and a trusted prefix, Save is a no-op, so per-event callers (the
+// server persists mid-turn progress on every agent event) don't touch the
+// file at all between rounds.
 func (s *Session) Save() error {
-	if s.persisted == 0 || len(s.Messages) < s.persisted {
+	if s.forceRewrite || s.persisted == 0 || len(s.Messages) < s.persisted {
 		return s.rewriteAll()
+	}
+	if len(s.Messages) == s.persisted {
+		return nil
 	}
 	return s.appendDelta()
 }
@@ -171,6 +185,7 @@ func (s *Session) rewriteAll() error {
 		return fmt.Errorf("session: flush %s: %w", path, err)
 	}
 	s.persisted = len(s.Messages)
+	s.forceRewrite = false
 	return nil
 }
 
@@ -214,6 +229,12 @@ func (s *Session) SetTitle(title string) error {
 	if s.persisted == 0 {
 		// Nothing on disk yet; the next Save writes the title via metaRecord.
 		return nil
+	}
+	if s.forceRewrite {
+		// The file ends in an incomplete tail (crash mid-append) or its prefix
+		// is stale (history rewrite): a raw append would corrupt it. Rewrite
+		// instead — rewriteAll folds the title into the meta header.
+		return s.rewriteAll()
 	}
 	path, err := s.SavePath()
 	if err != nil {
@@ -313,17 +334,34 @@ func LoadSession(id string) (*Session, error) {
 		return nil, err
 	}
 
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("session %q not found", id)
 		}
 		return nil, fmt.Errorf("session: open %s: %w", path, err)
 	}
-	defer f.Close()
+
+	// A complete record always ends in '\n' (json.Encoder writes it), so bytes
+	// after the last newline are an incomplete tail — left by a crash mid-append
+	// or by a writer the read is racing. Drop the tail instead of failing the
+	// whole session: it is at most one message that was never fully committed.
+	// The tail bytes are still in the file, though, so a plain append would
+	// fuse them with the next record into one corrupt line — force the first
+	// Save of this Session to rewrite the file instead.
+	droppedTail := false
+	if n := bytes.LastIndexByte(data, '\n'); n >= 0 {
+		if n+1 < len(data) {
+			droppedTail = true
+		}
+		data = data[:n+1]
+	} else {
+		droppedTail = len(data) > 0
+		data = nil
+	}
 
 	s := &Session{}
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(bytes.NewReader(data))
 	// A single message (e.g. a large tool_result) can exceed the default 64 KB
 	// line cap; allow up to 16 MB per line.
 	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
@@ -359,6 +397,7 @@ func LoadSession(id string) (*Session, error) {
 	}
 	rehydrateImageBlocks(s.Messages)
 	s.persisted = len(s.Messages) // a resumed session continues appending
+	s.forceRewrite = droppedTail
 	return s, nil
 }
 
@@ -620,7 +659,12 @@ func (s *Session) ToHistory() *History {
 }
 
 // SyncFrom copies the current messages from h into the session.
-// Call this before Save to flush the latest turns.
+// Call this before Save to flush the latest turns. When the history was
+// rewritten since the last sync (compaction, repair, popLast), the next Save
+// rewrites the file instead of appending — see History.rewritten.
 func (s *Session) SyncFrom(h *History) {
 	s.Messages = h.Snapshot()
+	if h.takeRewriteDirty() {
+		s.forceRewrite = true
+	}
 }
