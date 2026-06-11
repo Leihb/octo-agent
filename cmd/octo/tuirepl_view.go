@@ -36,6 +36,7 @@ var (
 	queueStyle        = lipgloss.NewStyle().Foreground(tui.ColAccent)
 	modalStyle        = lipgloss.NewStyle().Foreground(tui.ColBrand).Bold(true)
 	hintStyle         = lipgloss.NewStyle().Foreground(tui.ColDimmer).Italic(true)
+	activityStyle     = lipgloss.NewStyle().Foreground(tui.ColBrand)
 	userEchoStyle     = lipgloss.NewStyle().Foreground(tui.ColUserMsg).Bold(true)
 	pendingSteerStyle = lipgloss.NewStyle().Foreground(tui.ColMuted)
 	complSelStyle     = lipgloss.NewStyle().Foreground(tui.ColBrand).Bold(true)
@@ -1247,12 +1248,21 @@ func (m *tuiModel) spinnerLine(label string, since time.Time) string {
 // thinkingLine is the wait-on-the-model activity line. Since the reasoning
 // trace itself is not shown, the line carries the turn's elapsed time and a
 // rough output-token count ("↑ ~N tokens", chars/4) so a long silent stretch
-// still reads as the model working, Claude Code style.
+// still reads as the model working, Claude Code style. When a task is in
+// progress its present-continuous form replaces the generic thinking verb
+// ("Migrating config readers…" instead of "Thinking…").
 func (m *tuiModel) thinkingLine() string {
 	frame := spinnerFrames[m.spinnerFrame%len(spinnerFrames)]
+	phrase := m.activeTaskPhrase()
+	if phrase == "" {
+		phrase = m.thinkingPhrase()
+	}
 	meta := time.Since(m.turnStart).Round(time.Second).String()
 	if m.turnOutChars > 0 {
 		meta += fmt.Sprintf(" · ↑ ~%s tokens", humanTokens(m.turnOutChars/4))
 	}
-	return hintStyle.Render(fmt.Sprintf("%c %s… (%s)", frame, m.thinkingPhrase(), meta))
+	return fmt.Sprintf("%s %s %s",
+		hintStyle.Render(string(frame)),
+		activityStyle.Render(phrase+"…"),
+		hintStyle.Render("("+meta+")"))
 }
