@@ -634,3 +634,88 @@ func TestDeleteSession_RejectsTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestSetModelConfig_AppendsAndReloads(t *testing.T) {
+	// A model binding set after the first Save is appended as its own record
+	// and survives a reload, carrying both the entry name and model string.
+	setTempHome(t)
+
+	s := NewSession("old-model", "")
+	s.Messages = []Message{NewUserMessage("ping"), NewAssistantMessage("pong")}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetModelConfig("kimi", "kimi-k2.6"); err != nil {
+		t.Fatalf("SetModelConfig: %v", err)
+	}
+
+	got, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ModelConfig != "kimi" || got.Model != "kimi-k2.6" {
+		t.Errorf("reloaded = (%q, %q), want (kimi, kimi-k2.6)", got.ModelConfig, got.Model)
+	}
+	if len(got.Messages) != 2 {
+		t.Errorf("Messages len = %d, want 2", len(got.Messages))
+	}
+
+	// Unbinding (back to the default entry) also survives a reload.
+	if err := got.SetModelConfig("", "claude-sonnet-4-6"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ModelConfig != "" || again.Model != "claude-sonnet-4-6" {
+		t.Errorf("after unbind = (%q, %q), want (\"\", claude-sonnet-4-6)", again.ModelConfig, again.Model)
+	}
+}
+
+func TestSetModelConfig_SurvivesRewrite(t *testing.T) {
+	// A full rewrite (compaction path) folds the binding into the meta header.
+	setTempHome(t)
+
+	s := NewSession("m", "")
+	s.Messages = []Message{NewUserMessage("ping"), NewAssistantMessage("pong")}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetModelConfig("kimi", "kimi-k2.6"); err != nil {
+		t.Fatal(err)
+	}
+	s.forceRewrite = true
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ModelConfig != "kimi" || got.Model != "kimi-k2.6" {
+		t.Errorf("after rewrite = (%q, %q), want (kimi, kimi-k2.6)", got.ModelConfig, got.Model)
+	}
+}
+
+func TestSetModelConfig_BeforeSave(t *testing.T) {
+	// Binding before the first Save just rides the meta header.
+	setTempHome(t)
+
+	s := NewSession("m", "")
+	if err := s.SetModelConfig("kimi", "kimi-k2.6"); err != nil {
+		t.Fatal(err)
+	}
+	s.Messages = []Message{NewUserMessage("ping")}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadSession(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ModelConfig != "kimi" || got.Model != "kimi-k2.6" {
+		t.Errorf("loaded = (%q, %q), want (kimi, kimi-k2.6)", got.ModelConfig, got.Model)
+	}
+}

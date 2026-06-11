@@ -727,7 +727,7 @@ func TestHandleUpdateSessionWorkingDir(t *testing.T) {
 	}
 }
 
-func TestHandleUpdateSessionModel(t *testing.T) {
+func TestHandleUpdateSessionModel_RawStringIsPerSession(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
@@ -755,8 +755,91 @@ func TestHandleUpdateSessionModel(t *testing.T) {
 	if body["ok"] != true {
 		t.Fatalf("ok = %v, want true", body["ok"])
 	}
-	if srv.model != "kimi-for-coding" {
-		t.Fatalf("server model = %q, want kimi-for-coding", srv.model)
+
+	// The switch is per-session: the session carries the new model, the
+	// server default and the persisted config stay untouched.
+	got, err := agent.LoadSession(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "kimi-for-coding" || got.ModelConfig != "" {
+		t.Fatalf("session = (%q, %q), want (kimi-for-coding, \"\")", got.Model, got.ModelConfig)
+	}
+	if srv.model != "stub-model" {
+		t.Fatalf("server default model changed to %q — must stay stub-model", srv.model)
+	}
+	cfg, _ := config.Load()
+	if len(cfg.Models) != 0 {
+		t.Fatalf("global config written by a per-session switch: %+v", cfg.Models)
+	}
+}
+
+func TestHandleUpdateSessionModel_EntryNameBindsSession(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+
+	seed := config.Config{
+		Models: []config.ModelEntry{
+			{Name: "main", Provider: "anthropic", Model: "claude-sonnet-4-6"},
+			{Name: "kimi", Provider: "kimi", Model: "kimi-k2.6", APIKey: "sk-kimi"},
+		},
+		DefaultModel: "main",
+	}
+	if err := seed.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := agent.NewSession("claude-sonnet-4-6", "")
+	if err := sess.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false})
+
+	payload, _ := json.Marshal(updateSessionModelRequest{ModelID: "kimi"})
+	req := httptest.NewRequest(http.MethodPatch, "/api/sessions/"+sess.ID+"/model?access_key="+srv.AccessKey(), bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+
+	got, err := agent.LoadSession(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ModelConfig != "kimi" || got.Model != "kimi-k2.6" {
+		t.Fatalf("session = (%q, %q), want (kimi-k2.6, kimi)", got.Model, got.ModelConfig)
+	}
+	cfg, _ := config.Load()
+	if cfg.DefaultModel != "main" {
+		t.Fatalf("global default changed to %q — must stay main", cfg.DefaultModel)
+	}
+
+	// The bound session's turns resolve to the entry's sender and model;
+	// an unbound session stays on the server default.
+	sender, model := srv.senderForSession(got)
+	if model != "kimi-k2.6" {
+		t.Errorf("senderForSession model = %q, want kimi-k2.6", model)
+	}
+	if sender == srv.sender {
+		t.Error("bound session must not ride the default sender")
+	}
+	plain := agent.NewSession("stub-model", "")
+	if sender2, model2 := srv.senderForSession(plain); sender2 != srv.sender || model2 != "stub-model" {
+		t.Errorf("unbound session = (%v, %q), want default sender + stub-model", sender2, model2)
+	}
+
+	// Deleting the bound entry degrades to the default sender instead of
+	// failing the turn.
+	if w := doJSON(t, srv, http.MethodDelete, "/api/config/models/kimi", ""); w.Code != http.StatusOK {
+		t.Fatalf("DELETE = %d: %s", w.Code, w.Body.String())
+	}
+	if sender3, _ := srv.senderForSession(got); sender3 != srv.sender {
+		t.Error("stale binding must fall back to the default sender")
 	}
 }
 

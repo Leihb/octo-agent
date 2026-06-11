@@ -31,7 +31,11 @@ type Session struct {
 	System    string    `json:"system,omitempty"`
 	Title     string    `json:"title,omitempty"`
 	Source    string    `json:"source,omitempty"` // how the session was created: "" (manual) | "cron" | "channel" | "setup"
-	Messages  []Message `json:"messages"`
+	// ModelConfig names the user-config model entry this session is bound to.
+	// Empty means "the default entry at turn time" — also the value for every
+	// session predating per-session model binding.
+	ModelConfig string    `json:"model_config,omitempty"`
+	Messages    []Message `json:"messages"`
 
 	// Dir overrides the default ~/.octo/sessions location. Empty means use the
 	// default. Not serialized — it's a runtime override.
@@ -154,18 +158,19 @@ func (s *Session) SavePath() (string, error) {
 // on disk. LoadSession takes the last title record as authoritative; rewriteAll
 // also folds the title back into the meta header so a compacted file keeps it.
 type sessionRecord struct {
-	Type      string    `json:"type"` // "meta" | "message" | "title"
-	ID        string    `json:"id,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
-	Model     string    `json:"model,omitempty"`
-	System    string    `json:"system,omitempty"`
-	Title     string    `json:"title,omitempty"`
-	Source    string    `json:"source,omitempty"`
-	Message   *Message  `json:"message,omitempty"`
+	Type        string    `json:"type"` // "meta" | "message" | "title" | "model_config"
+	ID          string    `json:"id,omitempty"`
+	CreatedAt   time.Time `json:"created_at,omitempty"`
+	Model       string    `json:"model,omitempty"`
+	System      string    `json:"system,omitempty"`
+	Title       string    `json:"title,omitempty"`
+	Source      string    `json:"source,omitempty"`
+	ModelConfig string    `json:"model_config,omitempty"`
+	Message     *Message  `json:"message,omitempty"`
 }
 
 func (s *Session) metaRecord() sessionRecord {
-	return sessionRecord{Type: "meta", ID: s.ID, CreatedAt: s.CreatedAt, Model: s.Model, System: s.System, Title: s.Title, Source: s.Source}
+	return sessionRecord{Type: "meta", ID: s.ID, CreatedAt: s.CreatedAt, Model: s.Model, System: s.System, Title: s.Title, Source: s.Source, ModelConfig: s.ModelConfig}
 }
 
 func messageRecord(m Message) sessionRecord {
@@ -287,6 +292,55 @@ func (s *Session) SetTitle(title string) error {
 	defer f.Close()
 	if err := json.NewEncoder(f).Encode(sessionRecord{Type: "title", Title: title}); err != nil {
 		return fmt.Errorf("session: append title: %w", err)
+	}
+	return nil
+}
+
+// SetModelConfig binds the session to a named config entry (empty name =
+// the default entry) and records the entry's model string so the session
+// displays and resumes on the right model. Like SetTitle, it appends a
+// record when the transcript is already on disk so the binding survives
+// without rewriting the file; a switch to the values already in place is a
+// no-op.
+func (s *Session) SetModelConfig(name, model string) error {
+	if name == s.ModelConfig && (model == "" || model == s.Model) {
+		return nil
+	}
+	s.ModelConfig = name
+	if model != "" {
+		s.Model = model
+	}
+	if s.persisted == 0 {
+		// persisted == 0 means no MESSAGES on disk, not no file: a fresh
+		// session saved before its first turn is a meta-only transcript, and
+		// a load-modify-discard caller (the model-switch handler) would lose
+		// the binding if we waited for "the next Save" on an object about to
+		// be thrown away. Rewrite the existing file; a session with no file
+		// yet just carries the binding until its first Save.
+		if path, perr := s.SavePath(); perr == nil {
+			if _, statErr := os.Stat(path); statErr == nil {
+				return s.rewriteAll()
+			}
+		}
+		return nil
+	}
+	if s.forceRewrite {
+		// Stale or truncated on-disk prefix — fold into a full rewrite, same
+		// reasoning as SetTitle.
+		return s.rewriteAll()
+	}
+	path, err := s.SavePath()
+	if err != nil {
+		return err
+	}
+	// No O_CREATE — see SetTitle: never materialise an orphan transcript.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("session: open %s: %w", path, err)
+	}
+	defer f.Close()
+	if err := json.NewEncoder(f).Encode(sessionRecord{Type: "model_config", ModelConfig: name, Model: s.Model}); err != nil {
+		return fmt.Errorf("session: append model_config: %w", err)
 	}
 	return nil
 }
@@ -413,8 +467,14 @@ func LoadSession(id string) (*Session, error) {
 			s.ID, s.CreatedAt, s.Model, s.System = rec.ID, rec.CreatedAt, rec.Model, rec.System
 			s.Title = rec.Title // a compacted file carries the title in its meta header
 			s.Source = rec.Source
+			s.ModelConfig = rec.ModelConfig
 		case "title":
 			s.Title = rec.Title // last one wins
+		case "model_config":
+			s.ModelConfig = rec.ModelConfig // last one wins, like title
+			if rec.Model != "" {
+				s.Model = rec.Model
+			}
 		case "message":
 			if rec.Message != nil {
 				s.Messages = append(s.Messages, *rec.Message)

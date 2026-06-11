@@ -335,6 +335,7 @@ func (s *Server) handleSaveModelConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
 		return
 	}
+	s.invalidateSenderCache()
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": entry.Name})
 }
@@ -379,6 +380,7 @@ func (s *Server) handleUpdateModelConfig(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
 		return
 	}
+	s.invalidateSenderCache()
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -426,6 +428,7 @@ func (s *Server) handleDeleteModelConfig(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
 		return
 	}
+	s.invalidateSenderCache()
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -456,6 +459,7 @@ func (s *Server) handleSetDefaultModelConfig(w http.ResponseWriter, r *http.Requ
 
 	// The next agent turn should pick up the new default.
 	s.model = cfg.DefaultEntry().Model
+	s.invalidateSenderCache()
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

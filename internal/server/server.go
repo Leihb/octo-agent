@@ -121,6 +121,12 @@ type Server struct {
 	sessionAgents   map[string]*agent.Agent
 	sessionAgentsMu sync.Mutex
 
+	// senderCache holds one sender per config entry name, built lazily for
+	// sessions bound to a non-default model entry. Invalidated wholesale on
+	// any /api/config/models mutation; the next turn rebuilds.
+	senderCache   map[string]agent.Sender
+	senderCacheMu sync.Mutex
+
 	// titlePending guards one in-flight title generation per session
 	// (lazily initialised by claimTitleGeneration).
 	titlePending map[string]bool
@@ -594,7 +600,8 @@ func (s *Server) forgetTurnLock(id string) {
 // buildAgent creates a fresh agent for a turn. The caller must have locked
 // the session's turn mutex.
 func (s *Server) buildAgent(sess *agent.Session) *agent.Agent {
-	a := agent.New(s.sender, s.model)
+	sender, model := s.senderForSession(sess)
+	a := agent.New(sender, model)
 	a.CWD = s.cwd
 	a.MaxTokens = s.cfg.MaxTokens
 
@@ -625,9 +632,6 @@ func (s *Server) buildAgent(sess *agent.Session) *agent.Agent {
 		a.ToolResultHook = inj.SaveNudge
 	}
 
-	if sess.Model != "" {
-		a.Model = sess.Model
-	}
 	if len(sess.Messages) > 0 {
 		a.History = sess.ToHistory()
 	}
@@ -740,6 +744,76 @@ func resolveBaseURL(provider string, cfg config.Config) string {
 		return entry.BaseURL
 	}
 	return ""
+}
+
+// senderForSession resolves the (sender, model) a turn should run on. A
+// session bound to a config entry (ModelConfig) gets that entry's sender from
+// the cache, built on first use; everything else — unbound sessions, a
+// missing entry (deleted since binding), or a build failure — falls back to
+// the server's default sender so a stale binding degrades instead of
+// breaking the turn.
+func (s *Server) senderForSession(sess *agent.Session) (agent.Sender, string) {
+	model := s.model
+	if sess.Model != "" {
+		model = sess.Model
+	}
+	if sess.ModelConfig == "" {
+		return s.sender, model
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return s.sender, model
+	}
+	entry, ok := cfg.EntryByName(sess.ModelConfig)
+	if !ok {
+		return s.sender, model
+	}
+	if entry.Model != "" {
+		model = entry.Model
+	}
+
+	s.senderCacheMu.Lock()
+	defer s.senderCacheMu.Unlock()
+	if cached, ok := s.senderCache[entry.Name]; ok {
+		return cached, model
+	}
+	sender, err := senderForEntry(entry)
+	if err != nil {
+		return s.sender, model
+	}
+	if s.senderCache == nil {
+		s.senderCache = make(map[string]agent.Sender)
+	}
+	s.senderCache[entry.Name] = sender
+	return sender, model
+}
+
+// senderForEntry builds a sender from one config entry: env key first (same
+// rule as the default path), then the entry's stored key.
+func senderForEntry(entry config.ModelEntry) (agent.Sender, error) {
+	apiKey := os.Getenv(app.VendorAPIKeyEnvVar(entry.Provider))
+	if apiKey == "" {
+		apiKey = entry.APIKey
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("no API key for entry %q (provider %q)", entry.Name, entry.Provider)
+	}
+	return app.NewSender(app.SenderOptions{
+		Provider:        entry.Provider,
+		APIKey:          apiKey,
+		BaseURL:         entry.BaseURL,
+		ReasoningEffort: entry.ReasoningEffort,
+	})
+}
+
+// invalidateSenderCache drops every cached per-entry sender. Called on any
+// model-config mutation so edited credentials/endpoints take effect on the
+// next turn.
+func (s *Server) invalidateSenderCache() {
+	s.senderCacheMu.Lock()
+	s.senderCache = nil
+	s.senderCacheMu.Unlock()
 }
 
 // resolveAccessKey is a no-op: access-key authentication was removed in

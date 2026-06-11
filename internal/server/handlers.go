@@ -297,15 +297,18 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	model := s.model
+	modelConfig := ""
 	if req.Model != "" {
 		model = req.Model
-		// The web modal sends a config entry id; resolve it to the entry's
-		// model string. (Per-entry sender binding is the next step on the
-		// multi-model design — until then the session rides the default
-		// sender.)
+		// The web modal sends a config entry id; the session binds to that
+		// entry so its turns run on the entry's sender. A non-matching value
+		// stays a raw model string on the default sender.
 		if cfg, err := config.Load(); err == nil {
-			if e, ok := cfg.EntryByName(req.Model); ok && e.Model != "" {
-				model = e.Model
+			if e, ok := cfg.EntryByName(req.Model); ok {
+				modelConfig = e.Name
+				if e.Model != "" {
+					model = e.Model
+				}
 			}
 		}
 	}
@@ -331,6 +334,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	sess := agent.NewSession(model, "")
 	sess.Source = source
+	sess.ModelConfig = modelConfig
 	if req.Name != "" {
 		sess.Title = req.Name
 	}
@@ -858,10 +862,12 @@ type updateSessionModelRequest struct {
 	ModelID string `json:"model_id"`
 }
 
-// handleUpdateSessionModel updates the active model for the server's default
-// model config. The Web UI treats this as a per-session action (the user clicks
-// the model name in the session info bar), but the Go rewrite currently uses a
-// single global model configuration, so the change applies to all future turns.
+// handleUpdateSessionModel switches THIS session's model: model_id naming a
+// config entry binds the session to it (provider, endpoint, key — the whole
+// entry, applied from the next turn via the per-entry sender cache); other
+// values are treated as a raw model string on the session, staying on the
+// default sender. The global default model is not touched — that's
+// POST /api/config/models/{id}/default.
 func (s *Server) handleUpdateSessionModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -879,33 +885,39 @@ func (s *Server) handleUpdateSessionModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	sess, err := agent.LoadSession(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
 	cfg, _ := config.Load()
-	// model_id is a config entry name (the ids exposed by /api/config).
-	// A value that names no entry is treated as a raw model string applied
-	// to the default entry, preserving the pre-multi-model contract.
-	if _, ok := cfg.EntryByName(req.ModelID); ok {
-		cfg.DefaultModel = req.ModelID
-	} else if req.ModelID != "default" {
-		entry := cfg.DefaultEntry()
-		entry.Model = req.ModelID
-		cfg.SetDefaultEntry(entry)
-	} else if cfg.DefaultEntry().Model == "" {
-		// Edge case: frontend selected "default" but no model is configured.
-		writeError(w, http.StatusBadRequest, "no default model configured")
+	var model string
+	if entry, ok := cfg.EntryByName(req.ModelID); ok {
+		model = entry.Model
+		err = sess.SetModelConfig(entry.Name, entry.Model)
+	} else if req.ModelID == "default" {
+		// Legacy id for "the default entry". Unbind so the session follows
+		// whatever the default is at turn time.
+		model = cfg.DefaultEntry().Model
+		if model == "" {
+			writeError(w, http.StatusBadRequest, "no default model configured")
+			return
+		}
+		err = sess.SetModelConfig("", model)
+	} else {
+		// Raw model string: keep the default sender, change only the model.
+		model = req.ModelID
+		err = sess.SetModelConfig("", model)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save session: %v", err))
 		return
 	}
-
-	if err := cfg.Save(); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
-		return
-	}
-
-	// Update the runtime default so the next agent turn uses the new model.
-	s.model = cfg.DefaultEntry().Model
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
-		"model":    cfg.DefaultEntry().Model,
+		"model":    model,
 		"model_id": req.ModelID,
 	})
 }
