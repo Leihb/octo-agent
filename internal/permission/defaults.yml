@@ -114,6 +114,16 @@ web_search:
 # deny — silently disabling sub-agents and tasks there.
 sub_agent:
   - allow: { pattern: "" }
+# The follow-up surface shares sub_agent's posture: a message to a child is
+# executed under the parent's gate inside the child (its tool calls are
+# gated individually), status is read-only, and kill only reclaims
+# resources the parent itself started.
+sub_agent_send:
+  - allow: { pattern: "" }
+sub_agent_status:
+  - allow: { pattern: "" }
+sub_agent_kill:
+  - allow: { pattern: "" }
 task_create:
   - allow: { pattern: "" }
 task_update:

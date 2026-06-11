@@ -43,7 +43,9 @@ func (AgentTool) Definition() agent.ToolDefinition {
 			"independent read (e.g. code review).\n\n" +
 			"Set run_in_background=true to run asynchronously — you will be notified when " +
 			"it completes. Leave it false (default) to block and receive the result directly. " +
-			"(Some transports run every sub-agent synchronously; the result says so when it does.)",
+			"(Some transports run every sub-agent synchronously; the result says so when it does.)\n\n" +
+			"Follow up with sub_agent_send (message a child with its context intact), " +
+			"sub_agent_status (check progress / latest result), and sub_agent_kill.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

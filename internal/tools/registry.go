@@ -37,6 +37,9 @@ var allTools = []tool{
 	WebSearchTool{},
 	SkillTool{},
 	AgentTool{},
+	AgentSendTool{},
+	AgentStatusTool{},
+	AgentKillTool{},
 	AskUserQuestionTool{},
 	TaskCreateTool{},
 	TaskUpdateTool{},
@@ -236,6 +239,15 @@ func DefaultToolsFor(model string) []agent.ToolDefinition {
 			continue
 		}
 		if _, isAgent := t.(AgentTool); isAgent && !mgrOn {
+			continue
+		}
+		if _, isSend := t.(AgentSendTool); isSend && !mgrOn {
+			continue
+		}
+		if _, isStatus := t.(AgentStatusTool); isStatus && !mgrOn {
+			continue
+		}
+		if _, isKill := t.(AgentKillTool); isKill && !mgrOn {
 			continue
 		}
 		if _, isAsk := t.(AskUserQuestionTool); isAsk && !askerOn {
