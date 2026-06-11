@@ -85,6 +85,24 @@ func TestTUI_CtrlXUnqueuesMostRecent(t *testing.T) {
 	}
 }
 
+// Idle, the queue key behaves exactly like Enter (design §7): nothing would
+// ever drain a queue with no running turn, so the message must start a turn
+// immediately instead of being trapped.
+func TestTUI_IdleCtrlQStartsTurn(t *testing.T) {
+	m := newTestModel()
+	setInput(m, "check recent PRs")
+	_, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	if !m.turnRunning {
+		t.Fatal("idle Ctrl+Q should start a turn, same as Enter")
+	}
+	if len(m.queue) != 0 {
+		t.Errorf("idle Ctrl+Q must not leave the message queued, got %+v", m.queue)
+	}
+	if m.ta.Value() != "" {
+		t.Errorf("input should clear, got %q", m.ta.Value())
+	}
+}
+
 func TestTUI_RunningCtrlQQueues(t *testing.T) {
 	m := newTestModel()
 	m.turnRunning = true

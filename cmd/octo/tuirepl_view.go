@@ -139,7 +139,13 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyCtrlQ:
-		// Queue the current input to run as a future turn.
+		// Queue the current input to run as a future turn. Idle, there is no
+		// turn to wait for and nothing ever drains the queue — the design
+		// table (dev-docs/tui-input-modes-design.md §7) makes the queue key
+		// behave exactly like Enter, so delegate to the same submit path.
+		if !m.turnRunning {
+			return m.submit()
+		}
 		text := strings.TrimSpace(m.ta.Value())
 		if text == "" {
 			return m, nil
