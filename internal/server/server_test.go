@@ -16,6 +16,7 @@ import (
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/skills"
+	"github.com/Leihb/octo-agent/internal/upgrade"
 )
 
 // serveLoopback dispatches through the given handler as a local browser
@@ -621,11 +622,15 @@ func TestHandleVersionUpgrade_AcceptedAndConflict(t *testing.T) {
 	}
 	srv.upgradeRunning = false
 
-	// A fresh POST is accepted; the background run (a dev test binary with
-	// no UpdateCheck network stub) refuses internally and resets the
-	// single-flight latch — poll for that so the goroutine's lifecycle is
-	// covered too. Broadcasts go through the nil-safe helper (no WS hub in
-	// mustServer).
+	// A fresh POST is accepted; the background run refuses internally (the
+	// test binary fails the eligibility check) and resets the single-flight
+	// latch — poll for that so the goroutine's lifecycle is covered too.
+	// Broadcasts go through the nil-safe helper (no WS hub in mustServer).
+	// Belt-and-braces: pin the release origin to an unroutable URL so even
+	// an eligibility-rule change can't make this test dial out.
+	origURL := upgrade.BaseURL
+	upgrade.BaseURL = "http://127.0.0.1:0"
+	t.Cleanup(func() { upgrade.BaseURL = origURL })
 	req = httptest.NewRequest(http.MethodPost, "/api/version/upgrade", nil)
 	w = httptest.NewRecorder()
 	serveLoopback(srv.mux, w, req)

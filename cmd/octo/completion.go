@@ -195,7 +195,7 @@ new flags / subcommands are added.`))
 // ── Static lists ─────────────────────────────────────────────────────────
 
 var topLevelCommands = []string{
-	"config", "init", "memory",
+	"config", "init", "memory", "serve", "skills", "upgrade",
 	"version", "help", "completion",
 }
 

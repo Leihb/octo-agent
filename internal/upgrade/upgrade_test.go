@@ -171,6 +171,15 @@ func TestRun_EndToEnd(t *testing.T) {
 	if _, err := os.Stat(target + ".upgrade.lock"); !os.IsNotExist(err) {
 		t.Error("lock file not released")
 	}
+	// The aside is removed after a successful swap (POSIX; on Windows the
+	// running image would survive until the next upgrade's sweep — but the
+	// target here is not a running image on any platform).
+	if asides, _ := filepath.Glob(target + ".old.*"); len(asides) != 0 {
+		t.Errorf("aside not cleaned up: %v", asides)
+	}
+	if staged, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".octo.new.*")); len(staged) != 0 {
+		t.Errorf("staging file not cleaned up: %v", staged)
+	}
 }
 
 func TestRun_UpToDate(t *testing.T) {
@@ -346,17 +355,18 @@ func TestAcquireLock(t *testing.T) {
 	unlock()
 }
 
-func TestSweepOld(t *testing.T) {
+func TestSweepStale(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "octo")
-	for _, n := range []string{target + ".old.1", target + ".old.2"} {
+	for _, n := range []string{target + ".old.1", target + ".old.2", filepath.Join(dir, ".octo.new.99")} {
 		if err := os.WriteFile(n, []byte("x"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	sweepOld(target)
+	sweepStale(target)
 	left, _ := filepath.Glob(target + ".old.*")
-	if len(left) != 0 {
-		t.Errorf("sweep left %v", left)
+	stagedLeft, _ := filepath.Glob(filepath.Join(dir, ".octo.new.*"))
+	if len(left)+len(stagedLeft) != 0 {
+		t.Errorf("sweep left %v %v", left, stagedLeft)
 	}
 }

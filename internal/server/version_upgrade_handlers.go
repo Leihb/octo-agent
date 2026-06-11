@@ -30,7 +30,7 @@ const (
 // must not leak here.
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	current := strings.TrimPrefix(version.Version, "v")
-	latest, needs := s.latestVersion(r.Context())
+	latest, needs := s.latestVersion()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":      version.Version,
 		"current":      current,
@@ -44,7 +44,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 // The update check is opt-in via Config.UpdateCheck (set only by `octo
 // serve`), so every other Server constructor — the test suite included —
 // performs no outbound calls and degrades to "current is latest".
-func (s *Server) latestVersion(ctx context.Context) (string, bool) {
+func (s *Server) latestVersion() (string, bool) {
 	current := strings.TrimPrefix(version.Version, "v")
 	if !s.cfg.UpdateCheck {
 		return current, false
@@ -63,7 +63,10 @@ func (s *Server) latestVersion(ctx context.Context) (string, bool) {
 		return current, false
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, versionCheckTimeout)
+	// Background-derived, not the request context: a client navigating
+	// away mid-check would otherwise record a failure and degrade the
+	// badge for every client for the whole backoff window.
+	cctx, cancel := context.WithTimeout(context.Background(), versionCheckTimeout)
 	defer cancel()
 	latest, err := upgrade.Check(cctx)
 	if err != nil {
@@ -105,10 +108,10 @@ func (s *Server) handleVersionUpgrade(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "upgrade started"})
 }
 
-// runBinaryUpgrade performs the swap under the restart drain gate: a
-// restart requested mid-upgrade drains behind the swap instead of exiting
-// between the two renames — which would leave no file at the target path
-// and make the supervisor respawn fail outright.
+// runBinaryUpgrade downloads outside the restart drain gate and holds the
+// gate only for the swap: a restart requested mid-install drains behind
+// the renames instead of exiting between them — which would leave no file
+// at the target path and make the supervisor respawn fail outright.
 func (s *Server) runBinaryUpgrade() {
 	defer func() {
 		s.upgradeMu.Lock()
@@ -123,29 +126,43 @@ func (s *Server) runBinaryUpgrade() {
 		s.broadcastGlobal(map[string]any{"type": "upgrade_complete", "success": ok})
 	}
 
-	if err := s.drain.begin(); err != nil {
-		logf("the server is restarting — try again once it is back")
-		complete(false)
-		return
-	}
-	defer s.drain.end()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	// No Force over HTTP: a dev-build server refuses inside Run, and the
-	// refusal (with its --force CLI hint) reaches the user as a log line.
-	err := upgrade.Run(ctx, upgrade.Options{Log: logf})
+	// No Force over HTTP: a dev-build server refuses inside Prepare, and
+	// the refusal (with its --force CLI hint) reaches the user as a log
+	// line. The slow part (download/verify/extract) runs OUTSIDE the
+	// drain gate — Restart only waits 30s for gate holders before
+	// proceeding, so holding it across a download would reopen the
+	// exit-between-renames window the gate exists to close.
+	p, err := upgrade.Prepare(ctx, upgrade.Options{Log: logf})
 	switch {
 	case errors.Is(err, upgrade.ErrUpToDate):
 		logf("already up to date")
 		complete(false)
+		return
 	case err != nil:
 		logf("upgrade failed: " + err.Error())
 		complete(false)
-	default:
-		complete(true)
+		return
 	}
+	defer p.Close()
+
+	// The swap itself is local renames — seconds, comfortably inside the
+	// restart drain bound.
+	if err := s.drain.begin(); err != nil {
+		logf("the server is restarting — upgrade aborted before install; try again once it is back")
+		complete(false)
+		return
+	}
+	err = p.Install()
+	s.drain.end()
+	if err != nil {
+		logf("upgrade failed: " + err.Error())
+		complete(false)
+		return
+	}
+	complete(true)
 }
 
 // broadcastGlobal sends an event to every WS connection. Nil-safe so

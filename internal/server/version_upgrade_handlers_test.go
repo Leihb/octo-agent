@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -38,11 +37,11 @@ func TestLatestVersion_ChecksAndCaches(t *testing.T) {
 
 	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false, UpdateCheck: true})
 
-	latest, needs := srv.latestVersion(context.Background())
+	latest, needs := srv.latestVersion()
 	if latest != "9.9.9" || !needs {
 		t.Fatalf("latestVersion = (%q, %v), want (9.9.9, true)", latest, needs)
 	}
-	if latest2, _ := srv.latestVersion(context.Background()); latest2 != "9.9.9" {
+	if latest2, _ := srv.latestVersion(); latest2 != "9.9.9" {
 		t.Fatalf("second lookup = %q, want cached 9.9.9", latest2)
 	}
 	if got := atomic.LoadInt32(&hits); got != 1 {
@@ -71,7 +70,7 @@ func TestLatestVersion_DevBuildNeverNags(t *testing.T) {
 	t.Cleanup(func() { version.Version, version.Commit = origV, origC })
 
 	srv := mustServer(t, Config{Addr: "127.0.0.1:0", Tools: false, UpdateCheck: true})
-	if latest, needs := srv.latestVersion(context.Background()); needs {
+	if latest, needs := srv.latestVersion(); needs {
 		t.Errorf("dev build reported needs_update for latest %q", latest)
 	}
 }

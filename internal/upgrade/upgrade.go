@@ -157,31 +157,46 @@ func binaryName() string {
 	return "octo"
 }
 
-// Run upgrades the binary at opts.TargetPath (default: this executable) to
-// the latest release. ErrUpToDate means nothing was done because nothing
-// needed doing.
-func Run(ctx context.Context, opts Options) error {
+// Prepared holds a verified, extracted new binary ready to install. The
+// split from Run exists so the server can do the slow part (download)
+// outside the restart drain gate and hold the gate only for the
+// seconds-long Install.
+type Prepared struct {
+	// Latest is the version Install will put in place.
+	Latest string
+
+	opts   Options
+	newBin string
+	target string
+	tmpDir string
+}
+
+// Prepare checks eligibility, resolves the latest release, downloads and
+// verifies the archive, and extracts the binary — everything except
+// touching the installed file. ErrUpToDate means nothing needs doing.
+// Callers must Close the result.
+func Prepare(ctx context.Context, opts Options) (*Prepared, error) {
 	if !opts.Force {
 		if err := Eligible(); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	latest, err := Check(ctx)
 	if err != nil {
-		return fmt.Errorf("check latest release: %w", err)
+		return nil, fmt.Errorf("check latest release: %w", err)
 	}
 	current := strings.TrimPrefix(version.Version, "v")
 	opts.log("current %s, latest %s", version.String(), latest)
 	if !opts.Force && CompareVersions(current, latest) >= 0 {
-		return ErrUpToDate
+		return nil, ErrUpToDate
 	}
 
 	target := opts.TargetPath
 	if target == "" {
 		exe, err := os.Executable()
 		if err != nil {
-			return fmt.Errorf("resolve executable: %w", err)
+			return nil, fmt.Errorf("resolve executable: %w", err)
 		}
 		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 			exe = resolved
@@ -191,38 +206,69 @@ func Run(ctx context.Context, opts Options) error {
 
 	tmpDir, err := os.MkdirTemp("", "octo-upgrade-")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer os.RemoveAll(tmpDir)
+	cleanup := func() { _ = os.RemoveAll(tmpDir) }
 
 	asset := AssetName(latest)
 	opts.log("downloading %s", asset)
 	archivePath := filepath.Join(tmpDir, asset)
 	if err := download(ctx, releaseURL(latest, asset), archivePath); err != nil {
-		return fmt.Errorf("download %s: %w", asset, err)
+		cleanup()
+		return nil, fmt.Errorf("download %s: %w", asset, err)
 	}
 	sumsPath := filepath.Join(tmpDir, "checksums.txt")
 	if err := download(ctx, releaseURL(latest, "checksums.txt"), sumsPath); err != nil {
-		return fmt.Errorf("download checksums.txt: %w", err)
+		cleanup()
+		return nil, fmt.Errorf("download checksums.txt: %w", err)
 	}
 
 	opts.log("verifying SHA-256")
 	if err := verifyChecksum(archivePath, sumsPath, asset); err != nil {
-		return err
+		cleanup()
+		return nil, err
 	}
 
 	opts.log("extracting %s", binaryName())
 	newBin := filepath.Join(tmpDir, binaryName())
 	if err := extractBinary(archivePath, binaryName(), newBin); err != nil {
-		return fmt.Errorf("extract: %w", err)
+		cleanup()
+		return nil, fmt.Errorf("extract: %w", err)
 	}
 
-	opts.log("installing to %s", target)
-	if err := swap(newBin, target); err != nil {
+	return &Prepared{Latest: latest, opts: opts, newBin: newBin, target: target, tmpDir: tmpDir}, nil
+}
+
+// Install swaps the prepared binary into place. Fast (local renames
+// only), so a caller holding a drain gate holds it for seconds, not for
+// the download.
+func (p *Prepared) Install() error {
+	p.opts.log("installing to %s", p.target)
+	if err := swap(p.newBin, p.target); err != nil {
 		return err
 	}
-	opts.log("upgraded to %s", latest)
+	p.opts.log("upgraded to %s", p.Latest)
 	return nil
+}
+
+// Close removes the temp download dir.
+func (p *Prepared) Close() {
+	if p.tmpDir != "" {
+		_ = os.RemoveAll(p.tmpDir)
+	}
+}
+
+// Run upgrades the binary at opts.TargetPath (default: this executable) to
+// the latest release: Prepare + Install in one call, for callers with no
+// gate to scope (the CLI). ErrUpToDate means nothing was done because
+// nothing needed doing.
+func Run(ctx context.Context, opts Options) error {
+	p, err := Prepare(ctx, opts)
+	if err != nil {
+		return err
+	}
+	defer p.Close()
+	return p.Install()
 }
 
 func releaseURL(ver, asset string) string {
@@ -379,7 +425,7 @@ func swap(newBin, target string) error {
 	}
 	defer unlock()
 
-	sweepOld(target)
+	sweepStale(target)
 
 	staged := filepath.Join(filepath.Dir(target), fmt.Sprintf(".%s.new.%d", filepath.Base(target), os.Getpid()))
 	if err := copyFile(staged, newBin); err != nil {
@@ -387,7 +433,7 @@ func swap(newBin, target string) error {
 	}
 	defer os.Remove(staged) // no-op after the successful rename
 
-	aside := fmt.Sprintf("%s.old.%d", target, time.Now().Unix())
+	aside := fmt.Sprintf("%s.old.%d.%d", target, time.Now().Unix(), os.Getpid())
 	if err := os.Rename(target, aside); err != nil {
 		return fmt.Errorf("move current binary aside: %w", err)
 	}
@@ -419,6 +465,12 @@ func copyFile(dest, src string) error {
 		out.Close()
 		return err
 	}
+	// Explicit chmod: the OpenFile mode is masked by umask, and a 077
+	// umask would otherwise install a 0700 binary into a shared dir.
+	if err := out.Chmod(0o755); err != nil {
+		out.Close()
+		return err
+	}
 	if err := out.Sync(); err != nil {
 		out.Close()
 		return err
@@ -427,7 +479,9 @@ func copyFile(dest, src string) error {
 }
 
 // acquireLock takes <target>.upgrade.lock exclusively, stealing it when
-// stale (a crashed upgrade never cleaned up).
+// stale (a crashed upgrade never cleaned up). Stealing goes through a
+// rename so two processes finding the same stale lock can't both win —
+// only one rename succeeds.
 func acquireLock(path string) (func(), error) {
 	for attempt := 0; ; attempt++ {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -435,26 +489,43 @@ func acquireLock(path string) (func(), error) {
 			f.Close()
 			return func() { _ = os.Remove(path) }, nil
 		}
-		if !os.IsExist(err) || attempt > 0 {
+		if !os.IsExist(err) {
+			// Not contention — most likely an unwritable install dir
+			// (system path owned by root, read-only mount).
+			return nil, fmt.Errorf("create lock %s: %w (is the install directory writable?)", path, err)
+		}
+		if attempt > 0 {
 			return nil, fmt.Errorf("another upgrade appears to be running (%s exists)", path)
 		}
 		info, statErr := os.Stat(path)
 		if statErr != nil || time.Since(info.ModTime()) < lockStaleAfter {
 			return nil, fmt.Errorf("another upgrade appears to be running (%s exists)", path)
 		}
-		_ = os.Remove(path) // stale — steal and retry once
+		// Stale — claim it via rename (single winner) and retry once.
+		stale := path + ".stale"
+		if err := os.Rename(path, stale); err != nil {
+			return nil, fmt.Errorf("another upgrade appears to be running (%s exists)", path)
+		}
+		_ = os.Remove(stale)
 	}
 }
 
-// sweepOld removes leftover .old.* siblings from previous upgrades. The
-// one a running process still occupies refuses deletion (Windows) and
-// survives until that process exits.
-func sweepOld(target string) {
-	matches, err := filepath.Glob(target + ".old.*")
-	if err != nil {
-		return
-	}
-	for _, m := range matches {
-		_ = os.Remove(m)
+// sweepStale removes leftovers from previous upgrades: .old.* asides and
+// orphaned .new.* staging files (a crash between stage and rename). The
+// aside a running process still occupies refuses deletion (Windows) and
+// survives until that process exits. Runs under the upgrade lock, so a
+// concurrent upgrade's files can't be swept.
+func sweepStale(target string) {
+	for _, pattern := range []string{
+		target + ".old.*",
+		filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".new.*"),
+	} {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, m := range matches {
+			_ = os.Remove(m)
+		}
 	}
 }
