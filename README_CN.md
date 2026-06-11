@@ -66,7 +66,7 @@ octo --prompt-file ./task.md
 # 交互多轮：在终端里不带消息直接运行 octo 进入 TUI（富工具卡片、自动保存
 # session）。用 -c 恢复历史 session。
 octo
-octo --list-sessions
+octo sessions
 octo -c <session-id>
 
 # 默认流式输出；--stream=false 改为缓冲、只打印最终回复文本（便于重定向到文件捕获）。
@@ -95,7 +95,7 @@ octo --sandbox "..."
 octo init
 
 # 列出已发现的 skill
-octo --list-skills
+octo skills list
 
 # Web 服务 + 仪表盘（默认绑定 localhost）
 octo serve --addr 127.0.0.1:8080
@@ -154,7 +154,7 @@ description: Review the current diff for correctness and style
 逐个 hunk 审查 diff，先标正确性 bug，再看风格。
 ```
 
-会话启动时 Octo 把每个 skill 的名字和描述列进系统提示；当任务匹配某个 skill 时，模型通过 `skill` 工具按需加载它的完整指令。你也可以显式触发 —— `octo --list-skills` 查看已发现的 skill，再在 TUI 里用 `/skills` 列出、`/<name>`（如 `/review`）运行某个。
+会话启动时 Octo 把每个 skill 的名字和描述列进系统提示；当任务匹配某个 skill 时，模型通过 `skill` 工具按需加载它的完整指令。你也可以显式触发 —— `octo skills list` 查看已发现的 skill，再在 TUI 里用 `/skills` 列出、`/<name>`（如 `/review`）运行某个。
 
 ## 沙箱
 
@@ -177,7 +177,7 @@ octo --sandbox --sandbox-read /opt/data     # 额外可读目录（可重复）
 | 工具 | 完成 | `terminal`（含后台），文件读/写/改，glob，grep，web 抓取/搜索 |
 | Agentic loop | 完成 | 多步工具调用，权限门控，历史压缩，优雅 Ctrl-C |
 | 记忆与配置 | 完成 | `~/.octo/octorules.md`、`.octorules`、`octo init`、`@include` |
-| Skills | 完成 | 兼容 Claude Code 的 SKILL.md 加载器（`--list-skills`、`/skills`、`/<name>`） |
+| Skills | 完成 | 兼容 Claude Code 的 SKILL.md 加载器（`octo skills`、`/skills`、`/<name>`） |
 | 沙箱 | 完成 | 操作系统强制的 `--sandbox`（macOS / Linux） |
 | MCP 客户端 | 完成 | `mcp.json` 的 stdio + Streamable HTTP 服务，tools/resources/prompts，device-flow OAuth |
 | 记忆 | 完成 | `~/.octo/memories/` 下的跨会话持久化记忆，自动抽取/整合 |

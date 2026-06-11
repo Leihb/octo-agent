@@ -331,7 +331,7 @@ func TestRunChat_OpenAI_MissingAPIKey(t *testing.T) {
 
 // TestRunChat_UnknownResumeID exercises the UX-3 hint that follows a failed
 // session resume: the resolver itself reports "no session matches", and the
-// chat wrapper adds a pointer to --list-sessions so the user knows where to
+// chat wrapper adds a pointer to `octo sessions` so the user knows where to
 // look for valid IDs.
 func TestRunChat_UnknownResumeID(t *testing.T) {
 	tmp := t.TempDir()
@@ -347,8 +347,8 @@ func TestRunChat_UnknownResumeID(t *testing.T) {
 	if !strings.Contains(out, "no session matches") {
 		t.Errorf("stderr should report no match; got:\n%s", out)
 	}
-	if !strings.Contains(out, "octo --list-sessions") {
-		t.Errorf("stderr should hint at --list-sessions; got:\n%s", out)
+	if !strings.Contains(out, "octo sessions") {
+		t.Errorf("stderr should hint at `octo sessions`; got:\n%s", out)
 	}
 }
 

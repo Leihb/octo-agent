@@ -71,6 +71,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runConfig(args[1:], stdin, stdout, stderr)
 	case "memory":
 		return runMemory(args[1:], stdout, stderr)
+	case "sessions":
+		return runSessions(args[1:], stdout, stderr)
 	case "skills":
 		return runSkills(args[1:], stdout, stderr)
 	case "serve":
@@ -102,7 +104,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  octo \"summarise the README\"           Headless one-shot, then exit")
 	fmt.Fprintln(w, "  echo \"explain this error\" | octo      Prompt from piped stdin")
 	fmt.Fprintln(w, "  octo -c last                          Resume the most recent session")
-	fmt.Fprintln(w, "  octo --list-sessions                  Show recent sessions and exit")
 	fmt.Fprintln(w, "  octo --no-tools                       Plain chat — disable the built-in tools")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Common flags:")
@@ -121,6 +122,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  serve      Start the HTTP server (REST + SSE + Web UI)")
 	fmt.Fprintln(w, "  init       Analyze the repo and generate/update .octorules")
 	fmt.Fprintln(w, "  memory     Manage cross-session memory (e.g. `octo memory list`)")
+	fmt.Fprintln(w, "  sessions   List recent saved sessions (resume with `octo -c <id>`)")
+	fmt.Fprintln(w, "  skills     Manage skills (`octo skills list | add | update | path`)")
 	fmt.Fprintln(w, "  completion Print shell-completion snippet (bash | zsh | fish)")
 	fmt.Fprintln(w, "  version    Print the version and exit")
 	fmt.Fprintln(w, "  help       Print this help and exit")

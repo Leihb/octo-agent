@@ -77,6 +77,33 @@ func TestRun_TopLevelFlags_RouteToChat(t *testing.T) {
 	}
 }
 
+func TestRun_Sessions_Empty(t *testing.T) {
+	// `octo sessions` replaced --list-sessions. With an isolated HOME there's
+	// nothing saved, so it reports that and exits 0 — no provider needed.
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"sessions"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No saved sessions.") {
+		t.Errorf("stdout should report no sessions; got: %q", stdout.String())
+	}
+}
+
+func TestRun_Sessions_RejectsArgs(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"sessions", "extra"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "usage: octo sessions") {
+		t.Errorf("stderr should print usage; got: %q", stderr.String())
+	}
+}
+
 func TestRun_HelpWithSubcommand_PrintsRichHelp(t *testing.T) {
 	cases := []struct {
 		cmd      string

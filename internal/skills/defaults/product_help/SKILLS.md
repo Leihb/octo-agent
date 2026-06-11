@@ -45,7 +45,7 @@ project  ./.octo/skills/
 ```
 
 A user overrides a default skill by dropping a same-named skill in
-`~/.octo/skills/`. `--list-skills` / `octo skills list` tag each with its
+`~/.octo/skills/`. `octo skills list` tags each with its
 source.
 
 ## 5. CLI

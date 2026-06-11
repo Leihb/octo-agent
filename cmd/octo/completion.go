@@ -85,6 +85,14 @@ func completionCandidates(words []string) []string {
 	switch cmd {
 	case "memory":
 		return memoryCandidates(words)
+	case "sessions":
+		// Takes no arguments; suggest nothing rather than chat flags.
+		return nil
+	case "skills":
+		if len(words) == 3 {
+			return []string{"list", "add", "update", "path"}
+		}
+		return nil
 	case "init":
 		return initCandidates(prev)
 	case "config":
@@ -195,7 +203,7 @@ new flags / subcommands are added.`))
 // ── Static lists ─────────────────────────────────────────────────────────
 
 var topLevelCommands = []string{
-	"config", "init", "memory",
+	"config", "init", "memory", "sessions", "skills",
 	"version", "help", "completion",
 }
 
@@ -206,7 +214,7 @@ var topLevelCommands = []string{
 var chatFlags = []string{
 	"-c", "--continue", "--tools", "--no-tools", "--provider", "--model",
 	"--no-save", "--no-memory", "--no-suggest", "--sandbox", "--sandbox-allow-net",
-	"--permission-mode", "--list-sessions", "--list-skills",
+	"--permission-mode",
 	"--quiet", "--verbose", "--plain", "--stream", "--system",
 	"--reasoning-effort", "--show-reasoning",
 	"--compact-auto-pct", "--compact-batch-threshold",

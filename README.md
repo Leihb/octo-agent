@@ -67,7 +67,7 @@ octo --prompt-file ./task.md
 # Interactive multi-turn: run octo in a terminal with no message to get the TUI
 # (rich tool cards, session auto-saved). Resume a previous session with -c.
 octo
-octo --list-sessions
+octo sessions
 octo -c <session-id>
 
 # Streaming on by default; --stream=false buffers and prints only the final
@@ -97,7 +97,7 @@ octo --sandbox "..."
 octo init
 
 # List discovered skills
-octo --list-skills
+octo skills list
 
 # Web server + dashboard (binds 127.0.0.1:8080 by default)
 octo serve
@@ -158,7 +158,7 @@ description: Review the current diff for correctness and style
 Walk the diff hunk by hunk and flag correctness bugs first, then style.
 ```
 
-At session start Octo lists each skill's name and description in the system prompt; the model loads a skill's full instructions on demand (via the `skill` tool) when a task matches. You can also trigger one explicitly — `octo --list-skills` to see what's discovered, then `/skills` to list and `/<name>` (e.g. `/review`) to run one in the TUI.
+At session start Octo lists each skill's name and description in the system prompt; the model loads a skill's full instructions on demand (via the `skill` tool) when a task matches. You can also trigger one explicitly — `octo skills list` to see what's discovered, then `/skills` to list and `/<name>` (e.g. `/review`) to run one in the TUI.
 
 ## Sandboxing
 
@@ -190,7 +190,7 @@ octo runs on Linux, macOS, and Windows. A few behaviors differ on Windows:
 | Tools | done | `terminal` (+ background), file read/write/edit, glob, grep, web fetch/search |
 | Agentic loop | done | Multi-step tool calling, permission gating, history compaction, graceful Ctrl-C |
 | Memory & config | done | `~/.octo/octorules.md`, `.octorules`, `octo init`, `@include` |
-| Skills | done | Claude Code-compatible SKILL.md loader (`--list-skills`, `/skills`, `/<name>`) |
+| Skills | done | Claude Code-compatible SKILL.md loader (`octo skills`, `/skills`, `/<name>`) |
 | Sandbox | done | OS-enforced `--sandbox` (macOS / Linux) |
 | MCP client | done | `mcp.json` stdio + Streamable HTTP servers, tools/resources/prompts, device-flow OAuth |
 | Memory | done | Persistent cross-session memory under `~/.octo/memories/`, auto extract/consolidate |

@@ -20,6 +20,9 @@ Subcommands:
 - `show` / `get` — Display current effective configuration and where each value comes from
 - `path` — Print the config file path
 
+### `octo sessions`
+List recent saved sessions; resume one with `octo -c <id>` (or `octo -c last`).
+
 ### `octo skills [subcommand]`
 Manage skills.
 
