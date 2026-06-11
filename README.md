@@ -14,6 +14,8 @@ A functionality-first AI agent, distributed as a single Go binary. Speaks two na
 ## Status
 
 > **Pre-1.0.** All three interfaces are live: the CLI (an interactive TUI in a terminal, a headless agentic one-shot everywhere else), a local web server (`octo serve`), and an IM bridge (running inside `octo serve`; WeChat iLink, Feishu, DingTalk, WeCom, Discord, Telegram). On top of the agent loop there are skills, MCP clients, OS-level sandboxing, persistent memory, sub-agents, and a task graph for autonomous multi-step goals.
+>
+> What you can build on is declared in [COMPATIBILITY.md](COMPATIBILITY.md) (stable config formats, CLI, exit codes — and what isn't covered); the security boundary in [SECURITY.md](SECURITY.md).
 
 ## Install
 

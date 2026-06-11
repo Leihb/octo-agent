@@ -14,6 +14,8 @@
 ## 状态
 
 > **Pre-1.0。** 三种界面均已上线：CLI（终端里是交互式 TUI，其余场景是 headless 的 agentic 单发）、本地 Web 服务（`octo serve`）、IM 桥接（随 `octo serve` 运行；微信 iLink、飞书、钉钉、企微、Discord、Telegram）。在 agent 循环之上还有 skills、MCP 客户端、操作系统级沙箱、持久化记忆、子代理，以及用于自主多步目标的任务图。
+>
+> 哪些接口可以放心依赖，见 [COMPATIBILITY.md](COMPATIBILITY.md)（稳定的配置格式、CLI、退出码，以及不在承诺范围内的部分）；安全边界见 [SECURITY.md](SECURITY.md)。
 
 ## 安装
 

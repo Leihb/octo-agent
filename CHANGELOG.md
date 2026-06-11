@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased — 0.19.0-dev]
 
+### Added
+- **`COMPATIBILITY.md` — the public-contract declaration ahead of 1.0.** Stable (SemVer-covered): config.yml / permissions.yml / mcp.json / channels.yml formats, the Claude-Code-compatible SKILL.md format, identity & memory files, a read guarantee on sessions and tasks, documented CLI commands + flags + exit codes (incl. serve's 42), and `OCTO_*` / vendor env vars. Best-effort: the embedded Web UI's HTTP API + WS events, default rules/skills content. Migration policy: auto-migrate on read, ≥1 minor deprecation window, removing read support = major. The policy is in force now; pre-1.0 minors may still break Stable surfaces with a CHANGELOG callout.
+
 ### Security
 - **Access-key authentication is back** (removed in v0.16.0): every API and WebSocket request from a non-loopback client must present the key (`Authorization: Bearer`, `X-Access-Key`, cookie, or `?access_key=` on `/ws` only). Loopback requests stay friction-free, but the exemption is now hardened against the browser: a foreign `Host` (DNS rebinding) or foreign/`null` `Origin` (CSRF) gets 403, and `--cors '*'` never widens those gates. The key resolves from `-access-key` / `OCTO_ACCESS_KEY` / `config.yml`, else it is auto-generated and persisted; an exposed bind prints a ready-to-open URL embedding it. `SECURITY.md` states the full threat model.
 
