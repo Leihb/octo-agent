@@ -104,6 +104,44 @@ func TestRun_Sessions_RejectsArgs(t *testing.T) {
 	}
 }
 
+func TestNormalizeBareContinue(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"bare -c at end", []string{"-c"}, []string{"-c", pickSessionSentinel}},
+		{"bare --continue at end", []string{"--continue"}, []string{"--continue", pickSessionSentinel}},
+		{"-c followed by a flag", []string{"-c", "--no-tools"}, []string{"-c", pickSessionSentinel, "--no-tools"}},
+		{"-c with an ID stays put", []string{"-c", "last"}, []string{"-c", "last"}},
+		{"--continue=id form untouched", []string{"--continue=abc"}, []string{"--continue=abc"}},
+		{"unrelated args untouched", []string{"--no-tools", "hello"}, []string{"--no-tools", "hello"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeBareContinue(tc.in); !sliceEq(got, tc.want) {
+				t.Errorf("normalizeBareContinue(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRun_BareContinue_NonTTY_Errors(t *testing.T) {
+	// The picker needs a terminal; over a pipe a bare -c errors with a
+	// pointer at `octo sessions` instead of hanging on a list nobody sees.
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"-c"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "needs a terminal") {
+		t.Errorf("stderr should explain the TTY requirement; got: %q", stderr.String())
+	}
+}
+
 func TestRun_HelpWithSubcommand_PrintsRichHelp(t *testing.T) {
 	cases := []struct {
 		cmd      string

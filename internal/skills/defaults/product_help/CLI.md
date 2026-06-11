@@ -21,7 +21,8 @@ Subcommands:
 - `path` — Print the config file path
 
 ### `octo sessions`
-List recent saved sessions; resume one with `octo -c <id>` (or `octo -c last`).
+List recent saved sessions. Resume one with `octo -c <id>` / `octo -c last`,
+or run bare `octo -c` to pick from an interactive list.
 
 ### `octo skills [subcommand]`
 Manage skills.

@@ -220,6 +220,7 @@ func init() {
 // With a positional message argument (or piped stdin): one headless agentic
 // turn, then exit. Without one, on a terminal: the interactive TUI.
 func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	args = normalizeBareContinue(args)
 	fs := flag.NewFlagSet("octo", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	providerName := fs.String("provider", "", "Provider: anthropic | openai (default from `octo config`, else anthropic)")
@@ -228,8 +229,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	maxTokens := fs.Int("max-tokens", 0, "max_tokens for the response (0 = provider default)")
 	maxTokensEscalate := fs.Int("max-tokens-escalate", -1, "Per-response cap retried once when a reply is truncated by the output cap (-1 = provider-aware default, 0 = disable). Also OCTO_MAX_TOKENS_ESCALATE.")
 	stream := fs.Bool("stream", true, "Stream the reply (chunks printed as they arrive); --stream=false buffers")
-	continueID := fs.String("c", "", "Resume a session — accepts 'last', a short ID, or a substring of an ID")
-	continueIDLong := fs.String("continue", "", "Resume a session — accepts 'last', a short ID, or a substring of an ID")
+	continueID := fs.String("c", "", "Resume a session — accepts 'last', a short ID, or a substring of an ID; omit the value to pick from a list")
+	continueIDLong := fs.String("continue", "", "Resume a session — accepts 'last', a short ID, or a substring of an ID; omit the value to pick from a list")
 	noSave := fs.Bool("no-save", false, "Disable session auto-save in the interactive TUI (headless one-shots never persist)")
 	enableTools := fs.Bool("tools", true, "Built-in tools (terminal, edit_file, …) for the agentic loop. On by default; use --no-tools to disable.")
 	noTools := fs.Bool("no-tools", false, "Disable the built-in tools (and MCP/skill execution) — plain chat only")
@@ -343,6 +344,30 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if !isREPL && resumeID != "" {
 		fmt.Fprintln(stderr, "octo: -c/--continue requires interactive mode (omit the message argument)")
 		return 2
+	}
+
+	// A bare -c / --continue (no ID) pops an arrow-key picker over the recent
+	// sessions — nobody remembers session IDs. Interactive by nature: headless
+	// callers must pass an ID.
+	if resumeID == pickSessionSentinel {
+		if !stdinIsTTY(stdin) {
+			fmt.Fprintln(stderr, "octo: -c without an ID picks from a list, which needs a terminal — pass an ID (see `octo sessions`)")
+			return 2
+		}
+		sessions, err := agent.ListSessions(10)
+		if err != nil {
+			fmt.Fprintf(stderr, "octo: %v\n", err)
+			return 1
+		}
+		if len(sessions) == 0 {
+			fmt.Fprintln(stderr, "No saved sessions to resume.")
+			return 1
+		}
+		picked, ok := runSelect(stdin, stdout, "Resume which session?", sessionSelectItems(sessions), "")
+		if !ok {
+			return 0 // cancelled — nothing to do
+		}
+		resumeID = picked.value
 	}
 
 	// Resolve -c shortcuts ("last", short ID, prefix/substring) against the

@@ -65,6 +65,7 @@ octo --prompt-file ./task.md
 # session）。用 -c 恢复历史 session。
 octo
 octo sessions
+octo -c                  # pick a recent session from a list
 octo -c <session-id>
 
 # 默认流式输出；--stream=false 改为缓冲、只打印最终回复文本（便于重定向到文件捕获）。

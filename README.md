@@ -66,6 +66,7 @@ octo --prompt-file ./task.md
 # (rich tool cards, session auto-saved). Resume a previous session with -c.
 octo
 octo sessions
+octo -c                  # pick a recent session from a list
 octo -c <session-id>
 
 # Streaming on by default; --stream=false buffers and prints only the final
