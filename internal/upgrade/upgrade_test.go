@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -161,12 +162,17 @@ func TestRun_EndToEnd(t *testing.T) {
 	if string(got) != "NEW BINARY" {
 		t.Errorf("target content = %q, want NEW BINARY", got)
 	}
-	info, err := os.Stat(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm()&0o100 == 0 {
-		t.Errorf("target not executable: %v", info.Mode())
+	// The exec bit is POSIX-only: Windows has no x bit (Chmod there only
+	// toggles read-only, and Stat reports 0666) — execution there is
+	// determined by the .exe suffix.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0o100 == 0 {
+			t.Errorf("target not executable: %v", info.Mode())
+		}
 	}
 	if _, err := os.Stat(target + ".upgrade.lock"); !os.IsNotExist(err) {
 		t.Error("lock file not released")
