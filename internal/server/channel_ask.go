@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/channel"
+	"github.com/Leihb/octo-agent/internal/tools"
 )
 
 // channelAskTimeout bounds how long an IM permission prompt waits for the
@@ -92,4 +94,94 @@ func (s *Server) channelPermissionAsk(sess *channel.Session, ad channel.Adapter,
 			return false, false, nil
 		}
 	}
+}
+
+// channelAsker adapts the chat into a tools.Asker for ask_user_question:
+// the question goes out as a numbered list, and the requesting user's next
+// message answers it through the same session ask slot the permission
+// prompt uses. Stamped into the turn ctx by handleChannelMessage
+// (tools.WithAsker), where it overrides the process-global wsAsker — which
+// would otherwise broadcast IM questions to browser tabs that don't exist.
+func (s *Server) channelAsker(sess *channel.Session, ad channel.Adapter, ev channel.InboundEvent) tools.Asker {
+	return chatAsker{sess: sess, ad: ad, ev: ev}
+}
+
+type chatAsker struct {
+	sess *channel.Session
+	ad   channel.Adapter
+	ev   channel.InboundEvent
+}
+
+func (c chatAsker) Ask(ctx context.Context, q tools.AskRequest) (tools.AskResponse, error) {
+	replyCh, release, err := c.sess.BeginAsk(c.ev.ChatID, c.ev.UserID)
+	if err != nil {
+		return tools.AskResponse{}, err
+	}
+	defer release()
+
+	var b strings.Builder
+	b.WriteString("❓ ")
+	if q.Header != "" {
+		fmt.Fprintf(&b, "[%s] ", q.Header)
+	}
+	b.WriteString(q.Question + "\n")
+	for i, opt := range q.Options {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, opt)
+	}
+	if q.MultiSelect {
+		b.WriteString("Reply with number(s), e.g. 1,3 — or free text for something else.")
+	} else {
+		b.WriteString("Reply with a number — or free text for something else.")
+	}
+	c.ad.SendText(c.ev.ChatID, b.String(), c.ev.MessageID)
+
+	timer := time.NewTimer(channelAskTimeout)
+	defer timer.Stop()
+	select {
+	case text := <-replyCh:
+		return parseAskReply(text, q), nil
+	case <-ctx.Done():
+		return tools.AskResponse{Cancelled: true}, ctx.Err()
+	case <-timer.C:
+		return tools.AskResponse{Cancelled: true}, nil
+	}
+}
+
+// parseAskReply maps the chat reply onto the structured response: numbers
+// pick options (several for multi-select), an exact label matches its
+// option, anything else is a free-text "Other" answer. Out-of-range numbers
+// fall through to free text rather than erroring — over chat, re-prompting
+// loops are worse than letting the model see the raw reply.
+func parseAskReply(text string, q tools.AskRequest) tools.AskResponse {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return tools.AskResponse{Cancelled: true}
+	}
+
+	parts := strings.FieldsFunc(t, func(r rune) bool {
+		return r == ',' || r == '，' || r == '、' || r == ' '
+	})
+	var choices []string
+	numeric := len(parts) > 0
+	for _, p := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil || n < 1 || n > len(q.Options) {
+			numeric = false
+			break
+		}
+		choices = append(choices, q.Options[n-1])
+	}
+	if numeric {
+		if !q.MultiSelect && len(choices) > 1 {
+			choices = choices[:1]
+		}
+		return tools.AskResponse{Choices: choices}
+	}
+
+	for _, opt := range q.Options {
+		if strings.EqualFold(t, opt) {
+			return tools.AskResponse{Choices: []string{opt}}
+		}
+	}
+	return tools.AskResponse{Custom: t}
 }

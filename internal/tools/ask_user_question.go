@@ -65,6 +65,28 @@ func SetAsker(a Asker) { activeAsker = a }
 
 func askerEnabled() bool { return activeAsker != nil }
 
+// ctxKeyAsker carries a turn-scoped Asker. The process-global asker is wrong
+// for transports that share the process but not the prompt surface: the
+// server's global asker broadcasts to browser tabs, which an IM turn doesn't
+// have — its questions must go to the chat instead. Same ctx-scoping pattern
+// as the sub-agent manager and task store.
+type ctxKeyAsker struct{}
+
+// WithAsker stamps a turn-scoped asker that takes precedence over the
+// process-global one for the duration of this turn.
+func WithAsker(ctx context.Context, a Asker) context.Context {
+	return context.WithValue(ctx, ctxKeyAsker{}, a)
+}
+
+// askerFrom resolves the asker for this turn: ctx-scoped first, then the
+// process-global fallback (CLI/web).
+func askerFrom(ctx context.Context) Asker {
+	if a, ok := ctx.Value(ctxKeyAsker{}).(Asker); ok && a != nil {
+		return a
+	}
+	return activeAsker
+}
+
 // AskUserQuestionTool lets the model ask the user a single structured
 // clarifying question. The point isn't to chat with the user — it's to
 // resolve a branch where the model genuinely doesn't have enough
@@ -118,7 +140,8 @@ func (AskUserQuestionTool) Definition() agent.ToolDefinition {
 }
 
 func (AskUserQuestionTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
-	if !askerEnabled() {
+	asker := askerFrom(ctx)
+	if asker == nil {
 		return agent.ToolResult{Text: ""}, fmt.Errorf("ask_user_question: not available in this mode (REPL only)")
 	}
 	question := strings.TrimSpace(stringArg(input, "question"))
@@ -132,7 +155,7 @@ func (AskUserQuestionTool) Execute(ctx context.Context, _ string, input map[stri
 	multi, _ := input["multi_select"].(bool)
 	header := strings.TrimSpace(stringArg(input, "header"))
 
-	res, err := activeAsker.Ask(ctx, AskRequest{
+	res, err := asker.Ask(ctx, AskRequest{
 		Question:    question,
 		Options:     options,
 		MultiSelect: multi,

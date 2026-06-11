@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/channel"
+	"github.com/Leihb/octo-agent/internal/tools"
 )
 
 func TestIsAffirmative(t *testing.T) {
@@ -146,4 +147,79 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("condition not met within 2s")
+}
+
+func TestParseAskReply(t *testing.T) {
+	q := tools.AskRequest{Question: "q", Options: []string{"Alpha", "Beta", "Gamma"}}
+	multi := tools.AskRequest{Question: "q", Options: []string{"Alpha", "Beta", "Gamma"}, MultiSelect: true}
+
+	cases := []struct {
+		req     tools.AskRequest
+		text    string
+		choices []string
+		custom  string
+		cancel  bool
+	}{
+		{q, "2", []string{"Beta"}, "", false},
+		{q, " 1 ", []string{"Alpha"}, "", false},
+		{q, "beta", []string{"Beta"}, "", false},        // label match, case-insensitive
+		{q, "do it my way", nil, "do it my way", false}, // free text
+		{q, "9", nil, "9", false},                       // out of range → custom text
+		{q, "", nil, "", true},
+		{multi, "1,3", []string{"Alpha", "Gamma"}, "", false},
+		{multi, "1、3", []string{"Alpha", "Gamma"}, "", false},
+	}
+	for _, c := range cases {
+		got := parseAskReply(c.text, c.req)
+		if got.Cancelled != c.cancel {
+			t.Errorf("parse(%q) cancelled = %v, want %v", c.text, got.Cancelled, c.cancel)
+			continue
+		}
+		if strings.Join(got.Choices, "|") != strings.Join(c.choices, "|") || got.Custom != c.custom {
+			t.Errorf("parse(%q) = choices %v custom %q, want %v %q", c.text, got.Choices, got.Custom, c.choices, c.custom)
+		}
+	}
+}
+
+func TestChannelAsker_NumberPicksOption(t *testing.T) {
+	srv, sess, ad, ev := askEnv(t)
+	asker := srv.channelAsker(sess, ad, ev)
+
+	done := make(chan tools.AskResponse, 1)
+	go func() {
+		res, _ := asker.Ask(context.Background(), tools.AskRequest{
+			Question: "Deploy where?", Options: []string{"staging", "production"},
+		})
+		done <- res
+	}()
+	waitFor(t, func() bool { return len(ad.texts()) == 1 })
+	prompt := ad.texts()[0]
+	if !strings.Contains(prompt, "Deploy where?") || !strings.Contains(prompt, "1. staging") {
+		t.Errorf("prompt %q must show the question and numbered options", prompt)
+	}
+	if !sess.DeliverAskReply("c1", "", "2") {
+		t.Fatal("ask slot not armed")
+	}
+	res := <-done
+	if len(res.Choices) != 1 || res.Choices[0] != "production" {
+		t.Errorf("choices = %v, want [production]", res.Choices)
+	}
+}
+
+func TestChannelAsker_TimeoutCancels(t *testing.T) {
+	old := channelAskTimeout
+	channelAskTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { channelAskTimeout = old })
+
+	srv, sess, ad, ev := askEnv(t)
+	_ = sess
+	_ = ad
+	asker := srv.channelAsker(sess, ad, ev)
+	res, err := asker.Ask(context.Background(), tools.AskRequest{Question: "q", Options: []string{"a", "b"}})
+	if err != nil {
+		t.Fatalf("timeout should cancel without error, got %v", err)
+	}
+	if !res.Cancelled {
+		t.Error("timeout must report Cancelled")
+	}
 }

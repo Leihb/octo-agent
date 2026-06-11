@@ -1141,6 +1141,11 @@ func (s *Server) handleChannelMessage(ctx context.Context, ad channel.Adapter, e
 			sess.Agent.Inbox.Enqueue(tools.FormatBgNote(e))
 		})
 		ctx = tools.WithBackgroundManager(ctx, bgMgr)
+		// Turn-scoped asker: ask_user_question prompts in this chat instead
+		// of falling back to the process-global wsAsker, which broadcasts to
+		// browser tabs an IM session doesn't have (the question would hang
+		// until /stop).
+		ctx = tools.WithAsker(ctx, s.channelAsker(sess, ad, ev))
 	}
 
 	_, _ = channel.RunAgent(ctx, sess, toolDefs, executor, ctrl, ev.Text)
