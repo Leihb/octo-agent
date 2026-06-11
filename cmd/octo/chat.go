@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -409,7 +410,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	llmSender, err := buildSender(provName, entry, stderr, senderTuning{
+	// Buffer the first attempt's diagnostics: when a missing key sends us into
+	// the config wizard below, the manual export-a-key walkthrough would only
+	// duplicate (and contradict) the wizard — it's shown solely when the
+	// wizard can't run.
+	var senderDiag bytes.Buffer
+	llmSender, err := buildSender(provName, entry, &senderDiag, senderTuning{
 		thinkingBudget:  anthropicThinkingBudget(resolvedEffort),
 		reasoningEffort: resolvedEffort,
 		showReasoning:   resolvedShowReasoning,
@@ -419,8 +425,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// interactive terminal, run the config wizard automatically rather than
 		// leaving the user to figure out `octo config` on their own.
 		if errors.Is(err, errMissingAPIKey) && stdinIsTTY(stdin) {
+			fmt.Fprintln(stderr, "No API key configured — let's set up octo first.")
 			fmt.Fprintln(stderr, "")
-			fmt.Fprintln(stderr, "No API key configured. Let's set up octo first.")
 			if runConfigWizard(stdin, stdout, stderr) != 0 {
 				return 1
 			}
@@ -440,6 +446,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				return 1
 			}
 		} else {
+			stderr.Write(senderDiag.Bytes())
 			return 1
 		}
 	}
@@ -878,10 +885,12 @@ func resolveAPIKey(name string, entry config.ModelEntry, stderr io.Writer) (stri
 		fmt.Fprintf(stderr, "octo: %s is not set.\n", envVar)
 		fmt.Fprintln(stderr, "")
 		fmt.Fprintf(stderr, "To use %s:\n", app.VendorDisplayName(name))
+		step := 1
 		if url := app.VendorWebsiteURL(name); url != "" {
-			fmt.Fprintf(stderr, "  1. Get a key at %s\n", url)
+			fmt.Fprintf(stderr, "  %d. Get a key at %s\n", step, url)
+			step++
 		}
-		fmt.Fprintf(stderr, "  2. export %s=sk-...\n", envVar)
+		fmt.Fprintf(stderr, "  %d. export %s=sk-...\n", step, envVar)
 		fmt.Fprintln(stderr, "")
 		fmt.Fprintln(stderr, "Or run `octo config` to save a default provider/key.")
 		fmt.Fprintln(stderr, "")

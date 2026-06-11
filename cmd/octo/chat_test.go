@@ -305,6 +305,12 @@ func TestRunChat_OpenAI_EndToEnd(t *testing.T) {
 }
 
 func TestRunChat_OpenAI_MissingAPIKey(t *testing.T) {
+	// Isolate $HOME: the developer's real ~/.octo/config.yml may hold a stored
+	// key (or a base URL pointing somewhere live), which would turn this
+	// missing-key test into a real network call.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("OPENAI_API_KEY", "")
 	var stdout, stderr bytes.Buffer
 	code := runChat([]string{"--provider", "openai", "hello"}, strings.NewReader(""), &stdout, &stderr)
