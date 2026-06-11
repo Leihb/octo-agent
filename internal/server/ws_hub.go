@@ -315,7 +315,11 @@ func (c *wsConn) dispatch(msgType string, raw []byte) {
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			return
 		}
-		c.hub.s.handleWSConfirmation(msg.ConfID, msg.Result)
+		id := msg.ConfID
+		if id == "" {
+			id = msg.LegacyConfID
+		}
+		c.hub.s.handleWSConfirmation(id, msg.Result)
 
 	case "user_question_answer":
 		var msg wsMsgUserQuestionAnswer

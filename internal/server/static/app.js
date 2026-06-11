@@ -384,9 +384,13 @@ const Modal = (() => {
 })();
 
 // ── Confirmation modal ────────────────────────────────────────────────────
-function showConfirmModal(confId, message) {
+function showConfirmModal(confId, message, kind) {
   $("modal-message").textContent   = message;
   $("modal-overlay").style.display = "flex";
+  // Permission asks offer "always allow" (remembered for the session);
+  // plain yes/no confirmations keep two buttons.
+  const always = $("modal-always");
+  always.style.display = kind === "yes_no_always" ? "" : "none";
 
   const answer = result => {
     $("modal-overlay").style.display = "none";
@@ -394,6 +398,7 @@ function showConfirmModal(confId, message) {
   };
   $("modal-yes").onclick = () => answer("yes");
   $("modal-no").onclick  = () => answer("no");
+  always.onclick         = () => answer("always");
 }
 
 // ── User Question modal (ask_user_question) ───────────────────────────────

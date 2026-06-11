@@ -338,7 +338,7 @@ WS.onEvent(ev => {
 
     case "request_confirmation":
       if (ev.session_id !== Sessions.activeId) break;
-      showConfirmModal(ev.id, ev.message);
+      showConfirmModal(ev.id, ev.message, ev.kind);
       break;
 
     case "request_user_question":

@@ -40,8 +40,11 @@ type wsMsgInterrupt struct {
 }
 
 type wsMsgConfirmation struct {
-	ConfID string `json:"conf_id"`
-	Result string `json:"result"`
+	// The frontend answers with `id` (app.js showConfirmModal); `conf_id`
+	// is accepted as a fallback for anything speaking the older shape.
+	ConfID       string `json:"id"`
+	LegacyConfID string `json:"conf_id"`
+	Result       string `json:"result"`
 }
 
 type wsMsgUserQuestionAnswer struct {
@@ -179,14 +182,22 @@ type wsEventRequestFeedback struct {
 }
 
 type wsEventRequestConfirmation struct {
-	Type    string `json:"type"`
-	ConfID  string `json:"conf_id"`
-	Message string `json:"message"`
-	Kind    string `json:"kind"` // "yes_no" | "ok"
+	Type string `json:"type"`
+	// SessionID and the `id` tag match what the dispatcher actually reads
+	// (ev.session_id filter, ev.id answer key) — the old conf_id-only,
+	// session-less shape made the dispatcher drop the event, so the modal
+	// never appeared and every web permission ask timed out to deny.
+	SessionID string `json:"session_id"`
+	ConfID    string `json:"id"`
+	Message   string `json:"message"`
+	Kind      string `json:"kind"` // "yes_no" | "yes_no_always" | "ok"
 }
 
 type wsEventRequestUserQuestion struct {
-	Type        string   `json:"type"`
+	Type string `json:"type"`
+	// SessionID is required by the dispatcher's session filter — without
+	// it the browser drops the event and the question modal never shows.
+	SessionID   string   `json:"session_id"`
 	QuestionID  string   `json:"question_id"`
 	Question    string   `json:"question"`
 	Options     []string `json:"options"`

@@ -1154,10 +1154,11 @@ func (s *Server) requestConfirmation(ctx context.Context, sessionID, message, ki
 	s.confirmMu.Unlock()
 
 	ev := wsEventRequestConfirmation{
-		Type:    "request_confirmation",
-		ConfID:  confID,
-		Message: message,
-		Kind:    kind,
+		Type:      "request_confirmation",
+		SessionID: sessionID,
+		ConfID:    confID,
+		Message:   message,
+		Kind:      kind,
 	}
 
 	// Record the outstanding confirmation so a tab that (re)subscribes

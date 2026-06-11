@@ -663,6 +663,9 @@ func (s *Server) prepareToolTurn(ctx context.Context, a *agent.Agent) (context.C
 	if sid, ok := ctx.Value(ctxKeySessionID{}).(string); ok && sid != "" {
 		ask = s.permissionAskFrom(sid)
 		ctx = tools.WithBackgroundManager(ctx, tools.SessionBackgroundManager(sid))
+		// "Always allow" decisions live per session, not per engine — the
+		// engine is rebuilt every turn.
+		engine.AttachRemembered(s.rememberedFor(sid))
 	}
 	a.Gate = app.NewPermissionGate(engine, ask)
 

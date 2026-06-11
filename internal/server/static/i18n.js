@@ -129,6 +129,7 @@ const I18n = (() => {
       // ── Modal ──
       "modal.yes": "Yes",
       "modal.no":  "No",
+      "modal.always": "Always allow",
       "modal.ok": "OK",
       "modal.cancel": "Cancel",
 
@@ -672,6 +673,7 @@ const I18n = (() => {
       "sessions.search.datePlaceholder": "日期",
       "modal.yes": "确定",
       "modal.no":  "取消",
+      "modal.always": "总是允许",
       "modal.ok": "确定",
       "modal.cancel": "取消",
 

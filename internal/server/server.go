@@ -200,6 +200,13 @@ type Server struct {
 	drain        drainGate
 	drainTimeout time.Duration
 
+	// rememberedStores holds per-session "always allow" permission
+	// decisions. Engines are rebuilt every turn (to pick up policy/mode
+	// changes), so the decisions live here and attach to each fresh engine.
+	// Keyed by web session ID or "im:<session key>". Guarded by rememberedMu.
+	rememberedStores map[string]*permission.Remembered
+	rememberedMu     sync.Mutex
+
 	// senderMu serialises lazy initialisation of sender when the server starts
 	// in onboarding mode (API key missing) and the user completes setup later.
 	senderMu sync.Mutex
@@ -587,8 +594,12 @@ func (s *Server) forgetTurnLock(id string) {
 	delete(s.turnLocks, id)
 
 	s.injectorMu.Lock()
-	defer s.injectorMu.Unlock()
 	delete(s.sessionInjectors, id)
+	s.injectorMu.Unlock()
+
+	s.rememberedMu.Lock()
+	delete(s.rememberedStores, id)
+	s.rememberedMu.Unlock()
 }
 
 // buildAgent creates a fresh agent for a turn. The caller must have locked
@@ -837,6 +848,7 @@ func (a wsAsker) Ask(ctx context.Context, q tools.AskRequest) (tools.AskResponse
 
 	ev := wsEventRequestUserQuestion{
 		Type:        "request_user_question",
+		SessionID:   sessionID,
 		QuestionID:  qid,
 		Question:    q.Question,
 		Options:     q.Options,
@@ -890,17 +902,48 @@ func (s *Server) handleWSUserQuestionAnswer(qid string, choices []string, custom
 
 // permissionAskFrom adapts the server's requestConfirmation into an
 // app.PermissionAsk so the Web UI can resolve "ask" class policy verdicts
-// interactively. remember is always false; a future enhancement could add a
-// "Always allow" checkbox to the confirmation modal.
+// interactively. The modal offers yes / no / always; "always" allows AND
+// remembers the decision in the session's Remembered store, so the same
+// (tool, input) pair stops prompting for the rest of the session.
 func (s *Server) permissionAskFrom(sessionID string) app.PermissionAsk {
 	return func(ctx context.Context, toolName string, toolInput map[string]any) (bool, bool, error) {
 		msg := fmt.Sprintf("Allow %s?", toolName)
-		result, err := s.requestConfirmation(ctx, sessionID, msg, "yes_no")
+		result, err := s.requestConfirmation(ctx, sessionID, msg, "yes_no_always")
 		if err != nil {
 			return false, false, err
 		}
-		return result == "yes", false, nil
+		allow, remember := mapConfirmResult(result)
+		return allow, remember, nil
 	}
+}
+
+// mapConfirmResult maps the confirmation modal's reply onto the permission
+// answer: anything but the two explicit affirmatives denies.
+func mapConfirmResult(result string) (allow, remember bool) {
+	switch result {
+	case "yes":
+		return true, false
+	case "always":
+		return true, true
+	default:
+		return false, false
+	}
+}
+
+// rememberedFor returns the session's "always allow" store, creating it on
+// first use. forgetTurnLock drops it with the rest of the session state.
+func (s *Server) rememberedFor(key string) *permission.Remembered {
+	s.rememberedMu.Lock()
+	defer s.rememberedMu.Unlock()
+	if s.rememberedStores == nil {
+		s.rememberedStores = make(map[string]*permission.Remembered)
+	}
+	r, ok := s.rememberedStores[key]
+	if !ok {
+		r = permission.NewRemembered()
+		s.rememberedStores[key] = r
+	}
+	return r
 }
 
 // validateBindAddr enforces the M6.5 security rule: non-localhost binds
@@ -1118,6 +1161,7 @@ func (s *Server) handleChannelMessage(ctx context.Context, ad channel.Adapter, e
 		ad.SendText(ev.ChatID, "⚠️ Permission engine unavailable — message not processed. Check the server logs.", ev.MessageID)
 		return
 	}
+	engine.AttachRemembered(s.rememberedFor("im:" + string(sess.Key)))
 	sess.Agent.Gate = app.NewPermissionGate(engine, s.channelPermissionAsk(sess, ad, ev))
 
 	ctrl := channel.NewUIController(ad, ev.ChatID, ev.MessageID)
