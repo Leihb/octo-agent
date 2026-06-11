@@ -52,7 +52,7 @@ const (
 )
 
 // ToolSearchConfig is the tools-package view of the user's tool_search config.
-// cmd/octo maps the ~/.octo/config.yaml block onto this and installs it via
+// cmd/octo maps the ~/.octo/config.yml block onto this and installs it via
 // SetToolSearchConfig, mirroring SetSandbox / SetMCPRegistry.
 type ToolSearchConfig struct {
 	Mode           ToolSearchMode

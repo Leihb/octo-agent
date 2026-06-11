@@ -9,6 +9,8 @@
 // vendor only needs one line here.
 package app
 
+import "strings"
+
 // EndpointVariant is a regional endpoint alternative for a vendor.
 type EndpointVariant struct {
 	Label    string `json:"label"`
@@ -261,6 +263,29 @@ func VendorWebsiteURL(id string) string {
 // IsKnownVendor reports whether id is a registered vendor ID.
 func IsKnownVendor(id string) bool {
 	return vendorByID(id) != nil
+}
+
+// VendorByBaseURL returns the vendor whose default endpoint or one of whose
+// regional variants equals baseURL (ignoring a trailing slash), or "". The
+// settings panel saves entries without naming a vendor, so the server infers
+// it from the endpoint the user picked.
+func VendorByBaseURL(baseURL string) string {
+	u := strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
+	if u == "" {
+		return ""
+	}
+	for i := range Registry {
+		v := &Registry[i]
+		if strings.TrimSuffix(v.DefaultBaseURL, "/") == u {
+			return v.ID
+		}
+		for _, ev := range v.EndpointVariants {
+			if strings.TrimSuffix(ev.BaseURL, "/") == u {
+				return v.ID
+			}
+		}
+	}
+	return ""
 }
 
 // IsAnthropicProtocol reports whether the vendor speaks the Anthropic protocol.

@@ -689,8 +689,8 @@ func TestHandleUpdateSessionReasoningEffort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ReasoningEffort != "high" {
-		t.Fatalf("reasoning_effort = %q, want high", cfg.ReasoningEffort)
+	if got := cfg.DefaultEntry().ReasoningEffort; got != "high" {
+		t.Fatalf("reasoning_effort = %q, want high", got)
 	}
 }
 

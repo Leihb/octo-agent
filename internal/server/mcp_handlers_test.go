@@ -378,10 +378,10 @@ func TestToolSearchSettings(t *testing.T) {
 		t.Fatalf("after put: %+v", got)
 	}
 
-	// Written to ~/.octo/config.yaml.
-	raw, err := os.ReadFile(filepath.Join(home, ".octo", "config.yaml"))
+	// Written to ~/.octo/config.yml.
+	raw, err := os.ReadFile(filepath.Join(home, ".octo", "config.yml"))
 	if err != nil {
-		t.Fatalf("config.yaml not written: %v", err)
+		t.Fatalf("config.yml not written: %v", err)
 	}
 	var y struct {
 		Tools struct {

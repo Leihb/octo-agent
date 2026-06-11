@@ -22,11 +22,22 @@ func firstNonEmpty(vals ...string) string {
 
 // resolveProviderModel applies precedence flag > env > config file > built-in
 // default to the provider and model. An empty flagProvider/flagModel means "not
-// set on the CLI". ok is false when the resolved provider has no known default
-// model (i.e. an unknown provider with no explicit model) — the caller prints
-// an error and exits.
-func resolveProviderModel(flagProvider, flagModel string, cfg config.Config) (provider, model string, ok bool) {
-	provider = firstNonEmpty(flagProvider, os.Getenv("OCTO_PROVIDER"), cfg.Provider, app.ProviderAnthropic)
+// set on the CLI". A --model value that names a config entry selects the whole
+// entry — provider, model, base URL, and key all come from it (overriding even
+// an explicit --provider, which can't meaningfully combine with a named
+// entry). The returned entry is the config entry the resolution anchored on,
+// so base-URL/key/reasoning lookups stay on the same entry. ok is false when
+// the resolved provider has no known default model (i.e. an unknown provider
+// with no explicit model) — the caller prints an error and exits.
+func resolveProviderModel(flagProvider, flagModel string, cfg config.Config) (provider, model string, entry config.ModelEntry, ok bool) {
+	if e, found := cfg.EntryByName(flagModel); found {
+		provider = firstNonEmpty(e.Provider, app.ProviderAnthropic)
+		model = firstNonEmpty(e.Model, defaultModels[provider])
+		return provider, model, e, model != ""
+	}
+
+	entry = cfg.DefaultEntry()
+	provider = firstNonEmpty(flagProvider, os.Getenv("OCTO_PROVIDER"), entry.Provider, app.ProviderAnthropic)
 	// Precedence: --model flag > env (ANTHROPIC_MODEL / OPENAI_MODEL) > config
 	// (same-provider only) > built-in default. The env tier mirrors how the
 	// base URL and key resolve env-first, so a third-party Claude-/OpenAI-
@@ -36,24 +47,24 @@ func resolveProviderModel(flagProvider, flagModel string, cfg config.Config) (pr
 	if model == "" {
 		model = modelFromEnv(provider)
 	}
-	// The config's model is specific to the config's provider — only honor it
+	// The entry's model is specific to the entry's provider — only honor it
 	// when the resolved provider matches, so `--provider <other>` doesn't carry
 	// one vendor's model onto another.
-	if model == "" && provider == cfg.Provider {
-		model = cfg.Model
+	if model == "" && provider == entry.Provider {
+		model = entry.Model
 	}
 	if model == "" {
 		model = defaultModels[provider]
 	}
-	return provider, model, model != ""
+	return provider, model, entry, model != ""
 }
 
-// providerBaseURL returns the config's base URL only when the stored config
-// targets the same provider — a base URL is endpoint-specific to its provider,
-// so it must not leak onto a different one selected via --provider.
-func providerBaseURL(provider string, cfg config.Config) string {
-	if cfg.Provider == provider {
-		return cfg.BaseURL
+// providerBaseURL returns the entry's base URL only when the entry targets the
+// same provider — a base URL is endpoint-specific to its provider, so it must
+// not leak onto a different one selected via --provider.
+func providerBaseURL(provider string, entry config.ModelEntry) string {
+	if entry.Provider == provider {
+		return entry.BaseURL
 	}
 	return ""
 }
@@ -65,18 +76,18 @@ func modelFromEnv(provider string) string {
 }
 
 // resolveBaseURL returns the base-URL override for the provider, env-first
-// (<PROVIDER>_BASE_URL) then the persisted config. "" means no
+// (<PROVIDER>_BASE_URL) then the resolved config entry. "" means no
 // override — the provider uses its built-in default endpoint.
-func resolveBaseURL(provider string, cfg config.Config) string {
+func resolveBaseURL(provider string, entry config.ModelEntry) string {
 	envVar := strings.ToUpper(provider) + "_BASE_URL"
-	return firstNonEmpty(os.Getenv(envVar), providerBaseURL(provider, cfg))
+	return firstNonEmpty(os.Getenv(envVar), providerBaseURL(provider, entry))
 }
 
 // effectiveEndpoint is resolveBaseURL for display: it substitutes the
 // provider's built-in default (marked) when there's no override, so a verbose
 // run always shows the host that will actually be called.
-func effectiveEndpoint(provider string, cfg config.Config) string {
-	if u := resolveBaseURL(provider, cfg); u != "" {
+func effectiveEndpoint(provider string, entry config.ModelEntry) string {
+	if u := resolveBaseURL(provider, entry); u != "" {
 		return u
 	}
 	if def := app.DefaultBaseURL(provider); def != "" {
@@ -86,7 +97,7 @@ func effectiveEndpoint(provider string, cfg config.Config) string {
 }
 
 // runConfig handles `octo config [show|path]` and, with no subcommand, an
-// interactive setup wizard that writes ~/.octo/config.yaml.
+// interactive setup wizard that writes ~/.octo/config.yml.
 func runConfig(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	sub := ""
 	if len(args) > 0 {
@@ -122,17 +133,18 @@ func runConfigShow(stdout, stderr io.Writer) int {
 		return 1
 	}
 	path, _ := config.Path()
+	entry := cfg.DefaultEntry()
 
-	provider := firstNonEmpty(os.Getenv("OCTO_PROVIDER"), cfg.Provider, providerAnthropic)
+	provider := firstNonEmpty(os.Getenv("OCTO_PROVIDER"), entry.Provider, providerAnthropic)
 	provSrc := "default"
 	if envProv := os.Getenv("OCTO_PROVIDER"); envProv != "" {
 		provSrc = "env"
-	} else if cfg.Provider != "" {
+	} else if entry.Provider != "" {
 		provSrc = "config"
 	}
-	model := firstNonEmpty(cfg.Model, defaultModels[provider])
+	model := firstNonEmpty(entry.Model, defaultModels[provider])
 	modelSrc := "default"
-	if cfg.Model != "" {
+	if entry.Model != "" {
 		modelSrc = "config"
 	}
 
@@ -141,14 +153,18 @@ func runConfigShow(stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "  (not created yet — run `octo config` to set it up)")
 	}
 	fmt.Fprintln(stdout)
+	if len(cfg.Models) > 1 {
+		fmt.Fprintf(stdout, "  models:    %d configured, default %q (others: %s)\n",
+			len(cfg.Models), entry.Name, otherEntryNames(cfg, entry.Name))
+	}
 	fmt.Fprintf(stdout, "  provider:  %s (%s)\n", provider, provSrc)
 	fmt.Fprintf(stdout, "  model:     %s (%s)\n", model, modelSrc)
-	if cfg.BaseURL != "" {
-		fmt.Fprintf(stdout, "  base URL:  %s (config)\n", cfg.BaseURL)
+	if entry.BaseURL != "" {
+		fmt.Fprintf(stdout, "  base URL:  %s (config)\n", entry.BaseURL)
 	} else {
 		fmt.Fprintln(stdout, "  base URL:  (provider default)")
 	}
-	fmt.Fprintf(stdout, "  API key:   %s\n", apiKeyStatus(provider, cfg))
+	fmt.Fprintf(stdout, "  API key:   %s\n", apiKeyStatus(provider, entry))
 	coauthorStatus := "on (default)"
 	if cfg.Coauthor != nil {
 		if *cfg.Coauthor {
@@ -159,13 +175,13 @@ func runConfigShow(stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "  coauthor:  %s\n", coauthorStatus)
 	effortStatus := "off (default)"
-	if cfg.ReasoningEffort != "" {
-		effortStatus = cfg.ReasoningEffort + " (config)"
+	if entry.ReasoningEffort != "" {
+		effortStatus = entry.ReasoningEffort + " (config)"
 	}
 	fmt.Fprintf(stdout, "  reasoning: %s\n", effortStatus)
 	showStatus := "on (default)"
-	if cfg.ShowReasoning != nil {
-		if *cfg.ShowReasoning {
+	if entry.ShowReasoning != nil {
+		if *entry.ShowReasoning {
 			showStatus = "on (config)"
 		} else {
 			showStatus = "off (config)"
@@ -177,9 +193,20 @@ func runConfigShow(stdout, stderr io.Writer) int {
 	return 0
 }
 
+// otherEntryNames lists the configured entry names besides skip, for display.
+func otherEntryNames(cfg config.Config, skip string) string {
+	names := make([]string, 0, len(cfg.Models))
+	for _, e := range cfg.Models {
+		if e.Name != skip {
+			names = append(names, e.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 // apiKeyStatus reports where a key for the given provider would come from,
 // without revealing it. Env always wins over a config-stored key.
-func apiKeyStatus(provider string, cfg config.Config) string {
+func apiKeyStatus(provider string, entry config.ModelEntry) string {
 	envVar := app.VendorAPIKeyEnvVar(provider)
 	if envVar == "" {
 		envVar = strings.ToUpper(provider) + "_API_KEY"
@@ -187,7 +214,7 @@ func apiKeyStatus(provider string, cfg config.Config) string {
 	if os.Getenv(envVar) != "" {
 		return "set via $" + envVar
 	}
-	if cfg.APIKey != "" && cfg.Provider == provider {
+	if entry.APIKey != "" && entry.Provider == provider {
 		return "stored in config (mode 0600)"
 	}
 	return "not set — export $" + envVar
@@ -197,7 +224,8 @@ func apiKeyStatus(provider string, cfg config.Config) string {
 // Existing values are offered as the default for each prompt so re-running it
 // edits rather than resets.
 func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
-	existing, _ := config.Load() // a malformed file is treated as empty here — the wizard overwrites it
+	full, _ := config.Load() // a malformed file is treated as empty here — the wizard overwrites it
+	existing := full.DefaultEntry()
 
 	// An arrow-key menu needs an editable terminal on both ends. When stdin is
 	// piped, the output isn't a TTY, or readline declines (Windows), fall back
@@ -217,7 +245,7 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	defer reader.Close()
 
-	fmt.Fprintln(stdout, "octo config — set your default provider and model (~/.octo/config.yaml).")
+	fmt.Fprintln(stdout, "octo config — set your default provider and model (~/.octo/config.yml).")
 	if tty {
 		fmt.Fprintln(stdout, "Use ↑/↓ to choose, Enter to confirm. CLI flags and env vars still override per run.")
 	} else {
@@ -308,16 +336,21 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 		baseURL = strings.TrimSpace(promptDefault(reader, stdout, "Custom base URL (optional, for DeepSeek/Kimi/etc.)", existing.BaseURL))
 	}
 
-	out := config.Config{Provider: provider, Model: model, BaseURL: baseURL, APIKey: existing.APIKey}
+	// The wizard edits the default entry in place; other entries and global
+	// settings (permission mode, tools, …) pass through untouched.
+	outEntry := existing
+	outEntry.Provider = provider
+	outEntry.Model = model
+	outEntry.BaseURL = baseURL
 
 	// Co-authored-by: default on; ask once in wizard.
-	coauthorDefault := existing.Coauthor == nil || *existing.Coauthor
+	coauthorDefault := full.Coauthor == nil || *full.Coauthor
 	coauthorVal, ok := pickYesNo(tty, reader, stdin, stdout,
 		"Append Co-authored-by to git commits?", coauthorDefault)
 	if !ok {
 		return cancelWizard(stderr)
 	}
-	out.Coauthor = &coauthorVal
+	full.Coauthor = &coauthorVal
 
 	// Reasoning effort: off (empty) by default; offer the existing value.
 	if tty {
@@ -330,7 +363,7 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 		if !ok {
 			return cancelWizard(stderr)
 		}
-		out.ReasoningEffort = choice.value
+		outEntry.ReasoningEffort = choice.value
 	} else {
 		effortAns := strings.ToLower(strings.TrimSpace(promptDefault(reader, stdout,
 			"Reasoning effort (low | medium | high, empty = off)", existing.ReasoningEffort)))
@@ -338,7 +371,7 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "octo config: invalid reasoning effort %q (use 'low', 'medium', 'high', or empty)\n", effortAns)
 			return 2
 		}
-		out.ReasoningEffort = effortAns
+		outEntry.ReasoningEffort = effortAns
 	}
 
 	// Show the reasoning/thinking trace: default on.
@@ -348,7 +381,7 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 	if !ok {
 		return cancelWizard(stderr)
 	}
-	out.ShowReasoning = &showVal
+	outEntry.ShowReasoning = &showVal
 
 	// API key: env is the recommended home for it. Offer to store it only if
 	// the env var is empty, and make declining the obvious default.
@@ -360,27 +393,25 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 	// a key stored for a different provider doesn't help the new one).
 	needsKeyPrompt := os.Getenv(envVar) == "" &&
 		(existing.APIKey == "" || existing.Provider != provider)
-	if !needsKeyPrompt {
-		// Preserve the existing key when staying on the same provider and not
-		// explicitly re-prompting.
-		out.APIKey = existing.APIKey
-	} else {
+	if needsKeyPrompt {
+		outEntry.APIKey = ""
 		ans := strings.ToLower(strings.TrimSpace(promptDefault(reader, stdout,
 			"Store the API key in this file? Not recommended — prefer "+envVar+" (y/N)", "n")))
 		if ans == "y" || ans == "yes" {
 			key := strings.TrimSpace(promptDefault(reader, stdout, "API key", ""))
-			out.APIKey = key
+			outEntry.APIKey = key
 		}
 	}
 
-	if err := out.Save(); err != nil {
+	full.SetDefaultEntry(outEntry)
+	if err := full.Save(); err != nil {
 		fmt.Fprintf(stderr, "octo config: %v\n", err)
 		return 1
 	}
 	path, _ := config.Path()
 	fmt.Fprintln(stdout)
 	fmt.Fprintf(stdout, "Saved %s\n", path)
-	if out.APIKey == "" && os.Getenv(envVar) == "" {
+	if outEntry.APIKey == "" && os.Getenv(envVar) == "" {
 		fmt.Fprintf(stdout, "Next: export %s=... (or re-run `octo config` to store it), then `octo chat`.\n", envVar)
 	} else {
 		fmt.Fprintln(stdout, "Run `octo chat` to start.")

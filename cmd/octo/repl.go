@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/agent"
+	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/hooks"
 	"github.com/Leihb/octo-agent/internal/mcp"
 	"github.com/Leihb/octo-agent/internal/permission"
@@ -62,6 +63,9 @@ type replConfig struct {
 	// providerName is the resolved provider (e.g. "anthropic", "openai") used
 	// to rebuild the sender when the user switches model or thinking level.
 	providerName string
+	// configEntry is the config entry the session resolved at startup; sender
+	// rebuilds (e.g. /thinking) anchor base URL and stored key on it.
+	configEntry config.ModelEntry
 }
 
 // mcpBootstrap carries the inputs runTUI needs to connect MCP servers from a

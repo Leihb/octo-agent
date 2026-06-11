@@ -152,12 +152,12 @@ func resolveCoauthor(noCoauthorFlag bool, cfg config.Config) bool {
 // resolveShowReasoning determines whether the reasoning/thinking trace is
 // streamed to the terminal. Precedence: an explicit --show-reasoning flag >
 // config file > default (true).
-func resolveShowReasoning(flagSet, flagVal bool, cfg config.Config) bool {
+func resolveShowReasoning(flagSet, flagVal bool, entry config.ModelEntry) bool {
 	if flagSet {
 		return flagVal
 	}
-	if cfg.ShowReasoning != nil {
-		return *cfg.ShowReasoning
+	if entry.ShowReasoning != nil {
+		return *entry.ShowReasoning
 	}
 	return true
 }
@@ -171,11 +171,11 @@ func toolSearchConfigFrom(c config.ToolSearchConfig) tools.ToolSearchConfig {
 
 // resolveReasoningEffort picks the reasoning intensity: --reasoning-effort flag
 // > config file > "" (off).
-func resolveReasoningEffort(flagVal string, cfg config.Config) string {
+func resolveReasoningEffort(flagVal string, entry config.ModelEntry) string {
 	if flagVal != "" {
 		return flagVal
 	}
-	return cfg.ReasoningEffort
+	return entry.ReasoningEffort
 }
 
 // validReasoningEffort reports whether e is an accepted reasoning intensity.
@@ -329,7 +329,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(stderr, "octo chat: %v\n", err)
-		fmt.Fprintln(stderr, "Run `octo config` to rewrite ~/.octo/config.yaml.")
+		fmt.Fprintln(stderr, "Run `octo config` to rewrite ~/.octo/config.yml.")
 		return 1
 	}
 
@@ -350,7 +350,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	provName, resolvedModel, ok := resolveProviderModel(*providerName, *model, cfg)
+	provName, resolvedModel, entry, ok := resolveProviderModel(*providerName, *model, cfg)
 	if !ok {
 		fmt.Fprintf(stderr, "octo chat: unknown provider %q\n", provName)
 		return 2
@@ -362,8 +362,9 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	// Resolve reasoning controls: --reasoning-effort sets the intensity (OpenAI
 	// reasoning_effort / mapped Anthropic budget); --show-reasoning gates whether
-	// the trace is streamed to the terminal. Both fall back to `octo config`.
-	resolvedEffort := resolveReasoningEffort(*reasoningEffort, cfg)
+	// the trace is streamed to the terminal. Both fall back to the resolved
+	// config entry.
+	resolvedEffort := resolveReasoningEffort(*reasoningEffort, entry)
 	if !validReasoningEffort(resolvedEffort) {
 		fmt.Fprintf(stderr, "octo chat: invalid --reasoning-effort %q (want 'low', 'medium', or 'high')\n", resolvedEffort)
 		return 2
@@ -374,7 +375,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			showReasoningFlagSet = true
 		}
 	})
-	resolvedShowReasoning := resolveShowReasoning(showReasoningFlagSet, *showReasoning, cfg)
+	resolvedShowReasoning := resolveShowReasoning(showReasoningFlagSet, *showReasoning, entry)
 
 	// Single-turn mode requires a message.
 	if !isREPL && resumeID != "" {
@@ -413,7 +414,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	llmSender, err := buildSender(provName, cfg, stderr, senderTuning{
+	llmSender, err := buildSender(provName, entry, stderr, senderTuning{
 		thinkingBudget:  anthropicThinkingBudget(resolvedEffort),
 		reasoningEffort: resolvedEffort,
 		showReasoning:   resolvedShowReasoning,
@@ -430,12 +431,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			// Reload config and retry sender construction.
 			cfg, _ = config.Load()
-			provName, resolvedModel, ok = resolveProviderModel(*providerName, *model, cfg)
+			provName, resolvedModel, entry, ok = resolveProviderModel(*providerName, *model, cfg)
 			if !ok {
 				fmt.Fprintf(stderr, "octo chat: unknown provider %q\n", provName)
 				return 2
 			}
-			llmSender, err = buildSender(provName, cfg, stderr, senderTuning{
+			llmSender, err = buildSender(provName, entry, stderr, senderTuning{
 				thinkingBudget:  anthropicThinkingBudget(resolvedEffort),
 				reasoningEffort: resolvedEffort,
 				showReasoning:   resolvedShowReasoning,
@@ -454,7 +455,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// shown for every path (single-turn, plain REPL, TUI).
 	if resolveVerbosity(*quietFlag, *verboseFlag).verbose() {
 		fmt.Fprintf(stderr, "octo: provider=%s model=%s endpoint=%s\n",
-			provName, resolvedModel, effectiveEndpoint(provName, cfg))
+			provName, resolvedModel, effectiveEndpoint(provName, entry))
 	}
 
 	// Resolve coauthor: flag > env > config > default (true).
@@ -756,6 +757,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			modelName:       resolvedModel,
 			reasoningEffort: resolvedEffort,
 			providerName:    provName,
+			configEntry:     entry,
 		}
 		if toolsOn {
 			// Built-ins only at first paint — the MCP registry is still nil
@@ -789,6 +791,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		modelName:       resolvedModel,
 		reasoningEffort: resolvedEffort,
 		providerName:    provName,
+		configEntry:     entry,
 	}
 	if toolsOn {
 		replCfg.tools = tools.DefaultToolsFor(resolvedModel)
@@ -817,20 +820,20 @@ type senderTuning struct {
 	showReasoning   bool
 }
 
-// buildSender resolves credentials/endpoint (env-first, then the persisted
-// config) and returns an agent.Sender built through internal/app — the single
-// place that constructs provider clients. On a configuration error it writes a
-// user-facing message to stderr and returns a non-nil error. A fresh
+// buildSender resolves credentials/endpoint (env-first, then the resolved
+// config entry) and returns an agent.Sender built through internal/app — the
+// single place that constructs provider clients. On a configuration error it
+// writes a user-facing message to stderr and returns a non-nil error. A fresh
 // prompt-cache key is generated per call.
-func buildSender(name string, cfg config.Config, stderr io.Writer, tuning senderTuning) (agent.Sender, error) {
-	apiKey, err := resolveAPIKey(name, cfg, stderr)
+func buildSender(name string, entry config.ModelEntry, stderr io.Writer, tuning senderTuning) (agent.Sender, error) {
+	apiKey, err := resolveAPIKey(name, entry, stderr)
 	if err != nil {
 		return nil, err
 	}
 	s, err := app.NewSender(app.SenderOptions{
 		Provider:        name,
 		APIKey:          apiKey,
-		BaseURL:         resolveBaseURL(name, cfg),
+		BaseURL:         resolveBaseURL(name, entry),
 		CacheKey:        newCacheKey(),
 		ThinkingBudget:  tuning.thinkingBudget,
 		ReasoningEffort: tuning.reasoningEffort,
@@ -844,10 +847,10 @@ func buildSender(name string, cfg config.Config, stderr io.Writer, tuning sender
 }
 
 // resolveAPIKey returns the API key for the requested vendor: the provider's
-// env var, else cfg.APIKey when the stored config is for this same provider. On
-// a missing key it prints provider-specific setup help to stderr and returns a
-// non-nil error.
-func resolveAPIKey(name string, cfg config.Config, stderr io.Writer) (string, error) {
+// env var, else the resolved entry's stored key when it targets this same
+// provider. On a missing key it prints provider-specific setup help to stderr
+// and returns a non-nil error.
+func resolveAPIKey(name string, entry config.ModelEntry, stderr io.Writer) (string, error) {
 	if !app.IsKnownVendor(name) {
 		fmt.Fprintf(stderr, "octo chat: unknown provider %q\n", name)
 		return "", fmt.Errorf("unknown provider %q", name)
@@ -855,8 +858,8 @@ func resolveAPIKey(name string, cfg config.Config, stderr io.Writer) (string, er
 
 	envVar := app.VendorAPIKeyEnvVar(name)
 	apiKey := os.Getenv(envVar)
-	if apiKey == "" && cfg.Provider == name {
-		apiKey = cfg.APIKey
+	if apiKey == "" && entry.Provider == name {
+		apiKey = entry.APIKey
 	}
 	if apiKey == "" {
 		fmt.Fprintf(stderr, "octo: %s is not set.\n", envVar)

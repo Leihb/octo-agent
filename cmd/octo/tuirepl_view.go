@@ -12,7 +12,6 @@ import (
 	"unsafe"
 
 	"github.com/Leihb/octo-agent/internal/agent"
-	"github.com/Leihb/octo-agent/internal/config"
 	"github.com/Leihb/octo-agent/internal/permission"
 	"github.com/Leihb/octo-agent/internal/tools"
 	"github.com/Leihb/octo-agent/internal/tui"
@@ -692,8 +691,6 @@ func (m *tuiModel) dispatchThinking(level string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Load current config to rebuild the sender with the new tuning.
-	cfg, _ := config.Load()
 	if m.cfg.providerName == "" {
 		m.println(errorStyle.Render("Provider not set — cannot rebuild sender"))
 		return m, nil
@@ -705,7 +702,7 @@ func (m *tuiModel) dispatchThinking(level string) (tea.Model, tea.Cmd) {
 		tuning.thinkingBudget = anthropicThinkingBudget(level)
 	}
 
-	newSender, err := buildSender(m.cfg.providerName, cfg, m.cfg.stderr, tuning)
+	newSender, err := buildSender(m.cfg.providerName, m.cfg.configEntry, m.cfg.stderr, tuning)
 	if err != nil {
 		m.println(errorStyle.Render(fmt.Sprintf("Failed to rebuild sender: %v", err)))
 		return m, nil

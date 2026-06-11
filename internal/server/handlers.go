@@ -124,7 +124,7 @@ func (srv *Server) sessionStatusFields() (workingDir, permissionMode, reasoningE
 	workingDir = srv.cwd
 	permissionMode = string(resolvePermissionMode())
 	if cfg, err := config.Load(); err == nil {
-		reasoningEffort = cfg.ReasoningEffort
+		reasoningEffort = cfg.DefaultEntry().ReasoningEffort
 	}
 	return workingDir, permissionMode, reasoningEffort, 0
 }
@@ -299,11 +299,20 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	model := s.model
 	if req.Model != "" {
 		model = req.Model
+		// The web modal sends a config entry id; resolve it to the entry's
+		// model string. (Per-entry sender binding is the next step on the
+		// multi-model design — until then the session rides the default
+		// sender.)
+		if cfg, err := config.Load(); err == nil {
+			if e, ok := cfg.EntryByName(req.Model); ok && e.Model != "" {
+				model = e.Model
+			}
+		}
 	}
 	if model == "" {
 		// Fall back to the user's configured default model.
-		if cfg, err := config.Load(); err == nil && cfg.Model != "" {
-			model = cfg.Model
+		if cfg, err := config.Load(); err == nil && cfg.DefaultEntry().Model != "" {
+			model = cfg.DefaultEntry().Model
 		}
 	}
 	if model == "" {
@@ -871,11 +880,16 @@ func (s *Server) handleUpdateSessionModel(w http.ResponseWriter, r *http.Request
 	}
 
 	cfg, _ := config.Load()
-	// Single-model system: model_id is the new default model name unless it
-	// matches the stable "default" id we expose in /api/config.
-	if req.ModelID != "default" {
-		cfg.Model = req.ModelID
-	} else if cfg.Model == "" {
+	// model_id is a config entry name (the ids exposed by /api/config).
+	// A value that names no entry is treated as a raw model string applied
+	// to the default entry, preserving the pre-multi-model contract.
+	if _, ok := cfg.EntryByName(req.ModelID); ok {
+		cfg.DefaultModel = req.ModelID
+	} else if req.ModelID != "default" {
+		entry := cfg.DefaultEntry()
+		entry.Model = req.ModelID
+		cfg.SetDefaultEntry(entry)
+	} else if cfg.DefaultEntry().Model == "" {
 		// Edge case: frontend selected "default" but no model is configured.
 		writeError(w, http.StatusBadRequest, "no default model configured")
 		return
@@ -887,11 +901,11 @@ func (s *Server) handleUpdateSessionModel(w http.ResponseWriter, r *http.Request
 	}
 
 	// Update the runtime default so the next agent turn uses the new model.
-	s.model = cfg.Model
+	s.model = cfg.DefaultEntry().Model
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
-		"model":    cfg.Model,
+		"model":    cfg.DefaultEntry().Model,
 		"model_id": req.ModelID,
 	})
 }
@@ -927,7 +941,9 @@ func (s *Server) handleUpdateSessionReasoningEffort(w http.ResponseWriter, r *ht
 	}
 
 	cfg, _ := config.Load()
-	cfg.ReasoningEffort = level
+	entry := cfg.DefaultEntry()
+	entry.ReasoningEffort = level
+	cfg.SetDefaultEntry(entry)
 	if err := cfg.Save(); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
 		return

@@ -209,32 +209,32 @@ func TestResolveShowReasoning(t *testing.T) {
 		name    string
 		flagSet bool
 		flagVal bool
-		cfg     config.Config
+		entry   config.ModelEntry
 		want    bool
 	}{
-		{"default on", false, true, config.Config{}, true},
-		{"config off", false, true, config.Config{ShowReasoning: &fls}, false},
-		{"config on", false, true, config.Config{ShowReasoning: &tru}, true},
-		{"flag off beats config on", true, false, config.Config{ShowReasoning: &tru}, false},
-		{"flag on beats config off", true, true, config.Config{ShowReasoning: &fls}, true},
+		{"default on", false, true, config.ModelEntry{}, true},
+		{"config off", false, true, config.ModelEntry{ShowReasoning: &fls}, false},
+		{"config on", false, true, config.ModelEntry{ShowReasoning: &tru}, true},
+		{"flag off beats config on", true, false, config.ModelEntry{ShowReasoning: &tru}, false},
+		{"flag on beats config off", true, true, config.ModelEntry{ShowReasoning: &fls}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := resolveShowReasoning(c.flagSet, c.flagVal, c.cfg); got != c.want {
-				t.Errorf("resolveShowReasoning(%v, %v, %+v) = %v, want %v", c.flagSet, c.flagVal, c.cfg, got, c.want)
+			if got := resolveShowReasoning(c.flagSet, c.flagVal, c.entry); got != c.want {
+				t.Errorf("resolveShowReasoning(%v, %v, %+v) = %v, want %v", c.flagSet, c.flagVal, c.entry, got, c.want)
 			}
 		})
 	}
 }
 
 func TestResolveReasoningEffort(t *testing.T) {
-	if got := resolveReasoningEffort("high", config.Config{ReasoningEffort: "low"}); got != "high" {
+	if got := resolveReasoningEffort("high", config.ModelEntry{ReasoningEffort: "low"}); got != "high" {
 		t.Errorf("flag should win: got %q", got)
 	}
-	if got := resolveReasoningEffort("", config.Config{ReasoningEffort: "medium"}); got != "medium" {
+	if got := resolveReasoningEffort("", config.ModelEntry{ReasoningEffort: "medium"}); got != "medium" {
 		t.Errorf("config fallback: got %q", got)
 	}
-	if got := resolveReasoningEffort("", config.Config{}); got != "" {
+	if got := resolveReasoningEffort("", config.ModelEntry{}); got != "" {
 		t.Errorf("default off: got %q", got)
 	}
 }

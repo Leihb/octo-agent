@@ -664,13 +664,14 @@ func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, stri
 		return nil, "", fmt.Errorf("load config: %w", err)
 	}
 
-	provName := firstNonEmpty(flagProvider, os.Getenv("OCTO_PROVIDER"), cfg.Provider, "anthropic")
+	entry := cfg.DefaultEntry()
+	provName := firstNonEmpty(flagProvider, os.Getenv("OCTO_PROVIDER"), entry.Provider, "anthropic")
 	model := flagModel
 	if model == "" {
 		model = modelFromEnv(provName)
 	}
-	if model == "" && provName == cfg.Provider {
-		model = cfg.Model
+	if model == "" && provName == entry.Provider {
+		model = entry.Model
 	}
 	if model == "" {
 		model = defaultModelFor(provName)
@@ -701,17 +702,17 @@ func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, stri
 }
 
 // resolveAPIKey returns the API key for the vendor: the provider's env var,
-// else cfg.APIKey when the stored config targets the same provider. An empty
-// key is returned (not an error) so the server can start in onboarding mode
-// and retry once the user completes setup via the Web UI.
+// else the default entry's stored key when it targets the same provider. An
+// empty key is returned (not an error) so the server can start in onboarding
+// mode and retry once the user completes setup via the Web UI.
 func resolveAPIKey(name string, cfg config.Config) (string, error) {
 	if !app.IsKnownVendor(name) {
 		return "", fmt.Errorf("unknown provider %q", name)
 	}
 	envVar := app.VendorAPIKeyEnvVar(name)
 	apiKey := os.Getenv(envVar)
-	if apiKey == "" && cfg.Provider == name {
-		apiKey = cfg.APIKey
+	if entry := cfg.DefaultEntry(); apiKey == "" && entry.Provider == name {
+		apiKey = entry.APIKey
 	}
 	return apiKey, nil
 }
@@ -735,8 +736,8 @@ func defaultModelFor(provider string) string {
 }
 
 func resolveBaseURL(provider string, cfg config.Config) string {
-	if cfg.Provider == provider {
-		return cfg.BaseURL
+	if entry := cfg.DefaultEntry(); entry.Provider == provider {
+		return entry.BaseURL
 	}
 	return ""
 }

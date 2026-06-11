@@ -99,7 +99,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Commands:")
 	fmt.Fprintln(w, "  chat       Start an interactive session (or single-turn with a message)")
-	fmt.Fprintln(w, "  config     Set your default provider/model (~/.octo/config.yaml)")
+	fmt.Fprintln(w, "  config     Set your default provider/model (~/.octo/config.yml)")
 	fmt.Fprintln(w, "  serve      Start the HTTP server (REST + SSE + Web UI)")
 	fmt.Fprintln(w, "  init       Analyze the repo and generate/update .octorules")
 	fmt.Fprintln(w, "  memory     Manage cross-session memory (e.g. `octo memory list`)")
