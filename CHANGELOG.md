@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Custom base URLs are now exclusive to two catch-all vendors.** New `openai_compatible` / `anthropic_compatible` providers take — and require — a free-form `base_url`; every other vendor is pinned to its official endpoint plus declared regional variants, so the config wizard and web settings no longer offer free-text URLs for them. Existing configs with a custom `base_url` on a named vendor (and `<PROVIDER>_BASE_URL` env vars) keep working on read. An unknown endpoint saved from the web now classifies as the protocol-matching compatible vendor instead of masquerading as real `openai`/`anthropic`. (#623)
 - **Vendor registry refresh.** Added Bailian (Alibaba DashScope compatible mode, mainland/US endpoints, qwen3.5-flash lite compaction) and MiMo (Xiaomi); removed Groq and SiliconFlow. (#623)
 
+### Fixed
+- A bare `octo` with no API key no longer prints the manual export-a-key walkthrough right before auto-launching the config wizard — the wizard path shows one intro line; non-interactive runs keep the full actionable help. The help's numbered steps also no longer start at "2." for vendors without a key-management URL. (#625)
+
 ## [0.18.0] — 2026-06-11
 
 ### Added
