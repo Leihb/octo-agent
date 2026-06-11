@@ -433,6 +433,40 @@ func (s *Server) handleDeleteModelConfig(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// handleSetLiteModelConfig toggles lite_model on the entry named by {id}:
+// pointing it at the entry, or clearing it when the entry is already the
+// lite model. The lite entry serves history compaction.
+func (s *Server) handleSetLiteModelConfig(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing model id")
+		return
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("load config: %v", err))
+		return
+	}
+	if _, ok := cfg.EntryByName(id); !ok {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("no model config named %q", id))
+		return
+	}
+	if cfg.LiteModel == id {
+		cfg.LiteModel = "" // toggle off
+	} else {
+		cfg.LiteModel = id
+	}
+
+	if err := cfg.Save(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("save config: %v", err))
+		return
+	}
+	s.invalidateSenderCache()
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "lite_model": cfg.LiteModel})
+}
+
 // handleSetDefaultModelConfig points default_model at the entry named by {id}.
 func (s *Server) handleSetDefaultModelConfig(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

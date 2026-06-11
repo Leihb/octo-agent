@@ -116,6 +116,13 @@ type Agent struct {
 	History   *History
 	Sender    Sender
 
+	// LiteSender/LiteModel, when both set, run history summarisation
+	// (compaction) on a cheaper model. Unset falls back to Sender/Model.
+	// On a lite-call error summarize retries once on the primary sender, so
+	// a misconfigured lite model can't break compaction.
+	LiteSender Sender
+	LiteModel  string
+
 	// CWD is the working directory used to resolve project context (e.g.
 	// .octorules) for the planner. Callers should set this to the repo root
 	// before invoking PlanTask.

@@ -298,26 +298,41 @@ func emitCompactDone(handler EventHandler, before, after, folded int) {
 	}})
 }
 
-// summarize asks the Sender to condense the given messages into a summary.
+// summarize asks a sender to condense the given messages into a summary.
+// When LiteSender/LiteModel are set, the call runs on the lite model first
+// and retries once on the primary sender if it errors — a misconfigured lite
+// entry must not break compaction. The caller is responsible for rebuilding
+// history with the summary.
+func (a *Agent) summarize(ctx context.Context, msgs []Message, handler EventHandler) (string, error) {
+	if a.LiteSender != nil && a.LiteModel != "" {
+		summary, err := a.summarizeOn(ctx, a.LiteSender, a.LiteModel, msgs, handler)
+		if err == nil {
+			return summary, nil
+		}
+	}
+	return a.summarizeOn(ctx, a.Sender, a.Model, msgs, handler)
+}
+
+// summarizeOn runs one summarisation call on the given sender/model pair.
 // It uses the insert-then-compress strategy: the compression instruction is
 // appended to the messages slice (which ends on an assistant message, so
-// alternation holds), and the LLM returns a summary. The caller is responsible
-// for rebuilding history with the summary.
+// alternation holds), and the LLM returns a summary.
 //
 // Overflow protection: if the token count of msgs exceeds the model's context
 // window, messages are popped from the head until it fits. This prevents the
 // compression call itself from 400-ing. The count prefers the provider's real
 // lastInputTokens and falls back to a heuristic estimate.
 //
-// When the Sender implements StreamingSender and a handler is attached, the
+// When the sender implements StreamingSender and a handler is attached, the
 // summary is streamed so the caller can surface EventCompactProgress as it
 // arrives; otherwise it falls back to the buffered SendMessages.
-func (a *Agent) summarize(ctx context.Context, msgs []Message, handler EventHandler) (string, error) {
+func (a *Agent) summarizeOn(ctx context.Context, sender Sender, model string, msgs []Message, handler EventHandler) (string, error) {
 	// ── Overflow protection ──────────────────────────────────────────────
 	// If msgs alone exceeds the window, pop from head until it fits.
 	// This handles the case where the history is already over the limit
-	// (e.g. a single huge tool_result tipped it over).
-	window := contextWindow(a.Model)
+	// (e.g. a single huge tool_result tipped it over). The window is the
+	// summarising model's — the lite model may be smaller than the primary.
+	window := contextWindow(model)
 	for {
 		est := a.historyTokens(msgs)
 		if est < window {
@@ -341,9 +356,9 @@ func (a *Agent) summarize(ctx context.Context, msgs []Message, handler EventHand
 	// assistant's reply. Falls back to a buffered call otherwise.
 	var reply Reply
 	var err error
-	if ss, ok := a.Sender.(StreamingSender); ok && handler != nil {
+	if ss, ok := sender.(StreamingSender); ok && handler != nil {
 		var acc strings.Builder
-		reply, err = ss.StreamMessages(ctx, a.Model, "", req, summarizeMaxTokens, func(delta string) {
+		reply, err = ss.StreamMessages(ctx, model, "", req, summarizeMaxTokens, func(delta string) {
 			if delta == "" {
 				return
 			}
@@ -354,7 +369,7 @@ func (a *Agent) summarize(ctx context.Context, msgs []Message, handler EventHand
 			}})
 		}, nil) // nil onThinking: summarization reasoning is never surfaced
 	} else {
-		reply, err = a.Sender.SendMessages(ctx, a.Model, "", req, summarizeMaxTokens)
+		reply, err = sender.SendMessages(ctx, model, "", req, summarizeMaxTokens)
 	}
 	if err != nil {
 		return "", err

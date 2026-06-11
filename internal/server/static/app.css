@@ -3938,7 +3938,8 @@ body {
   font-size: 0.8125rem;
   padding: 0.375rem 1.125rem;
 }
-.btn-set-default {
+.btn-set-default,
+.btn-set-lite {
   font-size: 0.8125rem;
   padding: 0.375rem 0.875rem;
   background: transparent;
@@ -3948,11 +3949,13 @@ body {
   cursor: pointer;
   transition: background .15s, border-color .15s;
 }
-.btn-set-default:hover {
+.btn-set-default:hover,
+.btn-set-lite:hover {
   background: var(--color-bg-hover);
   border-color: var(--color-accent-primary);
 }
-.btn-set-default:disabled {
+.btn-set-default:disabled,
+.btn-set-lite:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

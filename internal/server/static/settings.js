@@ -143,6 +143,7 @@ const Settings = (() => {
         <span class="model-test-result" data-index="${index}"></span>
         <div class="model-card-actions-row">
           ${!isDefault ? `<button class="btn-set-default" data-index="${index}" title="${I18n.t("settings.models.btn.setDefault")}">${I18n.t("settings.models.btn.setDefault")}</button>` : ""}
+          ${model.id ? `<button class="btn-set-lite" data-index="${index}" title="${I18n.t("settings.models.btn.setLiteHint")}">${isLite ? I18n.t("settings.models.btn.unsetLite") : I18n.t("settings.models.btn.setLite")}</button>` : ""}
           <button class="btn-save-model btn-primary" data-index="${index}">${I18n.t("settings.models.btn.save")}</button>
         </div>
       </div>
@@ -266,6 +267,11 @@ const Settings = (() => {
     const setDefaultBtn = card.querySelector(".btn-set-default");
     if (setDefaultBtn) {
       setDefaultBtn.addEventListener("click", () => _setAsDefault(index));
+    }
+
+    const setLiteBtn = card.querySelector(".btn-set-lite");
+    if (setLiteBtn) {
+      setLiteBtn.addEventListener("click", () => _toggleLite(index));
     }
 
     // Model name combobox: dropdown button + model list
@@ -576,6 +582,35 @@ const Settings = (() => {
     if (ok === null) { el.textContent = ""; el.className = "model-test-result"; return; }
     el.textContent = ok ? `✓ ${message || I18n.t("settings.models.connected")}` : `✗ ${I18n.t("settings.models.testFail")}: ${message || I18n.t("settings.models.failed")}`;
     el.className   = `model-test-result ${ok ? "result-ok" : "result-fail"}`;
+  }
+
+  // ── Set / unset as Lite Model ──────────────────────────────────────────────
+  // The lite model runs cheap internal calls (history compaction). The server
+  // toggles: posting the current lite entry's id clears it.
+
+  async function _toggleLite(index) {
+    const btn = document.querySelector(`.btn-set-lite[data-index="${index}"]`);
+    if (!btn) return;
+
+    const target = _models[index];
+    if (!target || !target.id) return;
+
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/config/models/${encodeURIComponent(target.id)}/lite`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (data.ok) {
+        _load(); // refresh badges + button labels
+      } else {
+        btn.disabled = false;
+        alert(data.error || I18n.t("settings.models.setLiteFailed"));
+      }
+    } catch (e) {
+      btn.disabled = false;
+      alert(I18n.t("settings.models.errorPrefix") + e.message);
+    }
   }
 
   // ── Set as Default Model ───────────────────────────────────────────────────

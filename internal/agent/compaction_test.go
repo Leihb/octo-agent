@@ -354,3 +354,84 @@ func TestRun_CompactsBetweenTurns(t *testing.T) {
 		t.Errorf("compaction summary should lead the history, got %+v", snap[0])
 	}
 }
+
+// failingSender always errors — used to prove the lite→primary fallback.
+type failingSender struct{ calls int }
+
+func (f *failingSender) SendMessages(_ context.Context, _, _ string, _ []Message, _ int) (Reply, error) {
+	f.calls++
+	return Reply{}, fmt.Errorf("lite endpoint down")
+}
+
+// modelRecordingFake records which model each call was made with.
+type modelRecordingFake struct {
+	summary string
+	models  []string
+}
+
+func (f *modelRecordingFake) SendMessages(_ context.Context, model, _ string, _ []Message, _ int) (Reply, error) {
+	f.models = append(f.models, model)
+	return Reply{Content: f.summary}, nil
+}
+
+func TestSummarize_UsesLiteModelWhenSet(t *testing.T) {
+	primary := &modelRecordingFake{summary: "primary summary"}
+	lite := &modelRecordingFake{summary: "lite summary"}
+
+	a := New(primary, "big-model")
+	a.LiteSender = lite
+	a.LiteModel = "lite-model"
+
+	msgs := []Message{NewUserMessage("hi"), NewAssistantMessage("hello")}
+	sum, err := a.summarize(context.Background(), msgs, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum != "lite summary" {
+		t.Errorf("summary = %q, want the lite sender's", sum)
+	}
+	if len(lite.models) != 1 || lite.models[0] != "lite-model" {
+		t.Errorf("lite calls = %v, want one call with lite-model", lite.models)
+	}
+	if len(primary.models) != 0 {
+		t.Errorf("primary sender called %v times, want 0", len(primary.models))
+	}
+}
+
+func TestSummarize_FallsBackToPrimaryOnLiteError(t *testing.T) {
+	primary := &modelRecordingFake{summary: "primary summary"}
+	lite := &failingSender{}
+
+	a := New(primary, "big-model")
+	a.LiteSender = lite
+	a.LiteModel = "lite-model"
+
+	msgs := []Message{NewUserMessage("hi"), NewAssistantMessage("hello")}
+	sum, err := a.summarize(context.Background(), msgs, nil)
+	if err != nil {
+		t.Fatalf("summarize must survive a lite failure: %v", err)
+	}
+	if sum != "primary summary" {
+		t.Errorf("summary = %q, want the primary fallback", sum)
+	}
+	if lite.calls != 1 {
+		t.Errorf("lite calls = %d, want 1", lite.calls)
+	}
+	if len(primary.models) != 1 || primary.models[0] != "big-model" {
+		t.Errorf("primary calls = %v, want one call with big-model", primary.models)
+	}
+}
+
+func TestSummarize_NoLiteConfiguredUsesPrimary(t *testing.T) {
+	primary := &modelRecordingFake{summary: "primary summary"}
+	a := New(primary, "big-model")
+
+	msgs := []Message{NewUserMessage("hi"), NewAssistantMessage("hello")}
+	sum, err := a.summarize(context.Background(), msgs, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum != "primary summary" || len(primary.models) != 1 {
+		t.Errorf("got %q after %d calls; want primary summary after 1", sum, len(primary.models))
+	}
+}

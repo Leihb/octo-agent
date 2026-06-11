@@ -72,6 +72,9 @@ func (s *Spawner) Spawn(ctx context.Context, req tools.SpawnRequest) (tools.Spaw
 	child.MaxTokens = s.parent.MaxTokens
 	child.Gate = s.parent.Gate
 	child.MaxTurns = childMaxTurns
+	// Children compact on the same lite model as the parent.
+	child.LiteSender = s.parent.LiteSender
+	child.LiteModel = s.parent.LiteModel
 
 	lc := &liveChild{agent: child, tools: childTools, executor: s.executor, sessionDir: req.SessionDir}
 	id := s.reg.put(lc)

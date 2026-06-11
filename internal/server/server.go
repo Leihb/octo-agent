@@ -494,6 +494,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PATCH /api/config/models/{id}", s.requireAuth(s.handleUpdateModelConfig))
 	s.mux.HandleFunc("DELETE /api/config/models/{id}", s.requireAuth(s.handleDeleteModelConfig))
 	s.mux.HandleFunc("POST /api/config/models/{id}/default", s.requireAuth(s.handleSetDefaultModelConfig))
+	s.mux.HandleFunc("POST /api/config/models/{id}/lite", s.requireAuth(s.handleSetLiteModelConfig))
 
 	// Upload
 	s.mux.HandleFunc("POST /api/upload", s.requireAuth(s.handleUpload))
@@ -604,6 +605,9 @@ func (s *Server) buildAgent(sess *agent.Session) *agent.Agent {
 	a := agent.New(sender, model)
 	a.CWD = s.cwd
 	a.MaxTokens = s.cfg.MaxTokens
+	if cfg, err := config.Load(); err == nil {
+		a.LiteSender, a.LiteModel = s.liteSenderFromConfig(cfg)
+	}
 
 	// L1: project memory embedded in the system prompt (stable across turns).
 	var memInjection string
@@ -773,20 +777,45 @@ func (s *Server) senderForSession(sess *agent.Session) (agent.Sender, string) {
 		model = entry.Model
 	}
 
+	sender, err := s.cachedSenderForEntry(entry)
+	if err != nil {
+		return s.sender, model
+	}
+	return sender, model
+}
+
+// cachedSenderForEntry returns the entry's sender from the cache, building
+// and caching it on first use.
+func (s *Server) cachedSenderForEntry(entry config.ModelEntry) (agent.Sender, error) {
 	s.senderCacheMu.Lock()
 	defer s.senderCacheMu.Unlock()
 	if cached, ok := s.senderCache[entry.Name]; ok {
-		return cached, model
+		return cached, nil
 	}
 	sender, err := senderForEntry(entry)
 	if err != nil {
-		return s.sender, model
+		return nil, err
 	}
 	if s.senderCache == nil {
 		s.senderCache = make(map[string]agent.Sender)
 	}
 	s.senderCache[entry.Name] = sender
-	return sender, model
+	return sender, nil
+}
+
+// liteSenderFromConfig resolves the configured lite entry to a (sender,
+// model) pair for compaction, or (nil, "") when none is configured or it
+// can't be built — the agent then compacts on its primary sender.
+func (s *Server) liteSenderFromConfig(cfg config.Config) (agent.Sender, string) {
+	entry, ok := cfg.EntryByName(cfg.LiteModel)
+	if !ok || entry.Model == "" {
+		return nil, ""
+	}
+	sender, err := s.cachedSenderForEntry(entry)
+	if err != nil {
+		return nil, ""
+	}
+	return sender, entry.Model
 }
 
 // senderForEntry builds a sender from one config entry: env key first (same
@@ -1046,6 +1075,9 @@ func (s *Server) initChannels() {
 		a.CWD = s.cwd
 		a.MaxTokens = s.cfg.MaxTokens
 		a.System = prompt.Compose(s.system, s.cwd, s.envCtx, s.skillsManifest, memInjection, true)
+		if cfg, err := config.Load(); err == nil {
+			a.LiteSender, a.LiteModel = s.liteSenderFromConfig(cfg)
+		}
 		return a
 	}
 
