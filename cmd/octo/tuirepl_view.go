@@ -887,8 +887,8 @@ func (m *tuiModel) liveHeight() int {
 	if n := len(m.queue); n > 0 {
 		h += 3 + n // panel border (2) + title (1) + n body lines
 	}
-	if bg := tools.RunningBackground(); len(bg) > 0 {
-		h += 3 + len(bg) // panel border (2) + title (1) + body lines
+	if !m.turnRunning && len(tools.RunningBackground()) > 0 {
+		h++ // single idle "N shells still running" line
 	}
 	if n := len(m.subAgentOrder); n > 0 {
 		h += 3 // panel border (2) + title (1)
@@ -993,17 +993,15 @@ func (m *tuiModel) View() string {
 		b.WriteByte('\n')
 	}
 
-	// Background processes panel
-	if bg := tools.RunningBackground(); len(bg) > 0 {
+	// Background shells — a single dim line while idle (Claude Code style:
+	// "✳ 26s · 1 shell still running"). While a turn runs the status bar's
+	// shell count is enough: the launch is already in the transcript and the
+	// exit notice will land there too, so a per-command panel just repeats
+	// what's known.
+	if bg := tools.RunningBackground(); len(bg) > 0 && !m.turnRunning {
 		frame := spinnerFrames[m.spinnerFrame%len(spinnerFrames)]
-		var lines strings.Builder
-		for i, p := range bg {
-			if i > 0 {
-				lines.WriteByte('\n')
-			}
-			fmt.Fprintf(&lines, "%c %s (%s)", frame, truncate1Line(p.Command), time.Since(p.Start).Round(time.Second))
-		}
-		b.WriteString(tui.Panel(fmt.Sprintf("background (%d running)", len(bg)), lines.String()))
+		b.WriteString(hintStyle.Render(fmt.Sprintf("%c %s · %s",
+			frame, time.Since(bg[0].Start).Round(time.Second), shellCountLabel(len(bg)))))
 		b.WriteByte('\n')
 	}
 
@@ -1134,11 +1132,27 @@ func (m *tuiModel) renderStatusBar() string {
 	if m.cfg.permEngine != nil {
 		segs = append(segs, [2]string{"perm", string(m.cfg.permEngine.GetMode())})
 	}
+	if n := len(tools.RunningBackground()); n > 0 {
+		label := "1 shell"
+		if n > 1 {
+			label = fmt.Sprintf("%d shells", n)
+		}
+		segs = append(segs, [2]string{"shell", label})
+	}
 
 	// Key hints live in the startup banner, not here, and the running-turn
 	// duration is intentionally omitted — the status bar stays a compact
-	// model / cwd / context% / perm-mode strip.
+	// model / cwd / context% / perm-mode / shell-count strip.
 	return tui.StatusBar(segs, "", m.width)
+}
+
+// shellCountLabel renders the background-shell counter shown in the status
+// bar and the idle activity line ("1 shell still running" / "3 shells …").
+func shellCountLabel(n int) string {
+	if n == 1 {
+		return "1 shell still running"
+	}
+	return fmt.Sprintf("%d shells still running", n)
 }
 
 // workingDir returns the current directory, or "" if it can't be determined.

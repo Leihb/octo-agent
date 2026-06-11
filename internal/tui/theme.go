@@ -151,6 +151,7 @@ var (
 	statusBarStyle   = lipgloss.NewStyle().Foreground(ColBorder)
 	statusModelStyle = lipgloss.NewStyle().Foreground(ColBrandDim).Bold(true)
 	statusTimeStyle  = lipgloss.NewStyle().Foreground(ColMuted)
+	statusShellStyle = lipgloss.NewStyle().Foreground(ColAccent)
 )
 
 // StatusBar renders the bottom status line with styled segments.
@@ -172,6 +173,8 @@ func StatusBar(segments [][2]string, hint string, width int) string {
 			rendered = statusModelStyle.Render(value)
 		case "elapsed":
 			rendered = statusTimeStyle.Render(value)
+		case "shell":
+			rendered = statusShellStyle.Render(value)
 		default:
 			rendered = statusSegStyle.Render(value)
 		}
