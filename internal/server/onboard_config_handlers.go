@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Leihb/octo-agent/internal/app"
 	"github.com/Leihb/octo-agent/internal/config"
+	"github.com/Leihb/octo-agent/internal/prompt"
 )
 
 // ─── Provider Presets ───────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ func (s *Server) handleOnboardStatus(w http.ResponseWriter, r *http.Request) {
 // detectOnboardPhase determines whether first-run setup is needed.
 //
 //	"key_setup"  — no API key configured (hard block).
-//	"soul_setup" — key present but SOUL.md missing (soft nudge).
+//	"soul_setup" — key present but soul.md missing (soft nudge).
 //	""           — fully configured.
 func detectOnboardPhase() string {
 	cfg, _ := config.Load()
@@ -112,8 +112,8 @@ func detectOnboardPhase() string {
 		return "key_setup"
 	}
 
-	// Check SOUL.md.
-	soulPath := filepath.Join(octoDir(), "SOUL.md")
+	// Check soul.md (IdentityPath also finds a legacy uppercase SOUL.md).
+	soulPath := prompt.IdentityPath(octoDir(), "soul.md")
 	if _, err := os.Stat(soulPath); os.IsNotExist(err) {
 		return "soul_setup"
 	}

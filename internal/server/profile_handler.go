@@ -6,32 +6,35 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Leihb/octo-agent/internal/prompt"
 	"github.com/Leihb/octo-agent/internal/trash"
 )
 
 // ─── Profile API ──────────────────────────────────────────────────────────
 
 func (s *Server) handleGetProfileSoul(w http.ResponseWriter, r *http.Request) {
-	content, err := readProfileFile("SOUL.md")
+	path := prompt.IdentityPath(octoDir(), "soul.md")
+	content, err := os.ReadFile(path)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "SOUL.md not found")
+		writeError(w, http.StatusNotFound, "soul.md not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
-		"content": content,
-		"path":    filepath.Join(octoDir(), "SOUL.md"),
+		"content": string(content),
+		"path":    path,
 	})
 }
 
 func (s *Server) handleGetProfileUser(w http.ResponseWriter, r *http.Request) {
-	content, err := readProfileFile("USER.md")
+	path := prompt.IdentityPath(octoDir(), "user.md")
+	content, err := os.ReadFile(path)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "USER.md not found")
+		writeError(w, http.StatusNotFound, "user.md not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
-		"content": content,
-		"path":    filepath.Join(octoDir(), "USER.md"),
+		"content": string(content),
+		"path":    path,
 	})
 }
 
@@ -161,15 +164,6 @@ func (s *Server) handleDeleteTrash(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeError(w, http.StatusNotFound, "trash entry not found")
-}
-
-func readProfileFile(name string) (string, error) {
-	p := filepath.Join(octoDir(), name)
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }
 
 func octoDir() string {

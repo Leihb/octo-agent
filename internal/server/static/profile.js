@@ -3,8 +3,8 @@
 // Three tabs, all read-only views with single-action buttons that delegate to
 // the agent via slash-commands:
 //
-//   🧬 Soul      — SOUL.md rendered. Button opens /onboard scope:soul.
-//   👤 User      — USER.md rendered. Button opens /onboard scope:user.
+//   🧬 Soul      — soul.md rendered. Button opens /onboard scope:soul.
+//   👤 User      — user.md rendered. Button opens /onboard scope:user.
 //   🧠 Memories  — list of ~/.octo/memories/*.md, sorted by updated_at desc.
 //                  Per-card "Curate" opens /onboard path:<abs>.
 //                  Per-card "Delete" calls DELETE /api/memories/:filename

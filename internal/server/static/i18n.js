@@ -243,7 +243,7 @@ const I18n = (() => {
       "trash.orphansCleaned": "Cleaned {{count}} orphan entries, freed {{size}}. ({{failed}} failed)",
       "trash.nothingOld":  "No files older than 7 days.",
 
-      // ── Profile (unified read-only view of USER.md / SOUL.md / memories) ──
+      // ── Profile (unified read-only view of user.md / soul.md / memories) ──
       "profile.title":         "Assistant Memory",
       "profile.subtitle":      "A window into the assistant's inner life: who it is, who you are, and what it remembers about your work together.",
       "profile.whoIAm":        "Who I am",
@@ -499,7 +499,7 @@ const I18n = (() => {
       "settings.models.errorPrefix":       "Error: ",
       "settings.models.confirmRemove":     "Remove model \"{{model}}\"?",
       "settings.personalize.title":        "Personalize",
-      "settings.personalize.desc":         "Re-run the onboarding to update your assistant's personality and user profile (SOUL.md & USER.md).",
+      "settings.personalize.desc":         "Re-run the onboarding to update your assistant's personality and user profile (soul.md & user.md).",
       "settings.personalize.btn":          "✨ Re-run Onboard",
       "settings.personalize.btn.starting": "Starting…",
       "settings.personalize.btn.rerun":    "✨ Re-run Onboard",
@@ -792,7 +792,7 @@ const I18n = (() => {
       "trash.orphansCleaned": "已清理 {{count}} 条孤儿，释放 {{size}}。（失败 {{failed}}）",
       "trash.nothingOld":  "没有超过 7 天的文件。",
 
-      // ── Profile (助理记忆 — USER.md / SOUL.md / 记忆 统一只读视图) ──
+      // ── Profile (助理记忆 — user.md / soul.md / 记忆 统一只读视图) ──
       "profile.title":         "助理记忆",
       "profile.subtitle":      "这是一扇通往 AI 内心的窗口：它是谁、你是谁、以及它在和你共事中记住了什么。",
       "profile.whoIAm":        "我是谁",
@@ -1047,7 +1047,7 @@ const I18n = (() => {
       "settings.models.errorPrefix":       "错误：",
       "settings.models.confirmRemove":     "删除模型「{{model}}」？",
       "settings.personalize.title":        "个性化",
-      "settings.personalize.desc":         "重新运行引导流程，更新助手的个性和用户档案（SOUL.md & USER.md）。",
+      "settings.personalize.desc":         "重新运行引导流程，更新助手的个性和用户档案（soul.md & user.md）。",
       "settings.personalize.btn":          "✨ 重新引导",
       "settings.personalize.btn.starting": "启动中…",
       "settings.personalize.btn.rerun":    "✨ 重新引导",

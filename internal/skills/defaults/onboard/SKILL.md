@@ -1,6 +1,6 @@
 ---
 name: onboard
-description: Onboard a new user OR curate a single piece of the assistant's inner state. Without arguments, runs the full first-run ceremony (AI name, personality, user profile, SOUL.md + USER.md). With `scope:soul` or `scope:user`, runs a quick chat to update just that one profile file. With `path:<abs>`, runs a quick chat to update / keep / delete one memory file under ~/.octo/memories/.
+description: Onboard a new user OR curate a single piece of the assistant's inner state. Without arguments, runs the full first-run ceremony (AI name, personality, user profile, soul.md + user.md). With `scope:soul` or `scope:user`, runs a quick chat to update just that one profile file. With `path:<abs>`, runs a quick chat to update / keep / delete one memory file under ~/.octo/memories/.
 ---
 
 # Skill: onboard
@@ -13,9 +13,9 @@ This single skill covers three modes, dispatched by the invocation arguments:
 
 | Args                      | Mode                | What it does                                               |
 |---------------------------|---------------------|------------------------------------------------------------|
-| *(none)*                  | **first-run**       | Full intro: name the AI, pick personality, learn user, write SOUL.md + USER.md. |
-| `scope:soul`              | **curate SOUL**     | Short chat to tweak `~/.octo/SOUL.md` only.                |
-| `scope:user`              | **curate USER**     | Short chat to tweak `~/.octo/USER.md` only.                |
+| *(none)*                  | **first-run**       | Full intro: name the AI, pick personality, learn user, write soul.md + user.md. |
+| `scope:soul`              | **curate SOUL**     | Short chat to tweak `~/.octo/soul.md` only.                |
+| `scope:user`              | **curate USER**     | Short chat to tweak `~/.octo/user.md` only.                |
 | `path:<abs>`              | **curate memory**   | Short chat to update / keep / delete one memory file at the given path. |
 
 `lang:zh` or `lang:en` may be combined with any mode to pin the language.
@@ -38,7 +38,7 @@ Look for `lang:zh` / `lang:en` anywhere in the same line and use it to set the l
 ### A.1. Detect language
 
 Check for `lang:zh` or `lang:en` in the invocation:
-- `lang:zh` → conduct the **entire** onboard in **Chinese**, write SOUL.md & USER.md in Chinese.
+- `lang:zh` → conduct the **entire** onboard in **Chinese**, write soul.md & user.md in Chinese.
 - Otherwise (or if missing) → use **English** throughout.
 
 If the `lang:` argument is absent, infer from the user's first reply; default to English.
@@ -166,9 +166,9 @@ Store as `prefs.show_reasoning` boolean (default `true`).
 For each URL, use `web_fetch` to gather bio / projects / interests / writing style.
 Silently skip unreachable links.
 
-### A.8. Write SOUL.md
+### A.8. Write soul.md
 
-Write to `~/.octo/SOUL.md`. Shape by `ai.name` + `ai.personality`.
+Write to `~/.octo/soul.md`. Shape by `ai.name` + `ai.personality`.
 Write in the chosen language. If `zh`, add a line near the top of Identity:
 `**始终用中文回复用户。**`
 
@@ -203,9 +203,9 @@ I am [AI Name], a personal assistant and technical co-founder.
 [2–3 sentences about how I approach tasks, matching the personality.]
 ```
 
-### A.9. Write USER.md
+### A.9. Write user.md
 
-Write to `~/.octo/USER.md`.
+Write to `~/.octo/user.md`.
 
 en template:
 ```markdown
@@ -297,8 +297,8 @@ conversation and a clean write.
 
 ### B.1. Resolve target
 
-- `scope:soul` → target file is `~/.octo/SOUL.md`, topic is the AI's personality
-- `scope:user` → target file is `~/.octo/USER.md`, topic is the user's profile
+- `scope:soul` → target file is `~/.octo/soul.md`, topic is the AI's personality
+- `scope:user` → target file is `~/.octo/user.md`, topic is the user's profile
 
 Language:
 - `lang:zh` / `lang:en` → use that
@@ -486,7 +486,7 @@ One short line. No summary, no celebration. Examples:
 ### C.8. Curate-memory notes
 
 - **Do not** create new memory files here — different flow.
-- **Do not** edit any other file (SOUL.md, USER.md, other memories).
+- **Do not** edit any other file (soul.md, user.md, other memories).
 - Keep it tight: one summary, one question, at most one follow-up.
 - Memory files are personal; never share contents with external tools
   (web search, web_fetch, etc.).

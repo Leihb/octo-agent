@@ -6,7 +6,7 @@
 //                Hard block: nothing works without an API key.
 //                On success, automatically launches the /onboard session.
 //
-//   soul_setup → API key is already configured, SOUL.md is missing.
+//   soul_setup → API key is already configured, soul.md is missing.
 //                Automatically creates an /onboard session and boots the UI —
 //                no blocking panel shown, user lands directly in the session.
 //

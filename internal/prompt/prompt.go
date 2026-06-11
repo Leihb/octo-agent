@@ -121,6 +121,24 @@ func Compose(userSystem, cwd, env, skills, memory string, coauthor bool) string 
 	return strings.Join(layers, "\n\n---\n\n")
 }
 
+// IdentityPath resolves an identity file under dir, preferring the
+// canonical lowercase name and falling back to the legacy uppercase
+// spelling — pre-0.19 onboarding wrote SOUL.md/USER.md while composition
+// reads soul.md/user.md, which are distinct files on case-sensitive
+// filesystems. When neither exists, the canonical path is returned so
+// callers that create the file use the lowercase name.
+func IdentityPath(dir, lower string) string {
+	canonical := filepath.Join(dir, lower)
+	if _, err := os.Stat(canonical); err == nil {
+		return canonical
+	}
+	legacy := filepath.Join(dir, strings.ToUpper(strings.TrimSuffix(lower, ".md"))+".md")
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return canonical
+}
+
 // soulPath and userProfilePath return the per-user identity files
 // (~/.octo/soul.md, ~/.octo/user.md), or "" when the home dir can't be
 // resolved. They're vars so tests can point them at temp files, mirroring
@@ -130,7 +148,7 @@ var soulPath = func() string {
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".octo", "soul.md")
+	return IdentityPath(filepath.Join(home, ".octo"), "soul.md")
 }
 
 var userProfilePath = func() string {
@@ -138,7 +156,7 @@ var userProfilePath = func() string {
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".octo", "user.md")
+	return IdentityPath(filepath.Join(home, ".octo"), "user.md")
 }
 
 // readSoul returns the trimmed, include-expanded contents of ~/.octo/soul.md
