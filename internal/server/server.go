@@ -957,8 +957,12 @@ func (s *Server) initChannels() {
 		return
 	}
 
-	// Build agent factory that mirrors the server's agent setup.
-	gate, _ := s.buildChannelGate()
+	// Build agent factory that mirrors the server's agent setup. No gate is
+	// set here: handleChannelMessage builds a fresh per-turn gate (configured
+	// mode + chat-interactive ask), the same shape prepareToolTurn gives web
+	// turns. A factory-time gate would freeze one policy snapshot for the
+	// session's whole life — and the old `gate, _ :=` form silently ran turns
+	// ungated when engine construction failed.
 	var memInjection string
 	if s.memDir != "" {
 		memInjection = memory.RenderInjection(s.memDir, s.homeMemDir)
@@ -968,9 +972,6 @@ func (s *Server) initChannels() {
 		a.CWD = s.cwd
 		a.MaxTokens = s.cfg.MaxTokens
 		a.System = prompt.Compose(s.system, s.cwd, s.envCtx, s.skillsManifest, memInjection, true)
-		if gate != nil {
-			a.Gate = gate
-		}
 		return a
 	}
 
@@ -978,18 +979,6 @@ func (s *Server) initChannels() {
 	s.channelMgr = channel.NewManager(chCfg, factory, channel.BindByChatUser)
 
 	fmt.Fprintf(os.Stderr, "octo serve: channels enabled: %s\n", strings.Join(platforms, ", "))
-}
-
-// buildChannelGate creates the IM bridge's permission gate: strict mode with
-// a nil asker, so ask-class verdicts resolve to deny — a chat channel has no
-// interactive prompt. Same posture the standalone bridge had before it merged
-// into serve.
-func (s *Server) buildChannelGate() (agent.PermissionGate, error) {
-	engine, err := permission.New(permissionConfigPath(), s.cwd, permission.ModeStrict, s.memDir, s.homeMemDir)
-	if err != nil {
-		return nil, fmt.Errorf("permission engine: %w", err)
-	}
-	return app.NewPermissionGate(engine, nil), nil
 }
 
 // startChannels launches all enabled channel adapters in background goroutines.
@@ -1027,17 +1016,27 @@ func (s *Server) startChannels() {
 		go func(a channel.Adapter, platform string) {
 			_ = a.Start(ctx, func(ev channel.InboundEvent) {
 				ev.Platform = platform
-				if s.handleChannelCommand(a, ev) {
-					return
-				}
-				// Run the agent off the adapter's read loop so commands —
-				// notably /stop — are still processed while a turn is in
-				// flight. Session.BeginRun serialises turns per session, so
-				// concurrent messages in one chat can't interleave.
-				go s.handleChannelMessage(ctx, a, ev)
+				s.routeChannelEvent(ctx, a, ev)
 			})
 		}(ad, name)
 	}
+}
+
+// routeChannelEvent dispatches one inbound IM event. Order matters:
+// commands first, so /stop can cancel a turn that is itself blocked on a
+// permission ask; then a pending ask claims the message as its answer —
+// inline, NOT through the turn path, which would deadlock behind the runMu
+// the asking turn still holds; otherwise the message starts an agent turn
+// off the adapter's read loop (Session.BeginRun serialises turns per
+// session, so concurrent messages in one chat can't interleave).
+func (s *Server) routeChannelEvent(ctx context.Context, ad channel.Adapter, ev channel.InboundEvent) {
+	if s.handleChannelCommand(ad, ev) {
+		return
+	}
+	if sess := s.channelMgr.GetSession(ev); sess != nil && sess.DeliverAskReply(ev.Text) {
+		return
+	}
+	go s.handleChannelMessage(ctx, ad, ev)
 }
 
 // handleChannelCommand processes slash commands (e.g. /bind, /stop). Returns
@@ -1074,6 +1073,18 @@ func (s *Server) handleChannelMessage(ctx context.Context, ad channel.Adapter, e
 	// cancellable by /stop (Session.Interrupt).
 	ctx, done := sess.BeginRun(ctx)
 	defer done()
+
+	// Per-turn permission gate, the same shape prepareToolTurn gives web
+	// turns: configured mode + an interactive ask that prompts in the chat
+	// and consumes the next message as the answer. Built after BeginRun so
+	// it can't race the previous turn's gate. An engine failure aborts the
+	// turn — running ungated is never an acceptable fallback.
+	engine, err := permission.New(permissionConfigPath(), s.cwd, resolvePermissionMode(), s.memDir, s.homeMemDir)
+	if err != nil {
+		ad.SendText(ev.ChatID, "⚠️ Permission engine unavailable, message not processed: "+err.Error(), ev.MessageID)
+		return
+	}
+	sess.Agent.Gate = app.NewPermissionGate(engine, s.channelPermissionAsk(sess, ad, ev))
 
 	ctrl := channel.NewUIController(ad, ev.ChatID, ev.MessageID)
 
