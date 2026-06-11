@@ -178,7 +178,12 @@ Usage:
 File (~/.octo/config.yml):
   provider: openai
   model: gpt-4o-mini
-  base_url: https://api.deepseek.com   # optional, for compatible 3rd parties
+
+Self-hosted / third-party endpoints use the compatible catch-all vendors —
+the only providers that take a base_url (and require one):
+  provider: openai_compatible          # or anthropic_compatible
+  model: deepseek-chat
+  base_url: https://my-gateway.example
 
 Environment:
   ANTHROPIC_API_KEY / OPENAI_API_KEY    Override any stored key, per run.`)

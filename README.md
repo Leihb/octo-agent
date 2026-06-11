@@ -75,9 +75,11 @@ octo --stream=false "..."
 # OpenAI / DeepSeek / Bailian (OpenAI-compatible)
 octo --provider openai --model gpt-4o-mini "..."
 
-# Anthropic-compatible third parties (DeepSeek, Kimi, etc.)
-ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
-  octo --model deepseek-chat "..."
+# Anthropic-compatible third parties (DeepSeek, Kimi, etc.) — the
+# *_compatible catch-all vendors are the ones that take a custom base URL
+ANTHROPIC_COMPATIBLE_BASE_URL=https://api.deepseek.com/anthropic \
+ANTHROPIC_COMPATIBLE_API_KEY=sk-... \
+  octo --provider anthropic_compatible --model deepseek-chat "..."
 
 # Extended reasoning: set the intensity (Anthropic thinking / OpenAI reasoning_effort)
 # and stream the dimmed thinking trace. --show-reasoning=false hides the trace.

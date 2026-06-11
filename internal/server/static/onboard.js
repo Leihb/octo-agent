@@ -281,6 +281,7 @@ const Onboard = (() => {
         // Custom: clear presets so the user can fill in their own values
         $("setup-model").value    = "";
         $("setup-base-url").value = "";
+        $("setup-base-url").readOnly = false;
         _updateSetupModelDropdown([]);
         _updateSetupBaseUrlDropdown(null);
         if (getApiKeyLink) getApiKeyLink.style.display = "none";
@@ -290,6 +291,9 @@ const Onboard = (() => {
         if (preset) {
           $("setup-model").value    = preset.default_model || "";
           $("setup-base-url").value = preset.base_url      || "";
+          // Catalogue vendors are pinned to their endpoint (+ variants via
+          // the dropdown); only custom_endpoint providers take a typed URL.
+          $("setup-base-url").readOnly = !preset.custom_endpoint;
           _updateSetupModelDropdown(preset.models || []);
           _updateSetupBaseUrlDropdown(preset);
           // Show "how to get" link if provider has a website_url
@@ -396,15 +400,17 @@ const Onboard = (() => {
     const preset = providerValue && providerValue !== '__custom__'
       ? _providers.find(p => p.id === providerValue)
       : null;
-    const providerID = preset ? preset.id : 'openai';
-    const anthropicFormat = preset && preset.api === 'anthropic-messages';
+    // No preset means a hand-typed endpoint — that's the OpenAI-compatible
+    // catch-all vendor, not the real OpenAI.
+    const providerID = preset ? preset.id : 'openai_compatible';
+    const anthropicFormat = !!(preset && preset.api === 'anthropic-messages');
 
     // Step 1: test connection
     try {
       const res  = await fetch("/api/config/test", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ model, base_url: baseUrl, api_key: apiKey, index: 0, anthropic_format: anthropicFormat })
+        body:    JSON.stringify({ model, base_url: baseUrl, api_key: apiKey, provider: providerID, index: 0, anthropic_format: anthropicFormat })
       });
       const data = await res.json();
       if (!data.ok) {

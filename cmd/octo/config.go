@@ -275,12 +275,30 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	// Model.
+	// sameProvider gates reuse of the existing entry's model/base URL — values
+	// stored for one vendor must not seed prompts for a different one.
+	sameProvider := existing.Provider == provider
+
+	// Model. Compatible (custom-endpoint) vendors have no catalogue or default,
+	// so the model is a required free-text answer.
 	var model string
-	if tty {
+	if app.VendorCustomEndpoint(provider) {
+		def := ""
+		if sameProvider {
+			def = existing.Model
+		}
+		model = strings.TrimSpace(promptDefault(reader, stdout, "Model (required)", def))
+		if model == "" {
+			fmt.Fprintf(stderr, "octo config: provider %q has no default model — enter one\n", provider)
+			return 2
+		}
+		if tty {
+			fmt.Fprintf(stdout, "Model: %s\n\n", model)
+		}
+	} else if tty {
 		def := defaultModels[provider]
 		startVal := def
-		if existing.Provider == provider && existing.Model != "" {
+		if sameProvider && existing.Model != "" {
 			startVal = existing.Model
 		}
 		items := buildModelItems(app.VendorModels(provider), def, startVal)
@@ -308,32 +326,54 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 		model = ""
 	}
 
-	// Base URL / endpoint. Vendors with regional variants get a menu; everyone
-	// else is offered a free-text custom URL.
-	baseURL := existing.BaseURL
+	// Base URL / endpoint. Compatible (custom-endpoint) vendors require a
+	// free-text URL; vendors with regional variants get a fixed menu; everyone
+	// else is pinned to the default endpoint — no question asked. A legacy
+	// custom URL already stored for the same vendor is preserved as-is.
+	baseURL := ""
+	if sameProvider {
+		baseURL = existing.BaseURL
+	}
 	variants := app.VendorEndpointVariants(provider)
-	if tty && len(variants) > 0 {
+	switch {
+	case app.VendorCustomEndpoint(provider):
+		baseURL = strings.TrimSpace(promptDefault(reader, stdout, "Base URL (required)", baseURL))
+		if baseURL == "" {
+			fmt.Fprintf(stderr, "octo config: provider %q requires a base URL\n", provider)
+			return 2
+		}
+		if tty {
+			fmt.Fprintf(stdout, "Endpoint: %s\n\n", baseURL)
+		}
+	case tty && len(variants) > 0:
 		items := []selectItem{{label: "Default endpoint", desc: app.DefaultBaseURL(provider), value: ""}}
 		for _, v := range variants {
 			items = append(items, selectItem{label: v.Label, desc: v.BaseURL, value: v.BaseURL})
 		}
-		items = append(items, selectItem{label: "Custom base URL…", desc: "enter a URL", value: customSentinel})
-		choice, ok := runSelect(stdin, stdout, "Endpoint", items, existing.BaseURL)
+		choice, ok := runSelect(stdin, stdout, "Endpoint", items, baseURL)
 		if !ok {
 			return cancelWizard(stderr)
 		}
-		if choice.value == customSentinel {
-			baseURL = strings.TrimSpace(promptDefault(reader, stdout, "Custom base URL", existing.BaseURL))
-		} else {
-			baseURL = choice.value
-		}
+		baseURL = choice.value
 		if baseURL == "" {
 			fmt.Fprintf(stdout, "Endpoint: default\n\n")
 		} else {
 			fmt.Fprintf(stdout, "Endpoint: %s\n\n", baseURL)
 		}
-	} else {
-		baseURL = strings.TrimSpace(promptDefault(reader, stdout, "Custom base URL (optional, for DeepSeek/Kimi/etc.)", existing.BaseURL))
+	case len(variants) > 0:
+		// A stale value that is no longer a vendor endpoint must not become the
+		// press-Enter default — it would fail validation below.
+		def := ""
+		if app.VendorByBaseURL(baseURL) == provider {
+			def = baseURL
+		}
+		ans := strings.TrimSpace(promptDefault(reader, stdout, "Endpoint URL (empty = default)", def))
+		if ans != "" && app.VendorByBaseURL(ans) != provider {
+			fmt.Fprintf(stderr, "octo config: %q is not an endpoint of %s — for a custom endpoint use the %s or %s provider\n",
+				ans, app.VendorDisplayName(provider), app.ProviderOpenAICompatible, app.ProviderAnthropicCompatible)
+			return 2
+		}
+		baseURL = ans
 	}
 
 	// The wizard edits the default entry in place; other entries and global

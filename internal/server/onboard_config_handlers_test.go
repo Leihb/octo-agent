@@ -118,6 +118,53 @@ func TestConfigModels_PostAppendsEntry(t *testing.T) {
 	}
 }
 
+func TestConfigModels_PostUnknownEndpointBecomesCompatibleVendor(t *testing.T) {
+	setTestHome(t)
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0"})
+
+	// A hand-typed endpoint that matches no vendor preset lands on the
+	// protocol-matching compatible catch-all, not the real openai/anthropic.
+	w := doJSON(t, srv, http.MethodPost, "/api/config/models",
+		`{"model":"my-model","base_url":"https://gw.example/v1","api_key":"sk-x"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST = %d: %s", w.Code, w.Body.String())
+	}
+	cfg, _ := config.Load()
+	if got := cfg.Models[0].Provider; got != "openai_compatible" {
+		t.Errorf("provider = %q, want openai_compatible", got)
+	}
+
+	w = doJSON(t, srv, http.MethodPost, "/api/config/models",
+		`{"model":"my-model","base_url":"https://gw2.example","api_key":"sk-x","anthropic_format":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST = %d: %s", w.Code, w.Body.String())
+	}
+	cfg, _ = config.Load()
+	if got := cfg.Models[1].Provider; got != "anthropic_compatible" {
+		t.Errorf("anthropic_format provider = %q, want anthropic_compatible", got)
+	}
+}
+
+func TestListProviders_MarksCompatibleCatchAlls(t *testing.T) {
+	presets := buildProviderPresets()
+	byID := map[string]providerPreset{}
+	for _, p := range presets {
+		byID[p.ID] = p
+	}
+	for _, id := range []string{"openai_compatible", "anthropic_compatible"} {
+		p, ok := byID[id]
+		if !ok {
+			t.Fatalf("%s missing from /api/providers presets", id)
+		}
+		if !p.CustomEndpoint || p.BaseURL != "" {
+			t.Errorf("%s: CustomEndpoint=%v BaseURL=%q, want true/empty", id, p.CustomEndpoint, p.BaseURL)
+		}
+	}
+	if byID["deepseek"].CustomEndpoint {
+		t.Error("deepseek must not be flagged custom_endpoint")
+	}
+}
+
 func TestConfigModels_PostFirstEntryBecomesDefault(t *testing.T) {
 	setTestHome(t)
 	srv := mustServer(t, Config{Addr: "127.0.0.1:0"})

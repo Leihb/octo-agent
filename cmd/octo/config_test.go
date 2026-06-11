@@ -178,8 +178,9 @@ func TestRunConfig_Wizard_WritesFile(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("ANTHROPIC_API_KEY", "set-so-wizard-skips-key-prompt")
 
-	// Answers: provider=openai, model=(default), base_url=(blank).
-	in := strings.NewReader("openai\n\n\n")
+	// Answers: provider=openai, model=(default). openai is pinned to its
+	// default endpoint, so the wizard no longer asks for a base URL.
+	in := strings.NewReader("openai\n\n")
 	var stdout, stderr bytes.Buffer
 	if code := runConfig(nil, in, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
@@ -199,6 +200,9 @@ func TestRunConfig_Wizard_WritesFile(t *testing.T) {
 	}
 	if entry.APIKey != "" {
 		t.Errorf("APIKey should not be stored when env var is set; got %q", entry.APIKey)
+	}
+	if strings.Contains(stdout.String(), "base URL") || strings.Contains(stdout.String(), "Endpoint") {
+		t.Errorf("pinned vendor must not be asked about its endpoint; got:\n%s", stdout.String())
 	}
 }
 
@@ -220,8 +224,9 @@ func TestRunConfig_Wizard_PreservesOtherEntriesAndGlobals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Answers: provider=openai, model=(default), base_url=(blank).
-	in := strings.NewReader("openai\n\n\n")
+	// Answers: provider=openai, model=(default). No endpoint question for a
+	// pinned vendor.
+	in := strings.NewReader("openai\n\n")
 	var stdout, stderr bytes.Buffer
 	if code := runConfig(nil, in, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
@@ -285,9 +290,10 @@ func TestRunConfig_Wizard_SwitchesProviderAndPromptsForKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Answers: provider=openai, model=(default), base_url=(blank), coauthor=y,
-	// reasoning-effort=(off), show-reasoning=(default), store_key=y, key=new-openai-key.
-	in := strings.NewReader("openai\n\n\ny\n\n\ny\nnew-openai-key\n")
+	// Answers: provider=openai, model=(default), coauthor=y,
+	// reasoning-effort=(off), show-reasoning=(default), store_key=y,
+	// key=new-openai-key. No endpoint question for a pinned vendor.
+	in := strings.NewReader("openai\n\ny\n\n\ny\nnew-openai-key\n")
 	var stdout, stderr bytes.Buffer
 	if code := runConfig(nil, in, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
@@ -303,6 +309,76 @@ func TestRunConfig_Wizard_SwitchesProviderAndPromptsForKey(t *testing.T) {
 	}
 	if entry.APIKey != "new-openai-key" {
 		t.Errorf("APIKey = %q, want new-openai-key", entry.APIKey)
+	}
+}
+
+func TestRunConfig_Wizard_CompatibleProviderRequiresModelAndBaseURL(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "set-so-wizard-skips-key-prompt")
+
+	// Answers: provider, model, base URL — both free-text fields are required.
+	in := strings.NewReader("openai_compatible\ndeepseek-chat\nhttps://gw.example/v1\n")
+	var stdout, stderr bytes.Buffer
+	if code := runConfig(nil, in, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
+	}
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load after wizard: %v", err)
+	}
+	entry := got.DefaultEntry()
+	if entry.Provider != "openai_compatible" || entry.Model != "deepseek-chat" || entry.BaseURL != "https://gw.example/v1" {
+		t.Errorf("entry = %+v, want openai_compatible/deepseek-chat/https://gw.example/v1", entry)
+	}
+
+	// An empty base URL is a hard error, not a silent default.
+	in = strings.NewReader("openai_compatible\ndeepseek-chat\n\n")
+	stdout.Reset()
+	stderr.Reset()
+	// Wipe the entry so its stored URL doesn't become the press-Enter default.
+	if err := (config.Config{}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	if code := runConfig(nil, in, &stdout, &stderr); code != 2 {
+		t.Errorf("empty base URL: exit = %d, want 2 (stderr=%q)", code, stderr.String())
+	}
+
+	// An empty model is equally a hard error.
+	in = strings.NewReader("openai_compatible\n\nhttps://gw.example/v1\n")
+	if code := runConfig(nil, in, &stdout, &stderr); code != 2 {
+		t.Errorf("empty model: exit = %d, want 2 (stderr=%q)", code, stderr.String())
+	}
+}
+
+func TestRunConfig_Wizard_PinnedVendorRejectsForeignEndpoint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("MOONSHOT_API_KEY", "set-so-wizard-skips-key-prompt")
+
+	// kimi has regional variants: a variant URL is accepted…
+	in := strings.NewReader("kimi\n\nhttps://api.moonshot.ai\n")
+	var stdout, stderr bytes.Buffer
+	if code := runConfig(nil, in, &stdout, &stderr); code != 0 {
+		t.Fatalf("variant URL: exit = %d, stderr=%q", code, stderr.String())
+	}
+	got, _ := config.Load()
+	if got.DefaultEntry().BaseURL != "https://api.moonshot.ai" {
+		t.Errorf("base URL = %q, want the picked variant", got.DefaultEntry().BaseURL)
+	}
+
+	// …but an arbitrary URL is rejected with a pointer to the catch-alls.
+	in = strings.NewReader("kimi\n\nhttps://evil.example\n")
+	stdout.Reset()
+	stderr.Reset()
+	if code := runConfig(nil, in, &stdout, &stderr); code != 2 {
+		t.Errorf("foreign URL: exit = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "openai_compatible") {
+		t.Errorf("error should point at the compatible catch-alls; got %q", stderr.String())
 	}
 }
 

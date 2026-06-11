@@ -60,7 +60,8 @@ func TestVendor_KimiCoding_BuildClient_CustomBaseURL(t *testing.T) {
 func TestIsKnownVendor(t *testing.T) {
 	for _, id := range []string{
 		"openrouter", "deepseek", "minimax", "kimi", "kimi-coding",
-		"glm", "openai", "anthropic", "siliconflow", "mistral", "groq",
+		"glm", "openai", "anthropic", "bailian", "mistral", "mimo",
+		"openai_compatible", "anthropic_compatible",
 	} {
 		if !IsKnownVendor(id) {
 			t.Errorf("IsKnownVendor(%q) = false, want true", id)
@@ -68,6 +69,54 @@ func TestIsKnownVendor(t *testing.T) {
 	}
 	if IsKnownVendor("bogus") {
 		t.Error("IsKnownVendor(bogus) = true, want false")
+	}
+}
+
+func TestVendor_CompatibleCatchAlls(t *testing.T) {
+	cases := []struct {
+		id, protocol, api, envVar string
+	}{
+		{ProviderOpenAICompatible, "openai", "openai-completions", "OPENAI_COMPATIBLE_API_KEY"},
+		{ProviderAnthropicCompatible, "anthropic", "anthropic-messages", "ANTHROPIC_COMPATIBLE_API_KEY"},
+	}
+	for _, tc := range cases {
+		v := vendorByID(tc.id)
+		if v == nil {
+			t.Fatalf("%s not found in registry", tc.id)
+		}
+		if !v.CustomEndpoint {
+			t.Errorf("%s: CustomEndpoint = false, want true", tc.id)
+		}
+		if v.Protocol != tc.protocol || v.API != tc.api {
+			t.Errorf("%s: protocol/api = %q/%q, want %q/%q", tc.id, v.Protocol, v.API, tc.protocol, tc.api)
+		}
+		if v.DefaultBaseURL != "" || v.DefaultModel != "" || len(v.Models) != 0 {
+			t.Errorf("%s: catch-all must not carry a fixed endpoint or model catalogue: %+v", tc.id, v)
+		}
+		if v.APIKeyEnvVar != tc.envVar {
+			t.Errorf("%s: APIKeyEnvVar = %q, want %q", tc.id, v.APIKeyEnvVar, tc.envVar)
+		}
+	}
+	// Every other vendor is pinned: it must declare a fixed endpoint.
+	for _, v := range Registry {
+		if !v.CustomEndpoint && v.DefaultBaseURL == "" {
+			t.Errorf("vendor %q has neither a fixed endpoint nor CustomEndpoint", v.ID)
+		}
+	}
+}
+
+func TestBuildClient_CompatibleRequiresBaseURL(t *testing.T) {
+	for _, id := range []string{ProviderOpenAICompatible, ProviderAnthropicCompatible} {
+		if _, err := buildClient(id, "sk-dummy", ""); err == nil {
+			t.Errorf("buildClient(%s) without base URL must fail", id)
+		}
+		if _, err := buildClient(id, "sk-dummy", "https://gw.example/v1"); err != nil {
+			t.Errorf("buildClient(%s) with base URL: %v", id, err)
+		}
+	}
+	// Pinned vendors still build with no override.
+	if _, err := buildClient("anthropic", "sk-dummy", ""); err != nil {
+		t.Errorf("buildClient(anthropic) without base URL: %v", err)
 	}
 }
 
@@ -80,6 +129,8 @@ func TestVendorEnvVars(t *testing.T) {
 		{"deepseek", "DEEPSEEK_API_KEY"},
 		{"openai", "OPENAI_API_KEY"},
 		{"anthropic", "ANTHROPIC_API_KEY"},
+		{"bailian", "DASHSCOPE_API_KEY"},
+		{"mimo", "MIMO_API_KEY"},
 	}
 	for _, tc := range tests {
 		got := VendorAPIKeyEnvVar(tc.id)

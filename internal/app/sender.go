@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Leihb/octo-agent/internal/agent"
 	"github.com/Leihb/octo-agent/internal/provider"
@@ -79,6 +80,10 @@ func buildClient(name, apiKey, baseURL string) (provider.Provider, error) {
 	v := vendorByID(name)
 	if v == nil {
 		return nil, fmt.Errorf("unknown provider %q", name)
+	}
+	if v.CustomEndpoint && baseURL == "" {
+		return nil, fmt.Errorf("provider %q requires a base URL (set %s_BASE_URL or base_url in config)",
+			name, strings.ToUpper(name))
 	}
 
 	switch v.Protocol {

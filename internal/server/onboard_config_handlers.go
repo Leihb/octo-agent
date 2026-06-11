@@ -34,6 +34,7 @@ type providerPreset struct {
 	LiteModel        string            `json:"lite_model,omitempty"`
 	EndpointVariants []endpointVariant `json:"endpoint_variants,omitempty"`
 	WebsiteURL       string            `json:"website_url,omitempty"`
+	CustomEndpoint   bool              `json:"custom_endpoint,omitempty"`
 }
 
 // buildProviderPresets builds the response for GET /api/providers from the
@@ -61,6 +62,7 @@ func buildProviderPresets() []providerPreset {
 			LiteModel:        v.LiteModel,
 			EndpointVariants: variants,
 			WebsiteURL:       v.WebsiteURL,
+			CustomEndpoint:   v.CustomEndpoint,
 		})
 	}
 	return presets
@@ -212,6 +214,7 @@ type testConfigRequest struct {
 	Model           string `json:"model"`
 	BaseURL         string `json:"base_url"`
 	APIKey          string `json:"api_key"`
+	Provider        string `json:"provider,omitempty"`
 	Index           int    `json:"index"`
 	AnthropicFormat bool   `json:"anthropic_format"`
 }
@@ -239,12 +242,15 @@ func (s *Server) handleTestConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerName := app.ProviderOpenAI
+	// Resolve the vendor: explicit request field > known endpoint > the
+	// protocol-matching compatible catch-all (the URL is custom by then).
+	providerName := app.ProviderOpenAICompatible
 	if req.AnthropicFormat {
-		providerName = app.ProviderAnthropic
+		providerName = app.ProviderAnthropicCompatible
 	}
-	// The panel doesn't name a vendor; a known endpoint pins the protocol.
-	if v := app.VendorByBaseURL(req.BaseURL); v != "" {
+	if req.Provider != "" && app.IsKnownVendor(req.Provider) {
+		providerName = req.Provider
+	} else if v := app.VendorByBaseURL(req.BaseURL); v != "" {
 		providerName = v
 	}
 
@@ -289,10 +295,19 @@ func applyModelRequestToEntry(req saveModelRequest, e *config.ModelEntry) {
 		e.Provider = req.Provider
 	case app.VendorByBaseURL(req.BaseURL) != "":
 		e.Provider = app.VendorByBaseURL(req.BaseURL)
-	case e.Provider == "" && req.AnthropicFormat:
-		e.Provider = app.ProviderAnthropic
-	case e.Provider == "":
-		e.Provider = app.ProviderOpenAI
+	case e.Provider != "":
+		// keep the entry's current vendor
+	case req.BaseURL == "":
+		// No endpoint signal at all — fall back to the protocol root.
+		if req.AnthropicFormat {
+			e.Provider = app.ProviderAnthropic
+		} else {
+			e.Provider = app.ProviderOpenAI
+		}
+	case req.AnthropicFormat:
+		e.Provider = app.ProviderAnthropicCompatible
+	default:
+		e.Provider = app.ProviderOpenAICompatible
 	}
 	if req.ReasoningEffort != "" {
 		e.ReasoningEffort = req.ReasoningEffort

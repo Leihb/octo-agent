@@ -221,6 +221,7 @@ const Settings = (() => {
         } else {
           if (getApiKeyLink) getApiKeyLink.style.display = "none";
         }
+        if (card._applyEndpointLock) card._applyEndpointLock();
       });
     });
 
@@ -450,6 +451,22 @@ const Settings = (() => {
     document.addEventListener("click", () => {
       baseUrlDropdown.style.display = "none";
     });
+
+    // Endpoint editability: catalogue vendors are pinned to their default
+    // endpoint plus declared variants (picked via the dropdown) — only
+    // custom_endpoint providers and unrecognized legacy URLs take free-form
+    // input.
+    const _applyEndpointLock = () => {
+      const p = _currentProvider();
+      baseUrlInput.readOnly = !!(p && !p.custom_endpoint);
+    };
+    if (baseUrlInput) {
+      baseUrlInput.addEventListener("blur", _applyEndpointLock);
+    }
+    // Quick Setup picks change the active provider after this binding ran —
+    // expose the hook so that handler can re-evaluate the lock.
+    card._applyEndpointLock = _applyEndpointLock;
+    _applyEndpointLock();
   }
 
   // ── Read form values from a card ────────────────────────────────────────────
@@ -457,8 +474,13 @@ const Settings = (() => {
   function _readCard(index) {
     const card = document.querySelector(`.model-card[data-index="${index}"]`);
     if (!card) return null;
+    // Vendor: the Quick Setup pick for a new card, else the stored provider.
+    // Sent explicitly so the server doesn't have to reverse-map the base_url.
+    const qsId = card.querySelector(".custom-select-option.selected")?.dataset.value;
+    const provider = (qsId && qsId !== "custom") ? qsId : (_models[index]?.provider || "");
     return {
       index,
+      provider,
       model:            card.querySelector(`[data-key="model"]`).value.trim(),
       base_url:         card.querySelector(`[data-key="base_url"]`).value.trim(),
       api_key:          card.querySelector(`[data-key="api_key"]`).value.trim(),
@@ -520,6 +542,7 @@ const Settings = (() => {
     // never be sent as api_key — the server treats it as "no change"
     // defensively, but the cleanest path is simply to omit it.
     const payload = {
+      provider:         updated.provider,
       model:            updated.model,
       base_url:         updated.base_url,
       anthropic_format: updated.anthropic_format,

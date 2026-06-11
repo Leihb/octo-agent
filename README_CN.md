@@ -73,9 +73,11 @@ octo --stream=false "..."
 # OpenAI / DeepSeek / 百炼（OpenAI 兼容）
 octo --provider openai --model gpt-4o-mini "..."
 
-# Anthropic 协议兼容的第三方（DeepSeek、Kimi 等）
-ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
-  octo --model deepseek-chat "..."
+# Anthropic 协议兼容的第三方（DeepSeek、Kimi 等）——自定义 base URL
+# 走 *_compatible 万能 vendor（也只有它们接受自定义端点）
+ANTHROPIC_COMPATIBLE_BASE_URL=https://api.deepseek.com/anthropic \
+ANTHROPIC_COMPATIBLE_API_KEY=sk-... \
+  octo --provider anthropic_compatible --model deepseek-chat "..."
 
 # 扩展推理：设置思考强度（Anthropic thinking / OpenAI reasoning_effort），
 # 并以暗色流式显示思考轨迹。--show-reasoning=false 可隐藏轨迹。

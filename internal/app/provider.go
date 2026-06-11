@@ -32,6 +32,10 @@ type Vendor struct {
 	APIKeyEnvVar     string            // environment variable name for the key
 	WebsiteURL       string            // link to the key-management page
 	EndpointVariants []EndpointVariant // regional endpoint alternatives
+	// CustomEndpoint marks a vendor with no fixed endpoint: the user must
+	// supply a base URL. Vendors without it are pinned to DefaultBaseURL
+	// (plus EndpointVariants) — they don't take arbitrary URLs.
+	CustomEndpoint bool
 }
 
 // Registry is the ordered list of supported vendors.  The order is the
@@ -150,15 +154,20 @@ var Registry = []Vendor{
 		WebsiteURL:     "https://console.anthropic.com/settings/keys",
 	},
 	{
-		ID:             "siliconflow",
-		DisplayName:    "SiliconFlow",
+		ID:             "bailian",
+		DisplayName:    "Bailian (Alibaba)",
 		Protocol:       "openai",
 		API:            "openai-completions",
-		DefaultBaseURL: "https://api.siliconflow.cn",
-		DefaultModel:   "deepseek-ai/DeepSeek-V3",
-		Models:         []string{"deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"},
-		APIKeyEnvVar:   "SILICONFLOW_API_KEY",
-		WebsiteURL:     "https://cloud.siliconflow.cn/account/ak",
+		DefaultBaseURL: "https://dashscope.aliyuncs.com/compatible-mode",
+		DefaultModel:   "qwen3.5-plus",
+		Models:         []string{"qwen3.7-max", "qwen3.5-plus", "qwen3.5-flash"},
+		LiteModel:      "qwen3.5-flash",
+		APIKeyEnvVar:   "DASHSCOPE_API_KEY",
+		WebsiteURL:     "https://bailian.console.aliyun.com",
+		EndpointVariants: []EndpointVariant{
+			{Label: "Mainland China", LabelKey: "settings.models.baseurl.variant.mainland_cn", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode", Region: "cn"},
+			{Label: "International", LabelKey: "settings.models.baseurl.variant.international", BaseURL: "https://dashscope-us.aliyuncs.com/compatible-mode", Region: "intl"},
+		},
 	},
 	{
 		ID:             "mistral",
@@ -172,16 +181,49 @@ var Registry = []Vendor{
 		WebsiteURL:     "https://console.mistral.ai/api-keys/",
 	},
 	{
-		ID:             "groq",
-		DisplayName:    "Groq",
+		ID:             "mimo",
+		DisplayName:    "MiMo (Xiaomi)",
 		Protocol:       "openai",
 		API:            "openai-completions",
-		DefaultBaseURL: "https://api.groq.com/openai",
-		DefaultModel:   "llama-4-scout",
-		Models:         []string{"llama-4-scout", "llama-4-maverick"},
-		APIKeyEnvVar:   "GROQ_API_KEY",
-		WebsiteURL:     "https://console.groq.com/keys",
+		DefaultBaseURL: "https://api.xiaomimimo.com",
+		DefaultModel:   "mimo-v2.5-pro",
+		Models:         []string{"mimo-v2.5-pro"},
+		APIKeyEnvVar:   "MIMO_API_KEY",
+		WebsiteURL:     "https://platform.xiaomimimo.com/#/console/api-keys",
 	},
+	{
+		ID:             ProviderOpenAICompatible,
+		DisplayName:    "OpenAI Compatible",
+		Protocol:       "openai",
+		API:            "openai-completions",
+		APIKeyEnvVar:   "OPENAI_COMPATIBLE_API_KEY",
+		CustomEndpoint: true,
+	},
+	{
+		ID:             ProviderAnthropicCompatible,
+		DisplayName:    "Anthropic Compatible",
+		Protocol:       "anthropic",
+		API:            "anthropic-messages",
+		APIKeyEnvVar:   "ANTHROPIC_COMPATIBLE_API_KEY",
+		CustomEndpoint: true,
+	},
+}
+
+// Catch-all vendor IDs for self-hosted / third-party endpoints speaking a
+// compatible protocol. They are the only vendors that accept a free-form
+// base URL (CustomEndpoint); a base URL is required to build their client.
+const (
+	ProviderOpenAICompatible    = "openai_compatible"
+	ProviderAnthropicCompatible = "anthropic_compatible"
+)
+
+// VendorCustomEndpoint reports whether the vendor has no fixed endpoint and
+// requires a user-supplied base URL.
+func VendorCustomEndpoint(id string) bool {
+	if v := vendorByID(id); v != nil {
+		return v.CustomEndpoint
+	}
+	return false
 }
 
 // vendorByID returns the vendor with the given ID, or nil if unknown.
