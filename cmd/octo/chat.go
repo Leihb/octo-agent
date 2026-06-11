@@ -529,6 +529,15 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			a.LiteModel = liteEntry.Model
 		}
 	}
+	if a.LiteSender == nil {
+		// No explicit lite entry — fall back to the vendor's registry lite
+		// model on the SAME sender, so compaction stays on the endpoint, key,
+		// and prompt cache the conversation is already using.
+		if lm := app.ImplicitLiteModel(provName, resolvedModel, resolveBaseURL(provName, entry)); lm != "" {
+			a.LiteSender = llmSender
+			a.LiteModel = lm
+		}
+	}
 
 	// Build the tool executor up-front (REPL mode only — single-turn mode
 	// doesn't dispatch tools) and register the sub-agent dispatcher BEFORE the

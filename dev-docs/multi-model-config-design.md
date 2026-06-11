@@ -187,8 +187,23 @@ micro-compaction is string-level and unaffected.
 
 Wiring: each transport that constructs an `Agent` resolves `lite_model` to an
 entry, builds its sender through the same cache/`app.NewSender` path, and sets
-the pair. No lite entry configured → fields stay nil and behaviour is
-identical to today.
+the pair.
+
+**Implicit lite.** When no `lite_model` entry is configured, the vendor's
+registry `LiteModel` (e.g. deepseek → `deepseek-v4-flash`,
+anthropic → `claude-haiku-4-5`) serves as the lite model, riding the
+session's **own sender** — same endpoint, key, and prompt-cache routing, so
+no extra credentials and, where the backend caches by shared prefix, the
+summarisation call can hit the cache the conversation already built.
+`app.ImplicitLiteModel(provider, model, baseURL)` resolves it and returns
+nothing when the vendor is unknown or has no `LiteModel`, when the primary
+model already is the lite model, or when the base URL points off the
+vendor's own endpoints — a custom endpoint is a different backend wearing a
+compatible protocol, and its catalogue won't include the vendor's lite
+model (the primary-sender retry would catch the failure, but there's no
+point sending a doomed call). An explicitly configured `lite_model` entry
+always wins. For a session bound to a config entry, the implicit lookup
+uses that entry's vendor and endpoint.
 
 ## Frontend
 

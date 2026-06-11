@@ -88,3 +88,35 @@ func TestVendorEnvVars(t *testing.T) {
 		}
 	}
 }
+
+func TestImplicitLiteModel(t *testing.T) {
+	cases := []struct {
+		name                     string
+		provider, model, baseURL string
+		want                     string
+	}{
+		{"deepseek pro gets flash", "deepseek", "deepseek-v4-pro", "", "deepseek-v4-flash"},
+		{"vendor default endpoint ok", "deepseek", "deepseek-v4-pro", "https://api.deepseek.com", "deepseek-v4-flash"},
+		{"anthropic gets haiku", "anthropic", "claude-sonnet-4-6", "", "claude-haiku-4-5"},
+		{"already on the lite model", "deepseek", "deepseek-v4-flash", "", ""},
+		{"custom endpoint is a different backend", "openai", "gpt-5.4", "https://dashscope.example/v1", ""},
+		{"unknown vendor", "bogus", "m", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ImplicitLiteModel(tc.provider, tc.model, tc.baseURL); got != tc.want {
+				t.Errorf("ImplicitLiteModel(%q, %q, %q) = %q, want %q", tc.provider, tc.model, tc.baseURL, got, tc.want)
+			}
+		})
+	}
+
+	// A vendor without a LiteModel in the registry yields no implicit lite.
+	for _, v := range Registry {
+		if v.LiteModel == "" {
+			if got := ImplicitLiteModel(v.ID, v.DefaultModel, ""); got != "" {
+				t.Errorf("vendor %q has no LiteModel but ImplicitLiteModel = %q", v.ID, got)
+			}
+			break
+		}
+	}
+}

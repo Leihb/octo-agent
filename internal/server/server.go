@@ -90,6 +90,7 @@ type Server struct {
 	// agent factory state (resolved once at start)
 	sender         agent.Sender
 	model          string
+	provider       string
 	system         string
 	skillReg       *skills.Registry
 	skillsManifest string
@@ -218,7 +219,7 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 
-	sender, model, err := resolveProviderAndModel(cfg.Provider, cfg.Model)
+	sender, model, provName, err := resolveProviderAndModel(cfg.Provider, cfg.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -254,6 +255,7 @@ func New(cfg Config) (*Server, error) {
 		mux:              http.NewServeMux(),
 		sender:           sender,
 		model:            model,
+		provider:         provName,
 		system:           cfg.System,
 		skillReg:         skillReg,
 		skillsManifest:   skillsManifest,
@@ -607,6 +609,19 @@ func (s *Server) buildAgent(sess *agent.Session) *agent.Agent {
 	a.MaxTokens = s.cfg.MaxTokens
 	if cfg, err := config.Load(); err == nil {
 		a.LiteSender, a.LiteModel = s.liteSenderFromConfig(cfg)
+		if a.LiteSender == nil {
+			// No explicit lite entry — fall back to the vendor's registry
+			// lite model on the session's OWN sender, keeping compaction on
+			// the endpoint, key, and prompt cache the conversation uses.
+			prov, baseURL := s.provider, resolveBaseURL(s.provider, cfg)
+			if entry, ok := cfg.EntryByName(sess.ModelConfig); ok {
+				prov, baseURL = entry.Provider, entry.BaseURL
+			}
+			if lm := app.ImplicitLiteModel(prov, a.Model, baseURL); lm != "" {
+				a.LiteSender = sender
+				a.LiteModel = lm
+			}
+		}
 	}
 
 	// L1: project memory embedded in the system prompt (stable across turns).
@@ -666,10 +681,10 @@ func readBodyJSON(r *http.Request, v any) error {
 // the result to app.NewSender — internal/app is the single place that builds the
 // vendor client, so the server no longer imports internal/provider.
 
-func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, string, error) {
+func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, string, string, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, "", fmt.Errorf("load config: %w", err)
+		return nil, "", "", fmt.Errorf("load config: %w", err)
 	}
 
 	entry := cfg.DefaultEntry()
@@ -685,18 +700,18 @@ func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, stri
 		model = defaultModelFor(provName)
 	}
 	if model == "" {
-		return nil, "", fmt.Errorf("unknown provider %q", provName)
+		return nil, "", "", fmt.Errorf("unknown provider %q", provName)
 	}
 
 	apiKey, err := resolveAPIKey(provName, cfg)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	if apiKey == "" {
 		// No API key configured yet — server starts in onboarding mode.
 		// Chat endpoints will retry on every request until the user completes
 		// setup via the Web UI.
-		return nil, model, nil
+		return nil, model, provName, nil
 	}
 	sender, err := app.NewSender(app.SenderOptions{
 		Provider: provName,
@@ -704,9 +719,9 @@ func resolveProviderAndModel(flagProvider, flagModel string) (agent.Sender, stri
 		BaseURL:  resolveBaseURL(provName, cfg),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
-	return sender, model, nil
+	return sender, model, provName, nil
 }
 
 // resolveAPIKey returns the API key for the vendor: the provider's env var,
@@ -881,7 +896,7 @@ func (s *Server) ensureSender() error {
 	if s.sender != nil {
 		return nil
 	}
-	sender, model, err := resolveProviderAndModel(s.cfg.Provider, s.cfg.Model)
+	sender, model, provName, err := resolveProviderAndModel(s.cfg.Provider, s.cfg.Model)
 	if err != nil {
 		return err
 	}
@@ -890,6 +905,7 @@ func (s *Server) ensureSender() error {
 	}
 	s.sender = sender
 	s.model = model
+	s.provider = provName
 	if s.cfg.Tools {
 		s.enableSubAgentTools()
 	}
@@ -1077,6 +1093,12 @@ func (s *Server) initChannels() {
 		a.System = prompt.Compose(s.system, s.cwd, s.envCtx, s.skillsManifest, memInjection, true)
 		if cfg, err := config.Load(); err == nil {
 			a.LiteSender, a.LiteModel = s.liteSenderFromConfig(cfg)
+			if a.LiteSender == nil {
+				if lm := app.ImplicitLiteModel(s.provider, s.model, resolveBaseURL(s.provider, cfg)); lm != "" {
+					a.LiteSender = s.sender
+					a.LiteModel = lm
+				}
+			}
 		}
 		return a
 	}

@@ -265,6 +265,26 @@ func IsKnownVendor(id string) bool {
 	return vendorByID(id) != nil
 }
 
+// ImplicitLiteModel returns the lite model a session should compact on when
+// the user configured none explicitly: the vendor's registry LiteModel,
+// served over the SAME sender as the primary model — same endpoint, key, and
+// prompt-cache routing. It returns "" (no implicit lite) when:
+//   - the vendor is unknown or has no LiteModel,
+//   - the primary model already IS the lite model, or
+//   - baseURL points off the vendor's own endpoints — a custom endpoint is a
+//     different backend wearing a compatible protocol, and its catalogue
+//     won't include the vendor's lite model.
+func ImplicitLiteModel(provider, model, baseURL string) string {
+	v := vendorByID(provider)
+	if v == nil || v.LiteModel == "" || v.LiteModel == model {
+		return ""
+	}
+	if baseURL != "" && VendorByBaseURL(baseURL) != provider {
+		return ""
+	}
+	return v.LiteModel
+}
+
 // VendorByBaseURL returns the vendor whose default endpoint or one of whose
 // regional variants equals baseURL (ignoring a trailing slash), or "". The
 // settings panel saves entries without naming a vendor, so the server infers

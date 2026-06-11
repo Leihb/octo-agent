@@ -354,3 +354,76 @@ func TestConfigModels_SetLiteToggles(t *testing.T) {
 		t.Errorf("set-lite unknown id = %d, want 404", w.Code)
 	}
 }
+
+func TestBuildAgent_ImplicitLiteFromVendorRegistry(t *testing.T) {
+	setTestHome(t)
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0"})
+	srv.provider = "deepseek"
+	srv.model = "deepseek-v4-pro"
+
+	// Unbound session, no explicit lite entry → vendor's registry lite model
+	// on the same (default) sender.
+	sess := agent.NewSession("deepseek-v4-pro", "")
+	a := srv.buildAgent(sess)
+	if a.LiteModel != "deepseek-v4-flash" {
+		t.Errorf("LiteModel = %q, want deepseek-v4-flash", a.LiteModel)
+	}
+	if a.LiteSender == nil || a.LiteSender != srv.sender {
+		t.Error("implicit lite must reuse the session's own sender")
+	}
+
+	// Already on the lite model → no implicit lite.
+	srv.model = "deepseek-v4-flash"
+	sess2 := agent.NewSession("deepseek-v4-flash", "")
+	if a2 := srv.buildAgent(sess2); a2.LiteSender != nil {
+		t.Errorf("no implicit lite expected when primary IS the lite model, got %q", a2.LiteModel)
+	}
+}
+
+func TestBuildAgent_ExplicitLiteBeatsImplicit(t *testing.T) {
+	setTestHome(t)
+	seedModels(t, config.Config{
+		Models: []config.ModelEntry{
+			{Name: "main", Provider: "deepseek", Model: "deepseek-v4-pro", APIKey: "sk-x"},
+			{Name: "cheap", Provider: "kimi", Model: "kimi-k2.5", APIKey: "sk-y"},
+		},
+		DefaultModel: "main",
+		LiteModel:    "cheap",
+	})
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0"})
+	srv.provider = "deepseek"
+	srv.model = "deepseek-v4-pro"
+
+	sess := agent.NewSession("deepseek-v4-pro", "")
+	a := srv.buildAgent(sess)
+	if a.LiteModel != "kimi-k2.5" {
+		t.Errorf("LiteModel = %q, want the explicit entry kimi-k2.5", a.LiteModel)
+	}
+	if a.LiteSender == srv.sender {
+		t.Error("explicit lite entry must get its own sender, not the default one")
+	}
+}
+
+func TestBuildAgent_ImplicitLiteForBoundSession(t *testing.T) {
+	setTestHome(t)
+	seedModels(t, config.Config{
+		Models: []config.ModelEntry{
+			{Name: "main", Provider: "anthropic", Model: "claude-sonnet-4-6", APIKey: "sk-a"},
+			{Name: "ds", Provider: "deepseek", Model: "deepseek-v4-pro", APIKey: "sk-d"},
+		},
+		DefaultModel: "main",
+	})
+	srv := mustServer(t, Config{Addr: "127.0.0.1:0"})
+	srv.provider = "anthropic"
+	srv.model = "claude-sonnet-4-6"
+
+	sess := agent.NewSession("deepseek-v4-pro", "")
+	sess.ModelConfig = "ds"
+	a := srv.buildAgent(sess)
+	if a.LiteModel != "deepseek-v4-flash" {
+		t.Errorf("LiteModel = %q, want deepseek-v4-flash from the bound entry's vendor", a.LiteModel)
+	}
+	if a.LiteSender == nil || a.LiteSender != a.Sender {
+		t.Error("bound session's implicit lite must reuse that session's sender")
+	}
+}
