@@ -58,6 +58,10 @@ type wsMsgRetry struct {
 	SessionID string `json:"session_id"`
 }
 
+type wsMsgRollback struct {
+	SessionID string `json:"session_id"`
+}
+
 type wsMsgRunTask struct {
 	SessionID string `json:"session_id"`
 }

@@ -303,6 +303,13 @@ func (c *wsConn) dispatch(msgType string, raw []byte) {
 		}
 		c.hub.s.handleWSRetry(c, msg.SessionID)
 
+	case "rollback":
+		var msg wsMsgRollback
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			return
+		}
+		c.hub.s.handleWSRollback(c, msg.SessionID)
+
 	case "run_task":
 		var msg wsMsgRunTask
 		if err := json.Unmarshal(raw, &msg); err != nil {
@@ -342,6 +349,7 @@ type wsHubOwner interface {
 	handleWSUserMessage(conn *wsConn, msg *wsMsgUserMessage)
 	handleWSInterrupt(sessionID string)
 	handleWSRetry(conn *wsConn, sessionID string)
+	handleWSRollback(conn *wsConn, sessionID string)
 	handleWSRunTask(conn *wsConn, sessionID string)
 	handleWSConfirmation(confID, result string)
 	handleWSUserQuestionAnswer(qid string, choices []string, custom string, cancelled bool)

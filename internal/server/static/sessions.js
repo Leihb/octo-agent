@@ -1480,6 +1480,7 @@ const Sessions = (() => {
         if (!hasText && !hasImages) break;
         const el = document.createElement("div");
         el.className = "msg msg-user";
+        el.dataset.raw = ev.content || "";
         // Render image thumbnails and PDF badges (if any) followed by the text content
         let bubbleHtml = "";
         if (hasImages) {
@@ -1704,6 +1705,7 @@ const Sessions = (() => {
           marker.textContent = I18n.t("chat.history_start");
           messages.insertBefore(marker, messages.firstChild);
         }
+        _refreshMessageActions();
 
         // Restore transient UI state based on session status after initial load
         // (not prepend, which is scroll-up pagination — no need to re-restore then)
@@ -1805,6 +1807,78 @@ const Sessions = (() => {
       `</svg>`;
     el.appendChild(btn);
     _ensureCopyDelegation();
+  }
+
+  // ── Retry / edit-resend actions on the latest bubbles ───────────────────
+  //
+  // Retry re-runs the last turn (the server strips the last assistant reply
+  // and resends the same prompt); edit pulls the last user message back into
+  // the composer and rolls the turn back so the edited text goes out as a
+  // fresh turn. Only the LATEST bubbles carry the buttons — acting on an
+  // older turn would silently discard everything after it. The server still
+  // gates both against a running turn.
+
+  const RETRY_SVG =
+    `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">` +
+      `<path fill="currentColor" d="M8 3a5 5 0 1 0 4.546 2.914.75.75 0 0 1 1.364-.626A6.5 6.5 0 1 1 8 1.5V0l3.25 2.25L8 4.5V3z"/>` +
+    `</svg>`;
+  const EDIT_SVG =
+    `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">` +
+      `<path fill="currentColor" d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086zM11.189 6.25 9.75 4.81l-6.286 6.287a.25.25 0 0 0-.064.108l-.558 1.953 1.953-.558a.25.25 0 0 0 .108-.064l6.286-6.286z"/>` +
+    `</svg>`;
+
+  function _msgActionBtn(cls, label, svg) {
+    const btn = document.createElement("button");
+    btn.type      = "button";
+    btn.className = `msg-action-btn ${cls}`;
+    btn.setAttribute("aria-label", label);
+    btn.title     = label;
+    btn.innerHTML = svg;
+    return btn;
+  }
+
+  function _refreshMessageActions() {
+    const messages = $("messages");
+    if (!messages) return;
+    messages.querySelectorAll(".msg-action-btn").forEach(b => b.remove());
+    const assistants = messages.querySelectorAll(".msg-assistant:not(.msg-streaming)");
+    if (assistants.length) {
+      assistants[assistants.length - 1]
+        .appendChild(_msgActionBtn("msg-retry-btn", I18n.t("chat.retry"), RETRY_SVG));
+    }
+    const users = messages.querySelectorAll(".msg-user:not(.msg-pending)");
+    if (users.length) {
+      users[users.length - 1]
+        .appendChild(_msgActionBtn("msg-edit-btn", I18n.t("chat.edit_resend"), EDIT_SVG));
+    }
+    _ensureActionDelegation();
+  }
+
+  let _actionDelegationInstalled = false;
+  function _ensureActionDelegation() {
+    if (_actionDelegationInstalled) return;
+    const messages = $("messages");
+    if (!messages) return;
+    _actionDelegationInstalled = true;
+    messages.addEventListener("click", (e) => {
+      if (!_activeId) return;
+      if (e.target.closest(".msg-retry-btn")) {
+        WS.send({ type: "retry", session_id: _activeId });
+        return;
+      }
+      const editBtn = e.target.closest(".msg-edit-btn");
+      if (editBtn) {
+        const bubble = editBtn.closest(".msg-user");
+        const raw = (bubble && bubble.dataset.raw) || "";
+        const input = $("user-input");
+        if (input) {
+          input.value = raw;
+          input.dispatchEvent(new Event("input", { bubbles: true })); // autosize
+          input.focus();
+        }
+        WS.send({ type: "rollback", session_id: _activeId });
+      }
+    });
   }
 
   // Install the click-delegation listener on #messages exactly once.
@@ -3336,7 +3410,7 @@ const Sessions = (() => {
       _pendingDiff = null;
     },
 
-    appendMsg(type, html, { time } = {}) {
+    appendMsg(type, html, { time, raw } = {}) {
       // Skip empty assistant messages — don't render an air bubble.
       if (type === "assistant" && (!html || !html.trim())) return;
 
@@ -3365,6 +3439,9 @@ const Sessions = (() => {
         el.innerHTML = html;
       }
       if (type === "user" && time) _appendMsgTime(el, time);
+      // Stash the raw typed text so the edit-resend button can pull it back
+      // into the composer verbatim (textContent would include timestamps).
+      if (type === "user" && raw) el.dataset.raw = raw;
 
       // For error messages, add a retry button
       if (type === "error") {
@@ -3401,6 +3478,7 @@ const Sessions = (() => {
         _userScrolledUp = false; // reset so new user message is always visible
       }
       _scrollToBottomIfNeeded(messages);
+      if (type === "user" || type === "assistant") _refreshMessageActions();
     },
 
     appendInfo(text, subline) {
@@ -3590,6 +3668,7 @@ const Sessions = (() => {
         _appendCopyButton(state.el);
         _scrollToBottomIfNeeded($("messages"));
         Sessions._clearLiveAssistant(sid);
+        _refreshMessageActions();
         return;
       }
 
@@ -3604,6 +3683,7 @@ const Sessions = (() => {
         _appendCopyButton(el);
         messages.appendChild(el);
         _scrollToBottomIfNeeded(messages);
+        _refreshMessageActions();
       } else {
         Sessions.appendMsg("assistant", content);
       }
@@ -4008,6 +4088,13 @@ const Sessions = (() => {
 
     /** Load the most recent page of history for a session (called on first visit). */
     loadHistory(id) {
+      return _fetchHistory(id, null, false);
+    },
+
+    /** Clear the pane and re-fetch from the API — used after a server-side
+        history rollback (retry / edit-resend) so the DOM matches the file. */
+    reloadHistory(id) {
+      _restoreMessages(id);
       return _fetchHistory(id, null, false);
     },
 

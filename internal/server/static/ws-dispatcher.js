@@ -215,7 +215,15 @@ WS.onEvent(ev => {
         if (ev.content) userHtml += "<br>";
       }
       userHtml += escapeHtml(ev.content || "");
-      Sessions.appendMsg("user", userHtml, { time: ev.created_at });
+      Sessions.appendMsg("user", userHtml, { time: ev.created_at, raw: ev.content || "" });
+      break;
+
+    case "history_rollback":
+      // The server stripped the transcript tail (retry / edit-resend).
+      // Re-render from the API so the DOM matches before any new turn's
+      // events stream in.
+      if (ev.session_id !== Sessions.activeId) break;
+      Sessions.reloadHistory(ev.session_id);
       break;
 
     case "pending_user_messages":

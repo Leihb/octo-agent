@@ -1731,6 +1731,37 @@ body {
 }
 .msg-assistant:hover .msg-copy-btn,
 .msg-copy-btn:focus-visible { opacity: 1; }
+
+/* Retry / edit-resend buttons on the latest bubbles — same hover-reveal
+   pattern as the copy button. Retry sits left of copy on the assistant
+   bubble; edit is the lone button on the user bubble. */
+.msg-action-btn {
+  position: absolute;
+  top: 0.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  padding: 0;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 5px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.msg-retry-btn { right: 2.25rem; }
+.msg-edit-btn  { right: 0.375rem; }
+.msg-assistant:hover .msg-retry-btn,
+.msg-user:hover .msg-edit-btn,
+.msg-action-btn:focus-visible { opacity: 1; }
+.msg-action-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-tertiary);
+}
+.msg-action-btn:active { transform: translateY(1px); }
 .msg-copy-btn:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-tertiary);

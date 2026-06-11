@@ -301,6 +301,50 @@ func (s *Server) handleWSInterrupt(sessionID string) {
 	})
 }
 
+// lastVisibleUserIdx returns the index of the most recent user message that
+// is a real prompt: not a tool_result carrier, with user-visible text (after
+// stripping <system-reminder> spans) or an image attachment. -1 if none.
+// Backwards-scanning for RoleUser alone would land on the tool_result carrier
+// of an agentic turn and "retry" an empty message.
+func lastVisibleUserIdx(msgs []agent.Message) int {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		if m.Role != agent.RoleUser {
+			continue
+		}
+		carrier, hasImage := false, false
+		text := m.Content
+		for _, b := range m.Blocks {
+			switch b.Type {
+			case "tool_result":
+				carrier = true
+			case "image":
+				hasImage = true
+			case "text":
+				if text == "" {
+					text = b.Text
+				}
+			}
+		}
+		if carrier {
+			continue
+		}
+		if hasImage || strings.TrimSpace(agent.StripSystemReminders(text)) != "" {
+			return i
+		}
+	}
+	return -1
+}
+
+// broadcastRollback tells subscribed browsers the transcript tail was
+// stripped, so they re-render from the API before any new events stream in.
+func (s *Server) broadcastRollback(sessionID string) {
+	s.wsHub.broadcast(sessionID, map[string]string{
+		"type":       "history_rollback",
+		"session_id": sessionID,
+	})
+}
+
 // handleWSRetry re-runs the last turn by stripping the last assistant reply
 // from the session and resending the last user message.
 func (s *Server) handleWSRetry(conn *wsConn, sessionID string) {
@@ -313,14 +357,8 @@ func (s *Server) handleWSRetry(conn *wsConn, sessionID string) {
 		return
 	}
 
-	// Find the last user message and strip everything after it.
-	lastUserIdx := -1
-	for i := len(sess.Messages) - 1; i >= 0; i-- {
-		if sess.Messages[i].Role == agent.RoleUser {
-			lastUserIdx = i
-			break
-		}
-	}
+	// Find the last real user prompt and strip everything from it on.
+	lastUserIdx := lastVisibleUserIdx(sess.Messages)
 	if lastUserIdx < 0 {
 		s.wsHub.broadcast(sessionID, map[string]string{
 			"type":    "error",
@@ -344,6 +382,7 @@ func (s *Server) handleWSRetry(conn *wsConn, sessionID string) {
 	userMsg := sess.Messages[lastUserIdx]
 	sess.Messages = sess.Messages[:lastUserIdx]
 	_ = sess.Save()
+	s.broadcastRollback(sessionID)
 
 	// A multipart user message (image attachments) keeps its text in a text
 	// block; re-attach the image blocks (rehydrated by LoadSession) so the
@@ -373,6 +412,47 @@ func (s *Server) handleWSRetry(conn *wsConn, sessionID string) {
 		}()
 		s.runAgentTurnLoop(sess, content, blocks, images)
 	}()
+}
+
+// handleWSRollback strips the last turn — the last real user prompt and
+// everything after it — without re-running. This is the edit-and-resend flow:
+// the browser pulls the original text into the composer before sending
+// rollback, the transcript re-renders without the turn, and the edited
+// message arrives as a fresh user_message.
+func (s *Server) handleWSRollback(conn *wsConn, sessionID string) {
+	sess, err := agent.LoadSession(sessionID)
+	if err != nil {
+		s.wsHub.broadcast(sessionID, map[string]string{
+			"type":    "error",
+			"message": "session not found",
+		})
+		return
+	}
+
+	lastUserIdx := lastVisibleUserIdx(sess.Messages)
+	if lastUserIdx < 0 {
+		s.wsHub.broadcast(sessionID, map[string]string{
+			"type":    "error",
+			"message": "no user message to roll back",
+		})
+		return
+	}
+
+	mu := s.sessionTurnLock(sess.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if s.turnRunning[sess.ID] {
+		s.wsHub.broadcast(sessionID, map[string]string{
+			"type":    "error",
+			"message": "Cannot edit while a turn is running. Please interrupt first.",
+		})
+		return
+	}
+
+	sess.Messages = sess.Messages[:lastUserIdx]
+	_ = sess.Save()
+	s.broadcastRollback(sessionID)
 }
 
 // handleWSRunTask triggers a scheduled task run immediately from the Web UI.
