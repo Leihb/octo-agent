@@ -55,13 +55,17 @@ func (t TerminalTool) managerFor(ctx context.Context) *BackgroundManager {
 func (TerminalTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name:        "terminal",
-		Description: "Run a shell command in the system shell (POSIX sh on macOS/Linux, PowerShell on Windows — see the Shell line in the environment context) and return stdout+stderr. Use for file operations, running programs, etc. Prefer dedicated tools (read_file, write_file, edit_file, glob, grep) over raw shell commands when they exist.\n\nChoosing sync vs background:\n- Default (no run_in_background): runs synchronously with a 120s timeout. Use for fast commands whose output you need immediately (e.g. `ls`, `git status`, `grep`, short scripts).\n- run_in_background:true — ONE-SHOT tasks (compiling, testing, installing, building, linting, CI checks): detaches immediately, returns a process id. The system automatically notifies you on completion. DO NOT poll terminal_output.\n- run_in_background:true — LONG-RUNNING services (servers, watchers, docker compose up): detaches immediately, returns a process id. After launch, verify the service with an external check (e.g., `curl http://localhost:PORT`, `pgrep`) rather than polling terminal_output. Use terminal_output only to inspect startup logs or diagnose issues — do not call it in a tight loop.\n\nBuffering: the process is connected via pipes, not a terminal, so stdio block-buffers its output — a chatty program's logs can sit unflushed and invisible to terminal_output for a long time. On macOS/Linux, when you will want live logs, prefix the command with `stdbuf -oL` (e.g. `stdbuf -oL npm run dev`) to force line buffering.",
+		Description: "Run a shell command in the system shell (POSIX sh on macOS/Linux, PowerShell on Windows — see the Shell line in the environment context) and return stdout+stderr. Use for file operations, running programs, etc. Prefer dedicated tools (read_file, write_file, edit_file, glob, grep) over raw shell commands when they exist.\n\nChoosing sync vs background:\n- Default (no run_in_background): runs synchronously with a 120s timeout. Use for fast commands whose output you need immediately (e.g. `ls`, `git status`, `grep`, short scripts).\n- run_in_background:true — ONE-SHOT tasks (compiling, testing, installing, building, linting, CI checks): detaches immediately, returns a process id. The system automatically notifies you on completion. DO NOT poll terminal_output.\n- run_in_background:true — LONG-RUNNING services (servers, watchers, docker compose up): detaches immediately, returns a process id. After launch, verify the service with an external check (e.g., `curl http://localhost:PORT`, `pgrep`) rather than polling terminal_output. Use terminal_output only to inspect startup logs or diagnose issues — do not call it in a tight loop.\n\nBuffering: the process is connected via pipes, not a terminal, so stdio block-buffers its output — a chatty program's logs can sit unflushed and invisible to terminal_output for a long time. On macOS/Linux, when you will want live logs, prefix the command with `stdbuf -oL` (e.g. `stdbuf -oL npm run dev`) to force line buffering.\n\nTo feed text to a command's stdin, pass it via the stdin parameter instead of embedding it in the command string — embedded text gets interpreted by the shell (backticks, quotes, $), stdin is delivered verbatim.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{
 					"type":        "string",
 					"description": "The shell command to execute",
+				},
+				"stdin": map[string]any{
+					"type":        "string",
+					"description": "Text piped verbatim to the command's stdin, which is then closed (EOF). Use this — not interpolation into the command string — to pass long or special-character text (quotes, backticks, $) to commands that read stdin, e.g. `gh pr create --body-file -`, `git apply -`, `python script.py`.",
 				},
 				"run_in_background": map[string]any{
 					"type":        "boolean",
@@ -145,11 +149,14 @@ func (t TerminalTool) ExecuteStream(
 		if err != nil {
 			return agent.ToolResult{Text: ""}, err
 		}
+		var stdinWarn string
 		if stdinText != "" {
-			t.managerFor(ctx).WriteStdinAndClose(id, stdinText)
+			if werr := t.managerFor(ctx).WriteStdinAndClose(id, stdinText); werr != nil {
+				stdinWarn = stdinWriteWarning(werr)
+			}
 		}
 		return agent.ToolResult{
-			Text: fmt.Sprintf("Started background process %s.\n\n%s", id, BgPollNotice),
+			Text: fmt.Sprintf("Started background process %s.%s\n\n%s", id, stdinWarn, BgPollNotice),
 			UI:   terminalUI(command, "running", fmt.Sprintf("background process %s", id)),
 		}, nil
 	}
@@ -186,12 +193,16 @@ func (t TerminalTool) ExecuteStream(
 	if err != nil {
 		return agent.ToolResult{Text: ""}, err
 	}
+	var stdinWarn string
 	if stdinText != "" {
-		t.managerFor(ctx).WriteStdinAndClose(id, stdinText)
+		if werr := t.managerFor(ctx).WriteStdinAndClose(id, stdinText); werr != nil {
+			stdinWarn = stdinWriteWarning(werr)
+		}
 	}
 
 	// snapshot returns the collected output so far, tab-expanded and with the
-	// truncation marker prepended when the cap dropped earlier bytes.
+	// truncation marker prepended when the cap dropped earlier bytes. The
+	// stdin-write warning (if any) is appended so every return path carries it.
 	snapshot := func() string {
 		outMu.Lock()
 		body := strings.TrimRight(string(out), "\n")
@@ -201,7 +212,7 @@ func (t TerminalTool) ExecuteStream(
 		if d {
 			body = "[... earlier output truncated ...]\n" + body
 		}
-		return body
+		return body + stdinWarn
 	}
 
 	// Poll until the process exits or the timeout fires.
@@ -248,6 +259,15 @@ func (t TerminalTool) ExecuteStream(
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// stdinWriteWarning formats a WriteStdinAndClose failure for the tool result.
+// It is a warning rather than a hard error: a fast-exiting process that never
+// reads stdin (or closes it early, like `head`) loses the race with the write,
+// and the command's own output/exit status is the authoritative signal — but
+// the model must still learn the text was not delivered.
+func stdinWriteWarning(err error) string {
+	return fmt.Sprintf("\n[warning: writing stdin failed: %v — the command ran without the stdin text]", err)
 }
 
 // terminalUI builds the "terminal" UI payload. The preview keeps the TAIL of

@@ -31,6 +31,9 @@ func TestTerminalTool_Definition(t *testing.T) {
 	if _, ok := props["command"]; !ok {
 		t.Error("Parameters.properties.command should exist")
 	}
+	if _, ok := props["stdin"]; !ok {
+		t.Error("Parameters.properties.stdin should exist — the executor reads it, so the schema must declare it or the model never sends it")
+	}
 	req, ok := def.Parameters["required"].([]string)
 	if !ok {
 		t.Fatal("Parameters.required is not []string")
@@ -436,7 +439,7 @@ func TestTerminalTool_Stdin_Background(t *testing.T) {
 
 	stdinBody := "hello stdin\n"
 
-	id, err := term.ExecuteStream(context.Background(), "terminal", map[string]any{
+	res, err := term.ExecuteStream(context.Background(), "terminal", map[string]any{
 		"command":           "cat",
 		"run_in_background": true,
 		"stdin":             stdinBody,
@@ -444,21 +447,32 @@ func TestTerminalTool_Stdin_Background(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteStream bg: %v", err)
 	}
-	if !strings.Contains(id.Text, "Started background process") {
-		t.Fatalf("expected background start, got: %s", id.Text)
+	if !strings.Contains(res.Text, "Started background process") {
+		t.Fatalf("expected background start, got: %s", res.Text)
 	}
+	// Extract the process id from "Started background process <id>."
+	id := strings.TrimPrefix(res.Text, "Started background process ")
+	id = strings.SplitN(id, ".", 2)[0]
 
-	// Wait for process to finish
-	for i := 0; i < 50; i++ {
-		out, status, _, _ := mgr.Read("bg_1")
+	// Wait for the process to finish, accumulating output as we poll —
+	// Read is cursor-advancing, so each call returns only the new chunk.
+	var out string
+	exited := false
+	for i := 0; i < 100; i++ {
+		chunk, status, _, _ := mgr.Read(id)
+		out += chunk
 		if strings.HasPrefix(status, "exited") {
-			if out != stdinBody {
-				t.Errorf("bg stdin should reach process verbatim.\ngot:  %q\nwant: %q", out, stdinBody)
-			}
+			exited = true
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	if !exited {
+		t.Fatal("background cat did not exit — stdin EOF likely never delivered")
+	}
+	if out != stdinBody {
+		t.Errorf("bg stdin should reach process verbatim.\ngot:  %q\nwant: %q", out, stdinBody)
+	}
 
-	kill.Execute(context.Background(), "kill_shell", map[string]any{"id": "bg_1"})
+	kill.Execute(context.Background(), "kill_shell", map[string]any{"id": id})
 }
