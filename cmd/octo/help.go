@@ -129,7 +129,6 @@ Environment:
 Run "octo chat --help" for the full flag list.`)
 }
 
-
 func memoryHelp(w io.Writer) {
 	fmt.Fprintln(w, `octo memory — locate and inspect cross-session memory.
 

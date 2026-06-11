@@ -129,7 +129,6 @@ func TestCompletionCandidates_SessionIDsAfterDashC(t *testing.T) {
 	}
 }
 
-
 func TestCompletionCandidates_HelpTargets(t *testing.T) {
 	got := completionCandidates([]string{"octo", "help", ""})
 	want := []string{"chat", "config", "memory", "init", "completion", "mcp"}
