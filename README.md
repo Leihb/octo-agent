@@ -56,44 +56,44 @@ octo config
 # Headless one-shot (claude -p style): one prompt → full agentic tool loop → exit.
 # Built-in tools (shell, read/edit files, search), MCP servers, and skills are
 # all on by default, so a single message can actually do work.
-octo chat "Add a --json flag to 'octo config show' and run the tests"
+octo "Add a --json flag to 'octo config show' and run the tests"
 
 # The prompt can also come from a pipe or a file — handy for scripts / CI:
-echo "Summarise what changed in the last commit" | octo chat
-octo chat --prompt-file ./task.md
+echo "Summarise what changed in the last commit" | octo
+octo --prompt-file ./task.md
 
 # Interactive multi-turn: run octo in a terminal with no message to get the TUI
 # (rich tool cards, session auto-saved). Resume a previous session with -c.
-octo chat
-octo chat --list-sessions
-octo chat -c <session-id>
+octo
+octo --list-sessions
+octo -c <session-id>
 
 # Streaming on by default; --stream=false buffers and prints only the final
 # reply text (clean for capturing into a file).
-octo chat --stream=false "..."
+octo --stream=false "..."
 
 # OpenAI / DeepSeek / Bailian (OpenAI-compatible)
-octo chat --provider openai --model gpt-4o-mini "..."
+octo --provider openai --model gpt-4o-mini "..."
 
 # Anthropic-compatible third parties (DeepSeek, Kimi, etc.)
 ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
-  octo chat --model deepseek-chat "..."
+  octo --model deepseek-chat "..."
 
 # Extended reasoning: set the intensity (Anthropic thinking / OpenAI reasoning_effort)
 # and stream the dimmed thinking trace. --show-reasoning=false hides the trace.
-octo chat --reasoning-effort high "..."
+octo --reasoning-effort high "..."
 
 # Plain chat with no tools / MCP / skills
-octo chat --no-tools "..."
+octo --no-tools "..."
 
 # Sandbox the tool commands: confine the terminal tool to the project dir + tmp, no network
-octo chat --sandbox "..."
+octo --sandbox "..."
 
 # Generate a .octorules guide for this repo
 octo init
 
 # List discovered skills
-octo chat --list-skills
+octo --list-skills
 
 # Web server + dashboard (binds localhost by default)
 octo serve --addr 127.0.0.1:8080
@@ -125,7 +125,7 @@ This unifies Anthropic `thinking` blocks and OpenAI `reasoning_content` behind o
 
 ### Defaults (`octo config`)
 
-`octo config` saves your default provider, model, (optionally) base URL, and reasoning settings to `~/.octo/config.yaml`, so a bare `octo chat` works without re-typing `--provider`/`--model` every time:
+`octo config` saves your default provider, model, (optionally) base URL, and reasoning settings to `~/.octo/config.yaml`, so a bare `octo` works without re-typing `--provider`/`--model` every time:
 
 ```bash
 octo config        # interactive wizard
@@ -152,17 +152,17 @@ description: Review the current diff for correctness and style
 Walk the diff hunk by hunk and flag correctness bugs first, then style.
 ```
 
-At session start Octo lists each skill's name and description in the system prompt; the model loads a skill's full instructions on demand (via the `skill` tool) when a task matches. You can also trigger one explicitly — `octo chat --list-skills` to see what's discovered, then `/skills` to list and `/<name>` (e.g. `/review`) to run one in the TUI.
+At session start Octo lists each skill's name and description in the system prompt; the model loads a skill's full instructions on demand (via the `skill` tool) when a task matches. You can also trigger one explicitly — `octo --list-skills` to see what's discovered, then `/skills` to list and `/<name>` (e.g. `/review`) to run one in the TUI.
 
 ## Sandboxing
 
 `--sandbox` confines the `terminal` tool to the project directory plus temp, with no network, enforced by the OS (macOS Seatbelt, Linux Landlock + seccomp). It's off by default and fails closed when the OS mechanism is unavailable.
 
 ```bash
-octo chat --sandbox                              # confine, deny network
-octo chat --sandbox --sandbox-allow-net          # allow network
-octo chat --sandbox --sandbox-write ./build      # extra writable dir (repeatable)
-octo chat --sandbox --sandbox-read /opt/data     # extra readable dir (repeatable)
+octo --sandbox                              # confine, deny network
+octo --sandbox --sandbox-allow-net          # allow network
+octo --sandbox --sandbox-write ./build      # extra writable dir (repeatable)
+octo --sandbox --sandbox-read /opt/data     # extra readable dir (repeatable)
 ```
 
 ## Platform notes

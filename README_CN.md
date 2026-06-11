@@ -55,43 +55,43 @@ octo config
 # Headless 单发（claude -p 风格）：一个 prompt → 完整 agentic 工具循环 → 退出。
 # 内置工具（shell、读写改文件、搜索）、MCP 服务、skills 全部默认开启，
 # 所以一条消息就能真正干活。
-octo chat "给 'octo config show' 加一个 --json 标志，然后跑测试"
+octo "给 'octo config show' 加一个 --json 标志，然后跑测试"
 
 # prompt 也可以来自管道或文件 —— 方便脚本 / CI：
-echo "总结一下最近一次提交改了什么" | octo chat
-octo chat --prompt-file ./task.md
+echo "总结一下最近一次提交改了什么" | octo
+octo --prompt-file ./task.md
 
 # 交互多轮：在终端里不带消息直接运行 octo 进入 TUI（富工具卡片、自动保存
 # session）。用 -c 恢复历史 session。
-octo chat
-octo chat --list-sessions
-octo chat -c <session-id>
+octo
+octo --list-sessions
+octo -c <session-id>
 
 # 默认流式输出；--stream=false 改为缓冲、只打印最终回复文本（便于重定向到文件捕获）。
-octo chat --stream=false "..."
+octo --stream=false "..."
 
 # OpenAI / DeepSeek / 百炼（OpenAI 兼容）
-octo chat --provider openai --model gpt-4o-mini "..."
+octo --provider openai --model gpt-4o-mini "..."
 
 # Anthropic 协议兼容的第三方（DeepSeek、Kimi 等）
 ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
-  octo chat --model deepseek-chat "..."
+  octo --model deepseek-chat "..."
 
 # 扩展推理：设置思考强度（Anthropic thinking / OpenAI reasoning_effort），
 # 并以暗色流式显示思考轨迹。--show-reasoning=false 可隐藏轨迹。
-octo chat --reasoning-effort high "..."
+octo --reasoning-effort high "..."
 
 # 纯聊天，关闭工具 / MCP / skills
-octo chat --no-tools "..."
+octo --no-tools "..."
 
 # 沙箱化工具命令：把 terminal 工具限制在项目目录 + 临时目录，禁网络
-octo chat --sandbox "..."
+octo --sandbox "..."
 
 # 为当前仓库生成 .octorules 指南
 octo init
 
 # 列出已发现的 skill
-octo chat --list-skills
+octo --list-skills
 
 # Web 服务 + 仪表盘（默认绑定 localhost）
 octo serve --addr 127.0.0.1:8080
@@ -123,7 +123,7 @@ Octo 的系统提示由若干可选层叠加而成（后者覆盖前者）：
 
 ### 默认值（`octo config`）
 
-`octo config` 把默认 provider、model、（可选）base URL 和推理设置存到 `~/.octo/config.yaml`，这样裸跑 `octo chat` 就不必每次重敲 `--provider`/`--model`：
+`octo config` 把默认 provider、model、（可选）base URL 和推理设置存到 `~/.octo/config.yaml`，这样裸跑 `octo` 就不必每次重敲 `--provider`/`--model`：
 
 ```bash
 octo config        # 交互式向导
@@ -150,17 +150,17 @@ description: Review the current diff for correctness and style
 逐个 hunk 审查 diff，先标正确性 bug，再看风格。
 ```
 
-会话启动时 Octo 把每个 skill 的名字和描述列进系统提示；当任务匹配某个 skill 时，模型通过 `skill` 工具按需加载它的完整指令。你也可以显式触发 —— `octo chat --list-skills` 查看已发现的 skill，再在 TUI 里用 `/skills` 列出、`/<name>`（如 `/review`）运行某个。
+会话启动时 Octo 把每个 skill 的名字和描述列进系统提示；当任务匹配某个 skill 时，模型通过 `skill` 工具按需加载它的完整指令。你也可以显式触发 —— `octo --list-skills` 查看已发现的 skill，再在 TUI 里用 `/skills` 列出、`/<name>`（如 `/review`）运行某个。
 
 ## 沙箱
 
 `--sandbox` 把 `terminal` 工具限制在项目目录加临时目录、禁网络，由操作系统强制执行（macOS Seatbelt、Linux Landlock + seccomp）。默认关闭；当操作系统机制不可用时 fail-closed（直接拒绝运行）。
 
 ```bash
-octo chat --sandbox                              # 限制，禁网络
-octo chat --sandbox --sandbox-allow-net          # 允许网络
-octo chat --sandbox --sandbox-write ./build      # 额外可写目录（可重复）
-octo chat --sandbox --sandbox-read /opt/data     # 额外可读目录（可重复）
+octo --sandbox                              # 限制，禁网络
+octo --sandbox --sandbox-allow-net          # 允许网络
+octo --sandbox --sandbox-write ./build      # 额外可写目录（可重复）
+octo --sandbox --sandbox-read /opt/data     # 额外可读目录（可重复）
 ```
 
 ## 已实现

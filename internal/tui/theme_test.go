@@ -47,7 +47,7 @@ func TestChromaStyle_LightDark(t *testing.T) {
 
 func TestBanner_ContainsTitleAndInfo(t *testing.T) {
 	out := Banner("v1.0", "claude", "~/proj", 40)
-	for _, want := range []string{"octo chat", "claude", "~/proj", "──"} {
+	for _, want := range []string{"◆ octo", "claude", "~/proj", "──"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("Banner missing %q in:\n%s", want, out)
 		}
@@ -66,7 +66,7 @@ func TestBanner_ContainsKeyHints(t *testing.T) {
 
 func TestBanner_MinWidth(t *testing.T) {
 	out := Banner("", "", "", 5)
-	if !strings.Contains(out, "octo chat") {
+	if !strings.Contains(out, "◆ octo") {
 		t.Errorf("Banner should still render at tiny width; got:\n%s", out)
 	}
 }

@@ -1,6 +1,6 @@
 # TUI (Terminal User Interface) Reference
 
-octo's TUI is a bubbletea-based interactive interface launched by `octo chat` with no positional argument. It provides multi-turn conversation, live tool rendering, and rich keyboard shortcuts.
+octo's TUI is a bubbletea-based interactive interface launched by `octo` with no positional argument. It provides multi-turn conversation, live tool rendering, and rich keyboard shortcuts.
 
 ## Slash commands
 

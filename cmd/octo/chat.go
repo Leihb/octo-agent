@@ -214,18 +214,13 @@ func init() {
 	}
 }
 
-// runChat handles `octo chat [flags] [message]`.
+// runChat handles `octo [flags] [message]` — every invocation that isn't a
+// named subcommand.
 //
-// With a positional message argument: single-turn mode (M2 behaviour).
-// Without a message argument: enters the interactive REPL (M3).
-//
-// New M3 flags:
-//
-//	-c / --continue <id>   Resume a saved session by ID (REPL mode only)
-//	--no-save              Disable auto-save in REPL mode
-//	--list-sessions        Print the 10 most recent sessions and exit
+// With a positional message argument (or piped stdin): one headless agentic
+// turn, then exit. Without one, on a terminal: the interactive TUI.
 func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
+	fs := flag.NewFlagSet("octo", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	providerName := fs.String("provider", "", "Provider: anthropic | openai (default from `octo config`, else anthropic)")
 	model := fs.String("model", "", "Model name (else ANTHROPIC_MODEL/OPENAI_MODEL env, then `octo config`, then the provider's cheapest reasoning model)")
@@ -269,7 +264,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if *listSessions {
 		sessions, err := agent.ListSessions(10)
 		if err != nil {
-			fmt.Fprintf(stderr, "octo chat: %v\n", err)
+			fmt.Fprintf(stderr, "octo: %v\n", err)
 			return 1
 		}
 		if len(sessions) == 0 {
@@ -311,24 +306,24 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var seedPrompt string
 	if *promptFile != "" {
 		if !isREPL {
-			fmt.Fprintln(stderr, "octo chat: --prompt-file cannot be combined with a positional message")
+			fmt.Fprintln(stderr, "octo: --prompt-file cannot be combined with a positional message")
 			return 2
 		}
 		b, err := os.ReadFile(*promptFile)
 		if err != nil {
-			fmt.Fprintf(stderr, "octo chat: --prompt-file: %v\n", err)
+			fmt.Fprintf(stderr, "octo: --prompt-file: %v\n", err)
 			return 1
 		}
 		seedPrompt = strings.TrimRight(string(b), "\n")
 		if strings.TrimSpace(seedPrompt) == "" {
-			fmt.Fprintln(stderr, "octo chat: --prompt-file is empty")
+			fmt.Fprintln(stderr, "octo: --prompt-file is empty")
 			return 2
 		}
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(stderr, "octo chat: %v\n", err)
+		fmt.Fprintf(stderr, "octo: %v\n", err)
 		fmt.Fprintln(stderr, "Run `octo config` to rewrite ~/.octo/config.yml.")
 		return 1
 	}
@@ -346,13 +341,13 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if resolvedPermMode != string(permission.ModeInteractive) &&
 		resolvedPermMode != string(permission.ModeAutoApprove) &&
 		resolvedPermMode != string(permission.ModeStrict) {
-		fmt.Fprintf(stderr, "octo chat: invalid --permission-mode %q (want 'interactive', 'strict' or 'auto')\n", resolvedPermMode)
+		fmt.Fprintf(stderr, "octo: invalid --permission-mode %q (want 'interactive', 'strict' or 'auto')\n", resolvedPermMode)
 		return 2
 	}
 
 	provName, resolvedModel, entry, ok := resolveProviderModel(*providerName, *model, cfg)
 	if !ok {
-		fmt.Fprintf(stderr, "octo chat: unknown provider %q\n", provName)
+		fmt.Fprintf(stderr, "octo: unknown provider %q\n", provName)
 		return 2
 	}
 
@@ -366,7 +361,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// config entry.
 	resolvedEffort := resolveReasoningEffort(*reasoningEffort, entry)
 	if !validReasoningEffort(resolvedEffort) {
-		fmt.Fprintf(stderr, "octo chat: invalid --reasoning-effort %q (want 'low', 'medium', or 'high')\n", resolvedEffort)
+		fmt.Fprintf(stderr, "octo: invalid --reasoning-effort %q (want 'low', 'medium', or 'high')\n", resolvedEffort)
 		return 2
 	}
 	showReasoningFlagSet := false
@@ -379,7 +374,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	// Single-turn mode requires a message.
 	if !isREPL && resumeID != "" {
-		fmt.Fprintln(stderr, "octo chat: -c/--continue requires interactive mode (omit the message argument)")
+		fmt.Fprintln(stderr, "octo: -c/--continue requires interactive mode (omit the message argument)")
 		return 2
 	}
 
@@ -390,8 +385,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if resumeID != "" {
 		resolved, err := agent.ResolveSessionID(resumeID)
 		if err != nil {
-			fmt.Fprintf(stderr, "octo chat: %v\n", err)
-			fmt.Fprintln(stderr, "Run `octo chat --list-sessions` to see what's available.")
+			fmt.Fprintf(stderr, "octo: %v\n", err)
+			fmt.Fprintln(stderr, "Run `octo --list-sessions` to see what's available.")
 			return 2
 		}
 		resumeID = resolved
@@ -433,7 +428,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			cfg, _ = config.Load()
 			provName, resolvedModel, entry, ok = resolveProviderModel(*providerName, *model, cfg)
 			if !ok {
-				fmt.Fprintf(stderr, "octo chat: unknown provider %q\n", provName)
+				fmt.Fprintf(stderr, "octo: unknown provider %q\n", provName)
 				return 2
 			}
 			llmSender, err = buildSender(provName, entry, stderr, senderTuning{
@@ -555,7 +550,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// Resuming a session (-c) is an interactive affordance — it only makes sense
 	// in the TUI. A headless one-shot starts fresh.
 	if resumeID != "" && !useTUI {
-		fmt.Fprintln(stderr, "octo chat: -c/--continue needs an interactive terminal (run it without piping/--no-tui)")
+		fmt.Fprintln(stderr, "octo: -c/--continue needs an interactive terminal (run it without piping/--no-tui)")
 		return 2
 	}
 
@@ -570,13 +565,13 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if oneShotPrompt == "" && !stdinIsTTY(stdin) {
 			b, rerr := io.ReadAll(stdin)
 			if rerr != nil {
-				fmt.Fprintf(stderr, "octo chat: read stdin: %v\n", rerr)
+				fmt.Fprintf(stderr, "octo: read stdin: %v\n", rerr)
 				return 1
 			}
 			oneShotPrompt = strings.TrimSpace(string(b))
 		}
 		if oneShotPrompt == "" {
-			fmt.Fprintln(stderr, "octo chat: no prompt — pass a message, use --prompt-file, or pipe input on stdin")
+			fmt.Fprintln(stderr, "octo: no prompt — pass a message, use --prompt-file, or pipe input on stdin")
 			return 2
 		}
 	}
@@ -609,7 +604,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				// designed posture, not an error worth announcing every run.
 				replReader = newScannerLineReader(stdin, stdout)
 			default:
-				fmt.Fprintf(stderr, "octo chat: line editor unavailable (%v); falling back to plain input\n", err)
+				fmt.Fprintf(stderr, "octo: line editor unavailable (%v); falling back to plain input\n", err)
 				replReader = newScannerLineReader(stdin, stdout)
 			}
 		} else {
@@ -634,7 +629,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if toolsOn {
 		mcpCfg, err := mcp.LoadConfig(cwd)
 		if err != nil {
-			fmt.Fprintf(stderr, "octo chat: mcp config: %v\n", err)
+			fmt.Fprintf(stderr, "octo: mcp config: %v\n", err)
 		} else if len(mcpCfg.Servers) > 0 {
 			info := mcp.Implementation{Name: "octo", Version: version.Version}
 			if useTUI {
@@ -710,7 +705,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if toolsOn {
 		eng, perr := permission.New(permissionConfigPath(), cwd, resolvePermissionMode(resolvedPermMode), memDir, homeMemDir)
 		if perr != nil {
-			fmt.Fprintf(stderr, "octo chat: permission config: %v\n", perr)
+			fmt.Fprintf(stderr, "octo: permission config: %v\n", perr)
 			return 1
 		}
 		permEngine = eng
@@ -722,7 +717,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if resumeID != "" {
 			sess, err = agent.LoadSession(resumeID)
 			if err != nil {
-				fmt.Fprintf(stderr, "octo chat: %v\n", err)
+				fmt.Fprintf(stderr, "octo: %v\n", err)
 				return 1
 			}
 			// Restore history and override model/system from saved session.
@@ -840,7 +835,7 @@ func buildSender(name string, entry config.ModelEntry, stderr io.Writer, tuning 
 		ShowReasoning:   tuning.showReasoning,
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "octo chat: %v\n", err)
+		fmt.Fprintf(stderr, "octo: %v\n", err)
 		return nil, err
 	}
 	return s, nil
@@ -852,7 +847,7 @@ func buildSender(name string, entry config.ModelEntry, stderr io.Writer, tuning 
 // and returns a non-nil error.
 func resolveAPIKey(name string, entry config.ModelEntry, stderr io.Writer) (string, error) {
 	if !app.IsKnownVendor(name) {
-		fmt.Fprintf(stderr, "octo chat: unknown provider %q\n", name)
+		fmt.Fprintf(stderr, "octo: unknown provider %q\n", name)
 		return "", fmt.Errorf("unknown provider %q", name)
 	}
 

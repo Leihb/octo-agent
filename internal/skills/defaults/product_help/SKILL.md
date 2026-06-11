@@ -11,7 +11,7 @@ You have access to octo's product documentation. Use it to answer user questions
 
 1. **Bundled docs** — check the skill directory for reference files:
    - `README.md` — quick start, installation, basic usage
-   - `CLI.md` — command reference (`octo chat`, `octo config`, `octo skills`, etc.)
+   - `CLI.md` — command reference (`octo`, `octo config`, `octo skills`, etc.)
    - `CONFIG.md` — configuration file format and all supported fields
    - `SKILLS.md` — how to write custom skills
    - `WORKFLOW.md` — development workflow, git conventions, PR process

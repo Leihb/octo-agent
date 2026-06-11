@@ -97,7 +97,7 @@ Add `"disabled": true` to keep the config but skip loading it:
 
 ## Verification
 
-After editing `mcp.json`, start `octo chat` and look for the startup line:
+After editing `mcp.json`, start `octo` and look for the startup line:
 
 ```
 Connected 2 MCP servers: fs, my-api

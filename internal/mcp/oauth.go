@@ -64,7 +64,7 @@ type OAuthProvider interface {
 
 // OAuthClient implements OAuthProvider against a single MCP resource URL.
 // Persists state under ~/.octo/mcp-tokens/<server>.json so a fresh
-// `octo chat` session reuses the access token + refresh token from the
+// `octo` session reuses the access token + refresh token from the
 // previous run.
 type OAuthClient struct {
 	resourceURL string

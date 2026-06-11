@@ -65,8 +65,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		printUsage(stdout)
 		return 0
-	case "chat":
-		return runChat(args[1:], stdin, stdout, stderr)
 	case "init":
 		return runInit(args[1:], stdin, stdout, stderr)
 	case "config":
@@ -84,21 +82,41 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// Prints newline-separated candidates for the current command line.
 		return runComplete(args[1:], stdout)
 	default:
-		fmt.Fprintf(stderr, "octo: unknown command %q\n", args[0])
-		fmt.Fprintln(stderr, "Run `octo help` for available commands.")
-		return 2
+		// Anything else — flags or a positional message — is a chat
+		// invocation: `octo "fix the bug"`, `octo -c last`, `octo --no-tools`.
+		return runChat(args, stdin, stdout, stderr)
 	}
 }
 
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "octo — a functionality-first AI agent in a single Go binary.")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Usage: octo [command]")
+	fmt.Fprintln(w, "Usage: octo [flags] [\"message\"]")
+	fmt.Fprintln(w, "       octo <command> [args]")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "With no command, octo starts an interactive chat session (same as `octo chat`).")
+	fmt.Fprintln(w, "With no arguments octo starts an interactive session; with a message")
+	fmt.Fprintln(w, "(or piped stdin) it runs one headless agentic turn and exits.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Examples:")
+	fmt.Fprintln(w, "  octo                                  Start an interactive session")
+	fmt.Fprintln(w, "  octo \"summarise the README\"           Headless one-shot, then exit")
+	fmt.Fprintln(w, "  echo \"explain this error\" | octo      Prompt from piped stdin")
+	fmt.Fprintln(w, "  octo -c last                          Resume the most recent session")
+	fmt.Fprintln(w, "  octo --list-sessions                  Show recent sessions and exit")
+	fmt.Fprintln(w, "  octo --no-tools                       Plain chat — disable the built-in tools")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Common flags:")
+	fmt.Fprintln(w, "  -c, --continue <id>      Resume a session — 'last', short ID, or substring of an ID")
+	fmt.Fprintln(w, "  --no-tools               Disable built-in tools (terminal, edit_file, …) + MCP/skills")
+	fmt.Fprintln(w, "  --provider <name>        anthropic (default) | openai")
+	fmt.Fprintln(w, "  --model <name>           Override the default model for the provider")
+	fmt.Fprintln(w, "  --no-save                Don't auto-save the session to ~/.octo/sessions")
+	fmt.Fprintln(w, "  --no-memory              Disable cross-session memory injection")
+	fmt.Fprintln(w, "  --sandbox                OS-enforced confinement for terminal commands (macOS/Linux)")
+	fmt.Fprintln(w, "  --permission-mode <m>    interactive (default; prompts on ask) | strict | auto")
+	fmt.Fprintln(w, "  --quiet / --verbose      Less / more status chrome")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Commands:")
-	fmt.Fprintln(w, "  chat       Start an interactive session (or single-turn with a message)")
 	fmt.Fprintln(w, "  config     Set your default provider/model (~/.octo/config.yml)")
 	fmt.Fprintln(w, "  serve      Start the HTTP server (REST + SSE + Web UI)")
 	fmt.Fprintln(w, "  init       Analyze the repo and generate/update .octorules")
@@ -107,6 +125,10 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  version    Print the version and exit")
 	fmt.Fprintln(w, "  help       Print this help and exit")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Run `octo help <command>` for examples + env vars (e.g. `octo help chat`),")
-	fmt.Fprintln(w, "or `octo <command> --help` for the full flag list.")
+	fmt.Fprintln(w, "Environment:")
+	fmt.Fprintln(w, "  ANTHROPIC_API_KEY / OPENAI_API_KEY      Required for the chosen provider")
+	fmt.Fprintln(w, "  ANTHROPIC_BASE_URL / OPENAI_BASE_URL    Override the endpoint (proxies, compatible servers)")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Run `octo help <command>` for examples + env vars (e.g. `octo help mcp`),")
+	fmt.Fprintln(w, "`octo <command> --help` for a command's flags, or `octo -help` for all session flags.")
 }

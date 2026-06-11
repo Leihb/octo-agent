@@ -98,7 +98,7 @@ func isFirstEverSession() bool {
 //
 // stream=true (the default) renders the turn live through the view; stream=false
 // runs the same agentic loop but prints only the final reply text to stdout,
-// keeping it clean for capture (`octo chat --stream=false ... > out`).
+// keeping it clean for capture (`octo --stream=false ... > out`).
 func runOnce(cfg replConfig, prompt string, stream bool) int {
 	a := cfg.a
 
@@ -157,7 +157,7 @@ func runOnce(cfg replConfig, prompt string, stream bool) int {
 			if errors.Is(err, context.Canceled) {
 				return 0
 			}
-			fmt.Fprintf(cfg.stderr, "octo chat: %v\n", err)
+			fmt.Fprintf(cfg.stderr, "octo: %v\n", err)
 			return 1
 		}
 		fmt.Fprintln(cfg.stdout, reply.Content)
@@ -346,9 +346,9 @@ func printSessions(w io.Writer) error {
 
 // formatSessionList renders the columns the user cares about for a "pick one to
 // resume" overview: 8-char short ID (the thing they paste back into
-// `octo chat -c`), a human-readable created-at, the title (generated, or a
+// `octo -c`), a human-readable created-at, the title (generated, or a
 // first-message fallback so older sessions stay recognisable), the model, and
-// the turn count. Shared between `octo chat --list-sessions` and REPL /sessions
+// the turn count. Shared between `octo --list-sessions` and REPL /sessions
 // so both views agree on shape.
 func formatSessionList(sessions []*agent.Session) string {
 	var b strings.Builder

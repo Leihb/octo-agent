@@ -44,7 +44,7 @@ var allTools = []tool{
 	RestartServerTool{},
 }
 
-// DefaultRegistry is the agent.ToolExecutor used when `octo chat --tools` is
+// DefaultRegistry is the agent.ToolExecutor used when `octo --tools` is
 // enabled. It dispatches each tool call by name to the matching entry in
 // allTools, returning a clean error for unknown names.
 //

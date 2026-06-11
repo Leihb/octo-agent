@@ -447,20 +447,20 @@
         <div class="demo-block reveal">
           <div class="demo-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span>One-shot agentic task</div>
           <pre class="demo-code"><span class="comment"># Headless: one prompt → full tool loop → exit</span>
-<span class="cmd">octo chat</span> <span class="arg">"Add a --json flag to octo config show"</span>
+<span class="cmd">octo</span> <span class="arg">"Add a --json flag to octo config show"</span>
 
 <span class="comment"># Pipe-friendly for scripts</span>
-echo <span class="arg">"Summarise the last commit"</span> | <span class="cmd">octo chat</span></pre>
+echo <span class="arg">"Summarise the last commit"</span> | <span class="cmd">octo</span></pre>
         </div>
         <div class="demo-block reveal">
           <div class="demo-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span>Interactive session</div>
           <pre class="demo-code"><span class="comment"># TUI with history, tool cards, and /commands</span>
-<span class="cmd">octo chat</span>
-<span class="cmd">octo chat</span> --list-sessions
-<span class="cmd">octo chat</span> -c &lt;session-id&gt;
+<span class="cmd">octo</span>
+<span class="cmd">octo</span> --list-sessions
+<span class="cmd">octo</span> -c &lt;session-id&gt;
 
 <span class="comment"># With reasoning and sandbox</span>
-<span class="cmd">octo chat</span> --reasoning-effort high --sandbox</pre>
+<span class="cmd">octo</span> --reasoning-effort high --sandbox</pre>
         </div>
         <div class="demo-block reveal">
           <div class="demo-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span>Autonomous execution</div>

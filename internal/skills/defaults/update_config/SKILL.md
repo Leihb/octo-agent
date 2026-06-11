@@ -95,7 +95,7 @@ reasoning_effort: low | medium | high | ""
 4. Merge into the existing `mcpServers` object.
 5. Pretty-print JSON with 2-space indentation and trailing newline.
 6. Write back with `write_file`, then `chmod 600 ~/.octo/mcp.json`.
-7. Confirm and remind: changes take effect on next `octo chat` start.
+7. Confirm and remind: changes take effect on next `octo` start.
 
 ---
 

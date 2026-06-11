@@ -341,7 +341,7 @@ func TestRunChat_UnknownResumeID(t *testing.T) {
 	if !strings.Contains(out, "no session matches") {
 		t.Errorf("stderr should report no match; got:\n%s", out)
 	}
-	if !strings.Contains(out, "octo chat --list-sessions") {
+	if !strings.Contains(out, "octo --list-sessions") {
 		t.Errorf("stderr should hint at --list-sessions; got:\n%s", out)
 	}
 }

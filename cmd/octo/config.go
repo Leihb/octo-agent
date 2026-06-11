@@ -412,9 +412,9 @@ func runConfigWizard(stdin io.Reader, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout)
 	fmt.Fprintf(stdout, "Saved %s\n", path)
 	if outEntry.APIKey == "" && os.Getenv(envVar) == "" {
-		fmt.Fprintf(stdout, "Next: export %s=... (or re-run `octo config` to store it), then `octo chat`.\n", envVar)
+		fmt.Fprintf(stdout, "Next: export %s=... (or re-run `octo config` to store it), then `octo`.\n", envVar)
 	} else {
-		fmt.Fprintln(stdout, "Run `octo chat` to start.")
+		fmt.Fprintln(stdout, "Run `octo` to start.")
 	}
 	return 0
 }

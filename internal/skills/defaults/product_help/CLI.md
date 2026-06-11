@@ -2,7 +2,7 @@
 
 ## Commands
 
-### `octo chat [prompt]`
+### `octo [prompt]`
 Start an interactive REPL session or run a single prompt and exit.
 
 Flags:

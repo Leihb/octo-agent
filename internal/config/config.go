@@ -1,6 +1,6 @@
 // Package config holds the user's persisted CLI defaults at
 // ~/.octo/config.yml — a list of named model configurations plus global
-// settings, so a fresh `octo chat` works without re-typing flags or
+// settings, so a fresh `octo` works without re-typing flags or
 // re-exporting env vars every session.
 //
 // Precedence is resolved by the caller (cmd/octo): an explicit CLI flag beats

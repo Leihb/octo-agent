@@ -606,7 +606,7 @@ func (m *tuiModel) dispatchSlash(text string) (tea.Model, tea.Cmd) {
 	// /init: generate .octorules as a normal tool-enabled turn.
 	if text == "/init" {
 		if len(cfg.tools) == 0 || cfg.executor == nil {
-			m.println(noticeStyle.Render("/init needs tools — restart with: octo chat --tools"))
+			m.println(noticeStyle.Render("/init needs tools — restart with: octo --tools"))
 			return m, nil
 		}
 		return m, m.startTurnEcho(initInstruction, "/init")

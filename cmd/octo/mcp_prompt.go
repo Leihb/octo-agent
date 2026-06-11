@@ -10,7 +10,7 @@ import (
 )
 
 // cliOAuthPrompt is the user-facing implementation of mcp.OAuthPrompt for
-// `octo chat`. ShowAuthorization prints a small card telling the user
+// `octo`. ShowAuthorization prints a small card telling the user
 // where to go; Progress just bumps a dot counter so the user can see we're
 // actively polling; Done closes the card.
 //

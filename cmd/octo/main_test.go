@@ -42,14 +42,38 @@ func TestRunInit_InvalidPermissionMode(t *testing.T) {
 	}
 }
 
-func TestRun_UnknownCommand(t *testing.T) {
+func TestRun_PositionalMessage_RoutesToChat(t *testing.T) {
+	// A first arg that isn't a named subcommand is a chat prompt now, not an
+	// "unknown command" error. With no API key configured the chat path fails
+	// with the missing-key message — proof routing reached runChat, offline.
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"bogus"}, strings.NewReader(""), &stdout, &stderr)
-	if code != 2 {
-		t.Fatalf("exit code = %d, want 2", code)
+	code := run([]string{"summarise the README"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "unknown command") {
-		t.Errorf("stderr should mention 'unknown command'; got: %q", stderr.String())
+	if !strings.Contains(stderr.String(), "ANTHROPIC_API_KEY") {
+		t.Errorf("stderr should mention the missing key; got: %q", stderr.String())
+	}
+}
+
+func TestRun_TopLevelFlags_RouteToChat(t *testing.T) {
+	// Session flags work without a subcommand. Flag validation is offline and
+	// deterministic, so a bad --permission-mode proves the routing.
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--permission-mode", "bogus", "hi"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "permission-mode") {
+		t.Errorf("stderr should explain the bad permission-mode; got: %q", stderr.String())
 	}
 }
 
@@ -58,7 +82,6 @@ func TestRun_HelpWithSubcommand_PrintsRichHelp(t *testing.T) {
 		cmd      string
 		wantHits []string
 	}{
-		{"chat", []string{"octo chat", "Examples:", "ANTHROPIC_API_KEY", "octo chat -c last"}},
 		{"memory", []string{"octo memory", "octo memory list"}},
 		{"init", []string{"octo init", ".octorules"}},
 		{"mcp", []string{"octo mcp", "mcp.json", "mcp__"}},

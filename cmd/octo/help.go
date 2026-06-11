@@ -12,8 +12,6 @@ import (
 // so the caller can fall back to "no help available" and exit 2.
 func printCommandHelp(name string, w io.Writer) bool {
 	switch name {
-	case "chat":
-		chatHelp(w)
 	case "memory":
 		memoryHelp(w)
 	case "init":
@@ -79,7 +77,7 @@ Tool naming in the agent's tool list:
   mcp__<server>__prompt_get        synthesized when server supports prompts/*
 
 Examples:
-  octo chat                        # auto-connect every configured server
+  octo                             # auto-connect every configured server
   /mcp                             # REPL: list connected servers + surface counts
 
 Failure handling — a server that won't start, fails initialize, or times out
@@ -88,45 +86,6 @@ with the survivors. The connect timeout is 10s per server.
 
 What's not yet implemented (v1): server-initiated notifications, resource
 subscriptions, sampling (server → client LLM calls), roots.`)
-}
-
-func chatHelp(w io.Writer) {
-	fmt.Fprintln(w, `octo chat — interactive AI session, or single-turn with a message argument.
-
-Examples:
-  octo chat                             Start a new REPL session
-  octo chat "summarise the README"      Single-turn mode (no REPL)
-  octo chat -c last                     Resume the most recent session
-  octo chat -c a3b2c1d4                 Resume by short ID (any unique substring works)
-  octo chat --list-sessions             Show recent sessions and exit
-  octo chat --no-tools                  Plain chat — disable the built-in tools
-  octo chat --provider openai           Use OpenAI instead of Anthropic
-  octo chat --sandbox                   Confine tool commands to repo + tmp, no network
-
-Common flags:
-  -c, --continue <id>      Resume a session — 'last', short ID, or substring of an ID
-  --no-tools               Disable built-in tools (terminal, edit_file, …) + MCP/skills — plain chat
-  --provider <name>        anthropic (default) | openai
-  --model <name>           Override the default model for the provider
-  --no-save                Don't auto-save the session to ~/.octo/sessions
-  --no-memory              Disable cross-session memory injection
-  --sandbox                OS-enforced confinement for terminal commands (macOS/Linux)
-  --permission-mode <m>    interactive (default; prompts on ask) | strict (denies asks) | auto (allows asks)
-  --list-sessions          Print recent sessions and exit
-  --quiet                  Strip status chrome (spinner, banner, cache line)
-  --verbose                Print extra context (provider/model/endpoint, always-on cache line)
-
-Environment:
-  ANTHROPIC_API_KEY        Required when --provider=anthropic
-  OPENAI_API_KEY           Required when --provider=openai
-  ANTHROPIC_BASE_URL       Override the Anthropic endpoint (proxies, Claude-compatible servers)
-  OPENAI_BASE_URL          Override the OpenAI endpoint
-  OCTO_HISTORY_FILE        Override the REPL history path (default ~/.octo/history)
-  OCTO_HOOK_PRE_TURN       Shell command run at the start of each turn (C9 Phase 3)
-  OCTO_HOOK_POST_TURN      Shell command run at the end of each successful turn
-  OCTO_VERBOSITY           quiet | normal | verbose; overridden by --quiet / --verbose
-
-Run "octo chat --help" for the full flag list.`)
 }
 
 func memoryHelp(w io.Writer) {
@@ -148,7 +107,7 @@ Layout:
 
 The project directory is keyed by git repo root. Home-directory memories are
 inherited into every project. To disable memory injection for a single session,
-run "octo chat --no-memory".`)
+run "octo --no-memory".`)
 }
 
 func initHelp(w io.Writer) {
@@ -205,7 +164,7 @@ Run "octo serve --help" for the full flag list.`)
 
 func configHelp(w io.Writer) {
 	fmt.Fprintln(w, `octo config — save your default provider, model, and (optionally) base URL to
-~/.octo/config.yml so a bare `+"`octo chat`"+` works without re-typing flags.
+~/.octo/config.yml so a bare `+"`octo`"+` works without re-typing flags.
 
 Precedence (highest first): CLI flag (--provider/--model) > env var > this file
 > built-in default. API keys are read from the environment first; storing one

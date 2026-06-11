@@ -21,7 +21,7 @@ Common issues and their fixes.
 
 ## Configuration
 
-### `octo chat` says "no API key"
+### `octo` says "no API key"
 
 - Check that the env var is set: `echo $ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`)
 - Or run `octo config` to store the key in `~/.octo/config.yaml` (mode 0600)
@@ -39,8 +39,8 @@ Precedence (highest first): CLI flag > env var > config file > built-in default.
 
 ### TUI doesn't start (falls back to plain REPL)
 
-- TUI requires a TTY. Piped input (`echo "hello" | octo chat`) runs headless
-- Check `octo chat --help` for `--no-tui` or TTY-related flags
+- TUI requires a TTY. Piped input (`echo "hello" | octo`) runs headless
+- Check `octo --help` for `--no-tui` or TTY-related flags
 
 ### Image paste (Ctrl+V) doesn't work
 
@@ -84,7 +84,7 @@ Precedence (highest first): CLI flag > env var > config file > built-in default.
 ### Session not found when resuming
 
 - Sessions are saved to `~/.octo/sessions/`
-- Resume with `octo chat -c <session-id>`
+- Resume with `octo -c <session-id>`
 - List recent sessions with `/sessions` in TUI
 
 ### Session file corrupted
@@ -103,7 +103,7 @@ Precedence (highest first): CLI flag > env var > config file > built-in default.
 ### "Context too long" error
 
 - History compaction runs automatically when context usage is high
-- If it still fails, start a new session (`/exit` then `octo chat`)
+- If it still fails, start a new session (`/exit` then `octo`)
 - Or use a model with a larger context window
 
 ## Git

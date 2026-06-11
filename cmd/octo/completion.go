@@ -23,7 +23,7 @@ import (
 // shell rewrites.
 //
 // Dynamic completion sources:
-//   - session IDs (full + short) for `octo chat -c <TAB>`
+//   - session IDs (full + short) for `octo -c <TAB>`
 // Both always include "last" as the first candidate.
 
 // runCompletion handles `octo completion <shell>`: prints the shell snippet
@@ -51,7 +51,7 @@ func runCompletion(args []string, stdout, stderr io.Writer) int {
 
 // runComplete is the hidden `octo __complete <words…>` invoked by the shell
 // scripts. words is the full command line up to and including the partial
-// word the user is completing — e.g. ["octo", "chat", "-c", "a3"]. The
+// word the user is completing — e.g. ["octo", "-c", "a3"]. The
 // shell does prefix-matching against the printed candidates, so we don't
 // filter by the partial here; we just emit every plausible candidate for
 // the current position.
@@ -71,8 +71,8 @@ func completionCandidates(words []string) []string {
 	}
 	// Still typing the subcommand itself — offer the full top-level list
 	// (shell will prefix-match against the partial). If the partial starts
-	// with a dash the user is typing a flag, which means default chat mode
-	// (octo with no subcommand behaves like octo chat).
+	// with a dash the user is typing a flag, which means chat mode (a bare
+	// octo runs the session directly).
 	if len(words) == 2 {
 		if strings.HasPrefix(words[1], "-") {
 			return chatCandidates(words, "")
@@ -83,8 +83,6 @@ func completionCandidates(words []string) []string {
 	cmd := words[1]
 
 	switch cmd {
-	case "chat":
-		return chatCandidates(words, prev)
 	case "memory":
 		return memoryCandidates(words)
 	case "init":
@@ -96,16 +94,16 @@ func completionCandidates(words []string) []string {
 	case "help":
 		// `octo help <TAB>` → list of help targets.
 		if len(words) == 3 {
-			return []string{"chat", "config", "memory", "init", "completion", "mcp"}
+			return []string{"config", "memory", "init", "completion", "mcp"}
 		}
 	case "completion":
 		if len(words) == 3 {
 			return []string{"bash", "zsh", "fish", "powershell"}
 		}
 	}
-	// No recognised subcommand: default chat mode. Any positional text after
-	// "octo" is treated as the chat message, so flags and their values still
-	// complete exactly as they do for "octo chat ...".
+	// No recognised subcommand: chat mode. Any positional text after "octo"
+	// is treated as the chat message, so flags and their values still
+	// complete as session flags.
 	return chatCandidates(words, prev)
 }
 
@@ -182,9 +180,9 @@ Examples:
   octo completion powershell | Out-String | Invoke-Expression   # PowerShell; add to $PROFILE to persist
 
 What it completes:
-  - Top-level subcommands (chat, memory, init, …).
+  - Top-level subcommands (config, memory, init, …) and session flags.
   - Subcommands of memory / help / completion.
-  - Session IDs after "octo chat -c " — full + short + "last".
+  - Session IDs after "octo -c " — full + short + "last".
   - Fixed values for --provider (anthropic|openai) and --permission-mode
     (interactive|strict|auto).
 
@@ -197,7 +195,7 @@ new flags / subcommands are added.`))
 // ── Static lists ─────────────────────────────────────────────────────────
 
 var topLevelCommands = []string{
-	"chat", "config", "init", "memory",
+	"config", "init", "memory",
 	"version", "help", "completion",
 }
 

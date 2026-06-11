@@ -39,7 +39,7 @@ func driveOcto(ctx context.Context, opt octoOptions, workDir, prompt string) (st
 		return "", fmt.Errorf("write prompt file: %w", err)
 	}
 
-	args := []string{"chat", "--tools", "--permission-mode", "strict", "--no-save", "--plain", "--prompt-file", promptPath}
+	args := []string{"--tools", "--permission-mode", "strict", "--no-save", "--plain", "--prompt-file", promptPath}
 	if !opt.AllowNet {
 		args = append(args, "--sandbox")
 	}

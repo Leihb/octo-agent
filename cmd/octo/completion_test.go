@@ -27,18 +27,19 @@ func TestCompletionCandidates_TopLevel(t *testing.T) {
 		{},             // no args
 		{"octo"},       // just the program
 		{"octo", ""},   // typing the subcommand (empty partial)
-		{"octo", "ch"}, // typing the subcommand (partial)
+		{"octo", "co"}, // typing the subcommand (partial)
 	}
 	for _, words := range cases {
 		got := completionCandidates(words)
-		if !containsAll(got, []string{"chat", "memory", "init", "help", "completion"}) {
+		if !containsAll(got, []string{"config", "memory", "init", "help", "completion"}) {
 			t.Errorf("words=%v missing top-level commands; got %v", words, got)
 		}
 	}
 }
 
 func TestCompletionCandidates_ChatFlags(t *testing.T) {
-	got := completionCandidates([]string{"octo", "chat", ""})
+	// A positional message followed by a new word still completes session flags.
+	got := completionCandidates([]string{"octo", "fix the bug", ""})
 	for _, want := range []string{"-c", "--continue", "--tools", "--provider", "--quiet", "--verbose"} {
 		if !sliceContains(got, want) {
 			t.Errorf("chat flag completion missing %q; got %v", want, got)
@@ -90,14 +91,14 @@ func TestCompletionCandidates_DefaultChatMode_SessionIDs(t *testing.T) {
 }
 
 func TestCompletionCandidates_ProviderValueAfterFlag(t *testing.T) {
-	got := completionCandidates([]string{"octo", "chat", "--provider", ""})
+	got := completionCandidates([]string{"octo", "--provider", ""})
 	if !sliceEq(got, []string{"anthropic", "openai"}) {
 		t.Errorf("--provider value completion = %v, want [anthropic openai]", got)
 	}
 }
 
 func TestCompletionCandidates_PermissionModeAfterFlag(t *testing.T) {
-	got := completionCandidates([]string{"octo", "chat", "--permission-mode", ""})
+	got := completionCandidates([]string{"octo", "--permission-mode", ""})
 	if !sliceEq(got, []string{"interactive", "strict", "auto"}) {
 		t.Errorf("--permission-mode value completion = %v", got)
 	}
@@ -117,7 +118,7 @@ func TestCompletionCandidates_SessionIDsAfterDashC(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	got := completionCandidates([]string{"octo", "chat", "-c", ""})
+	got := completionCandidates([]string{"octo", "fix the bug", "-c", ""})
 	// "last" is always first, then short + full for each session.
 	if len(got) < 1 || got[0] != "last" {
 		t.Errorf("expected 'last' as first candidate; got %v", got)
@@ -131,7 +132,7 @@ func TestCompletionCandidates_SessionIDsAfterDashC(t *testing.T) {
 
 func TestCompletionCandidates_HelpTargets(t *testing.T) {
 	got := completionCandidates([]string{"octo", "help", ""})
-	want := []string{"chat", "config", "memory", "init", "completion", "mcp"}
+	want := []string{"config", "memory", "init", "completion", "mcp"}
 	if !sliceEq(got, want) {
 		t.Errorf("help target completion = %v, want %v", got, want)
 	}
@@ -222,7 +223,7 @@ func TestRunCompletion_NoShellArg(t *testing.T) {
 
 func TestRunComplete_PrintsCandidatesOnePerLine(t *testing.T) {
 	var out bytes.Buffer
-	if code := runComplete([]string{"octo", "chat", "--provider", ""}, &out); code != 0 {
+	if code := runComplete([]string{"octo", "--provider", ""}, &out); code != 0 {
 		t.Errorf("exit = %d, want 0", code)
 	}
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
@@ -247,7 +248,7 @@ func TestRun_CompleteViaMain(t *testing.T) {
 		t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"chat", "memory"} {
+	for _, want := range []string{"config", "memory"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

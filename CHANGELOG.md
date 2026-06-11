@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased — 0.18.0-dev]
 
+### Changed
+- **`octo chat` is gone — bare `octo` does it all.** The chat surface is now the top-level command: `octo "message"` runs a headless one-shot, `octo` alone opens the TUI, and every session flag (`-c`, `--no-tools`, `--provider`, …) attaches directly to `octo`. Any first argument that isn't a named subcommand is treated as the prompt (mirroring `claude -p`), so the old "unknown command" error is gone too. `octo help` now documents the session usage, flags, and env vars at the top level; shell completion, the docs, and the eval harness were updated, and `octo help chat` / the `chat` completion target are removed. **Breaking:** scripts invoking `octo chat …` must drop the word `chat` — left in place it would be sent to the model as part of the prompt.
+
 ### Fixed
 - **Web UI now shows a "thinking" spinner the whole time the agent is working.** After the user sent a message the frontend swapped the ghost bubble for the real one and then sat with no indicator until the first streamed token — provider connect and the model's pre-text reasoning fire no events, so a multi-second turn looked hung. The server now broadcasts an initial `thinking` progress the moment a turn starts (and stores it in live state so a reconnecting tab replays it); the real tool/text events adopt the same progress element in place, so there's no flicker.
 

@@ -105,7 +105,7 @@ func runTUI(cfg replConfig) int {
 
 	_, err := p.Run()
 	if err != nil {
-		fmt.Fprintf(cfg.stderr, "octo chat: tui: %v\n", err)
+		fmt.Fprintf(cfg.stderr, "octo: tui: %v\n", err)
 		return 1
 	}
 
@@ -118,7 +118,7 @@ func runTUI(cfg replConfig) int {
 		}
 	}
 	if !cfg.verbosity.quiet() {
-		fmt.Fprintf(cfg.stdout, "\nSession saved. Resume anytime with: octo chat -c %s\n", cfg.session.ShortID())
+		fmt.Fprintf(cfg.stdout, "\nSession saved. Resume anytime with: octo -c %s\n", cfg.session.ShortID())
 	}
 	return 0
 }
