@@ -94,16 +94,23 @@ func stripTrailingWhitespace(s string) string {
 	return strings.Join(lines, "")
 }
 
+// indentWidths are the tab widths tried by the leading-whitespace fallback,
+// ordered by likelihood: read_file and the terminal tool render tabs 4 wide,
+// 8 is the classic terminal default, 2 is a common compact style models emit.
+var indentWidths = []int{4, 8, 2}
+
 // findActualString attempts to locate the search string in the file content,
 // first with an exact match, then with quote-normalized match, and finally
-// with leading-whitespace normalization (tab → space expansion) so that
-// space-indented old_string from the LLM still matches tab-indented files.
-// Returns the actual string found in the file (preserving original formatting),
-// or empty string if not found.
-func findActualString(fileContent, searchString string) string {
+// with leading-whitespace normalization (tab → space expansion at several
+// widths) so that space-indented old_string from the LLM still matches
+// tab-indented files. Returns the actual string found in the file (preserving
+// original formatting) and the tab width that matched — 4, the default indent
+// unit, unless a wider/narrower expansion was what matched. Empty string means
+// not found.
+func findActualString(fileContent, searchString string) (string, int) {
 	// First try exact match
 	if strings.Contains(fileContent, searchString) {
-		return searchString
+		return searchString, defaultIndentWidth
 	}
 
 	// Try with normalized quotes
@@ -123,11 +130,11 @@ func findActualString(fileContent, searchString string) string {
 
 		// Verify the match at the rune level in normalized space
 		if idx+len(searchRunes) > len(normalizedRunes) {
-			return ""
+			return "", 0
 		}
 		for i := 0; i < len(searchRunes); i++ {
 			if normalizedRunes[idx+i] != searchRunes[i] {
-				return ""
+				return "", 0
 			}
 		}
 
@@ -143,7 +150,7 @@ func findActualString(fileContent, searchString string) string {
 			runeCount++
 		}
 		if origStart == -1 {
-			return ""
+			return "", 0
 		}
 
 		origEnd := -1
@@ -159,24 +166,32 @@ func findActualString(fileContent, searchString string) string {
 			origEnd = len(fileRunes)
 		}
 
-		return string(fileRunes[origStart:origEnd])
+		return string(fileRunes[origStart:origEnd]), defaultIndentWidth
 	}
 
 	// Try with normalized leading whitespace (tab → space expansion).
 	// This is line-based because indentation differences only affect
 	// leading whitespace, and the matching needs to map lines back
-	// to the original file.
-	if actual := findWithIndentNorm(fileContent, searchString); actual != "" {
-		return actual
+	// to the original file. Several widths are tried because the width the
+	// model assumed when it turned tabs into spaces is unknowable.
+	for _, w := range indentWidths {
+		if actual := findWithIndentNorm(fileContent, searchString, w); actual != "" {
+			return actual, w
+		}
 	}
 
-	return ""
+	return "", 0
 }
 
+// defaultIndentWidth is the tab width assumed when no whitespace
+// normalization was needed to find the match — it matches how read_file and
+// the terminal tool render tabs.
+const defaultIndentWidth = 4
+
 // normalizeLeadingWhitespace expands tabs in leading whitespace of each line
-// to 4-space stops, making tab-indented and space-indented text comparable.
+// to width-space stops, making tab-indented and space-indented text comparable.
 // Only leading whitespace is touched — tabs inside line content are left alone.
-func normalizeLeadingWhitespace(s string) string {
+func normalizeLeadingWhitespace(s string, width int) string {
 	var b strings.Builder
 	b.Grow(len(s) + len(s)/10)
 	lines := strings.Split(s, "\n")
@@ -185,7 +200,7 @@ func normalizeLeadingWhitespace(s string) string {
 		if trimmed != line {
 			leadingLen := len(line) - len(trimmed)
 			leading := line[:leadingLen]
-			b.WriteString(strings.ReplaceAll(leading, "\t", "    "))
+			b.WriteString(strings.ReplaceAll(leading, "\t", strings.Repeat(" ", width)))
 		}
 		b.WriteString(trimmed)
 		if i < len(lines)-1 {
@@ -196,12 +211,21 @@ func normalizeLeadingWhitespace(s string) string {
 }
 
 // findWithIndentNorm matches searchString against fileContent after
-// normalizing leading whitespace in both. Returns the corresponding substring
-// from the original (unnormalized) fileContent so the edit preserves the
-// file's actual whitespace convention.
-func findWithIndentNorm(fileContent, searchString string) string {
-	normFile := normalizeLeadingWhitespace(fileContent)
-	normSearch := normalizeLeadingWhitespace(searchString)
+// normalizing leading whitespace in both at the given tab width. Returns the
+// corresponding substring from the original (unnormalized) fileContent so the
+// edit preserves the file's actual whitespace convention.
+func findWithIndentNorm(fileContent, searchString string, width int) string {
+	// The matching is line-based, so a trailing newline on the search string
+	// would otherwise become an empty last line that must equal the file's
+	// next line. Strip it for matching and restore it from the file after.
+	search := searchString
+	wantTrailingNL := strings.HasSuffix(search, "\n")
+	if wantTrailingNL {
+		search = strings.TrimSuffix(search, "\n")
+	}
+
+	normFile := normalizeLeadingWhitespace(fileContent, width)
+	normSearch := normalizeLeadingWhitespace(search, width)
 
 	if !strings.Contains(normFile, normSearch) {
 		return ""
@@ -210,7 +234,6 @@ func findWithIndentNorm(fileContent, searchString string) string {
 	fileLines := strings.Split(fileContent, "\n")
 	normFileLines := strings.Split(normFile, "\n")
 	normSearchLines := strings.Split(normSearch, "\n")
-	searchLines := strings.Split(searchString, "\n")
 
 	start := -1
 	for i := 0; i <= len(normFileLines)-len(normSearchLines); i++ {
@@ -231,11 +254,16 @@ func findWithIndentNorm(fileContent, searchString string) string {
 		return ""
 	}
 
-	end := start + len(searchLines)
+	end := start + len(normSearchLines)
 	actual := strings.Join(fileLines[start:end], "\n")
 
-	// Preserve trailing newline if the search string had one
-	if strings.HasSuffix(searchString, "\n") && !strings.HasSuffix(actual, "\n") {
+	if wantTrailingNL {
+		// The search demands a newline after the last matched line; only
+		// honor it if the file actually has one there (i.e. the match did
+		// not land on an unterminated final line).
+		if end >= len(fileLines) {
+			return ""
+		}
 		actual += "\n"
 	}
 
@@ -305,8 +333,8 @@ func (EditFileTool) Execute(_ context.Context, _ string, input map[string]any) (
 			"shape or create the file outside the agent.", secret)
 	}
 
-	// Use findActualString for quote-normalized matching.
-	actualOldStr := findActualString(bodyForMatch, oldStr)
+	// Use findActualString for quote- and indent-normalized matching.
+	actualOldStr, indentWidth := findActualString(bodyForMatch, oldStr)
 	if actualOldStr == "" {
 		// Build a helpful error message showing what we tried
 		msg := fmt.Sprintf("edit_file: old_string not found in %s", path)
@@ -335,7 +363,7 @@ func (EditFileTool) Execute(_ context.Context, _ string, input map[string]any) (
 	actualNewStr := preserveQuoteStyle(oldStr, actualOldStr, newStrClean)
 	// Preserve file indent convention (tabs vs spaces) — when the file
 	// uses tabs but the LLM supplied space-indented new_string.
-	actualNewStr = preserveIndentStyle(actualOldStr, actualNewStr)
+	actualNewStr = preserveIndentStyle(actualOldStr, actualNewStr, indentWidth)
 
 	var updated string
 	if replaceAll {
@@ -466,10 +494,14 @@ func isLetter(r rune) bool {
 
 // preserveIndentStyle converts leading whitespace in newStr to match the
 // file's indentation convention (detected from actualOldStr). When the file
-// uses tabs and the LLM supplied space-indented new_string, each 4-space
-// indent level is converted to one tab. This keeps the file's whitespace
-// convention consistent after the edit.
-func preserveIndentStyle(actualOldStr, newStr string) string {
+// uses tabs and the LLM supplied space-indented new_string, each run of
+// `width` spaces becomes one tab — width being the tab width that located the
+// match, so the conversion mirrors the expansion. Remainder spaces (alignment,
+// or a partial level) are kept rather than truncated away, so a 2-space line
+// is never silently stripped to column zero. Lines whose leading whitespace
+// already contains a tab are left untouched: the model followed the file's
+// convention, and rewriting them would flatten tab+space alignment.
+func preserveIndentStyle(actualOldStr, newStr string, width int) string {
 	// Only convert when the file uses tabs for indentation
 	if !strings.Contains(actualOldStr, "\n\t") && !strings.HasPrefix(actualOldStr, "\t") {
 		return newStr
@@ -481,11 +513,13 @@ func preserveIndentStyle(actualOldStr, newStr string) string {
 		if trimmed == line {
 			continue
 		}
-		leadingLen := len(line) - len(trimmed)
-		leading := line[:leadingLen]
-		// Count indent level: each tab = 1 level, 4 spaces = 1 level
-		level := strings.Count(leading, "\t") + (len(leading)-strings.Count(leading, "\t"))/4
-		newLines[i] = strings.Repeat("\t", level) + trimmed
+		leading := line[:len(line)-len(trimmed)]
+		if strings.Contains(leading, "\t") {
+			continue
+		}
+		tabs := len(leading) / width
+		rem := len(leading) % width
+		newLines[i] = strings.Repeat("\t", tabs) + strings.Repeat(" ", rem) + trimmed
 	}
 	return strings.Join(newLines, "\n")
 }

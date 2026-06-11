@@ -424,9 +424,9 @@ func TestNormalizeLeadingWhitespace(t *testing.T) {
 		{"a\n\tb\nc", "a\n    b\nc"}, // multi-line
 	}
 	for _, tc := range tests {
-		got := normalizeLeadingWhitespace(tc.in)
+		got := normalizeLeadingWhitespace(tc.in, 4)
 		if got != tc.want {
-			t.Errorf("normalizeLeadingWhitespace(%q) = %q, want %q", tc.in, got, tc.want)
+			t.Errorf("normalizeLeadingWhitespace(%q, 4) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -435,7 +435,7 @@ func TestFindWithIndentNorm(t *testing.T) {
 	file := "\tcase \"chat\":\n\t\tchatHelp(w)\n"
 	search := "    case \"chat\":\n        chatHelp(w)"
 
-	actual := findWithIndentNorm(file, search)
+	actual := findWithIndentNorm(file, search, 4)
 	// search has no trailing \n, so actual should also lack it
 	want := "\tcase \"chat\":\n\t\tchatHelp(w)"
 	if actual != want {
@@ -447,8 +447,97 @@ func TestFindWithIndentNorm_NotFound(t *testing.T) {
 	file := "\tfoo\n\tbar\n"
 	search := "        missing"
 
-	actual := findWithIndentNorm(file, search)
+	actual := findWithIndentNorm(file, search, 4)
 	if actual != "" {
 		t.Errorf("expected empty for non-matching search, got %q", actual)
+	}
+}
+
+func TestFindWithIndentNorm_TrailingNewline(t *testing.T) {
+	// A search string ending with \n used to require the file's NEXT line to
+	// be empty (line-split artifact). It must match any mid-file block whose
+	// last line is newline-terminated.
+	file := "\tfoo\n\tbar\n"
+	search := "    foo\n"
+
+	actual := findWithIndentNorm(file, search, 4)
+	if actual != "\tfoo\n" {
+		t.Errorf("findWithIndentNorm = %q, want %q", actual, "\tfoo\n")
+	}
+}
+
+func TestFindWithIndentNorm_TrailingNewline_EOFWithoutNewline(t *testing.T) {
+	// The search demands a trailing newline the file does not have —
+	// returning the match anyway would produce an actualOldStr that is not a
+	// substring of the file.
+	file := "\tfoo"
+	search := "    foo\n"
+
+	actual := findWithIndentNorm(file, search, 4)
+	if actual != "" {
+		t.Errorf("expected empty when file lacks the trailing newline, got %q", actual)
+	}
+}
+
+func TestEditFile_TabIndent_EightSpaceWidth(t *testing.T) {
+	// Model assumed an 8-wide tab rendering. The width-4 pass misses,
+	// the width-8 pass matches, and new_string converts back at 8.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wide.go")
+	writeTestFile(t, path, "\tif ok {\n\t\treturn\n\t}\n")
+
+	_, err := EditFileTool{}.Execute(context.Background(), "edit_file", map[string]any{
+		"path":       path,
+		"old_string": "        if ok {\n                return\n        }",
+		"new_string": "        if ok {\n                return nil\n        }",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	got := readTestFile(t, path)
+	want := "\tif ok {\n\t\treturn nil\n\t}\n"
+	if got != want {
+		t.Errorf("file = %q, want %q", got, want)
+	}
+}
+
+func TestEditFile_TabIndent_TwoSpaceWidth(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "narrow.go")
+	writeTestFile(t, path, "\tfoo()\n\t\tbar()\n")
+
+	_, err := EditFileTool{}.Execute(context.Background(), "edit_file", map[string]any{
+		"path":       path,
+		"old_string": "  foo()\n    bar()",
+		"new_string": "  foo2()\n    bar()",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	got := readTestFile(t, path)
+	want := "\tfoo2()\n\t\tbar()\n"
+	if got != want {
+		t.Errorf("file = %q, want %q", got, want)
+	}
+}
+
+func TestPreserveIndentStyle_KeepsRemainderSpaces(t *testing.T) {
+	// 6 spaces at width 4 = 1 tab + 2 alignment spaces. The old level
+	// arithmetic truncated to 1 tab; 2 or 3 spaces collapsed to column zero.
+	old := "\tindented"
+	got := preserveIndentStyle(old, "      aligned\n  partial", 4)
+	want := "\t  aligned\n  partial"
+	if got != want {
+		t.Errorf("preserveIndentStyle = %q, want %q", got, want)
+	}
+}
+
+func TestPreserveIndentStyle_LeavesTabLinesAlone(t *testing.T) {
+	// A line that already leads with a tab followed the file convention;
+	// its alignment spaces must not be flattened.
+	old := "\tindented"
+	in := "\t\t  aligned continuation"
+	if got := preserveIndentStyle(old, in, 4); got != in {
+		t.Errorf("preserveIndentStyle = %q, want unchanged %q", got, in)
 	}
 }
