@@ -28,6 +28,29 @@ commitment: breaking a Stable surface requires a major version.
 - **Internal** — implementation detail. May change in any release without
   notice.
 
+## Platform support
+
+Linux and macOS are first-class: the full tool surface works, including
+interactive `terminal_input` (feeding stdin to a running process) and OS
+sandbox confinement (`--sandbox`). Windows is supported and tested in CI, but
+two capabilities are **best-effort** and stated here rather than promised:
+
+- **Interactive `terminal_input` is POSIX-only.** Sending stdin to a running
+  background process works on macOS/Linux, where the shell passes redirected
+  stdin straight to the child. On Windows the `pwsh -Command` wrapper consumes
+  redirected stdin into PowerShell's own `$input` stream, so it does not reach
+  an interactive child reliably. Pass input up front via the `terminal` tool's
+  `stdin` parameter, or drive the program with non-interactive flags instead. A
+  true pseudo-console (ConPTY) path would close this gap but is not
+  implemented — and is not yet shipped by comparable agents on Windows either.
+- **`--sandbox` is unavailable on Windows.** OS confinement is macOS Seatbelt /
+  Linux Landlock only; on Windows `--sandbox` fails closed (refuses to run).
+  The permission engine is the safety layer there.
+
+These are behavior gaps, not format ones: neither affects the Stable file
+formats or saved-state read guarantees below. The README's Windows section
+carries the full list of platform differences.
+
 ## Stable surfaces
 
 ### Configuration files
