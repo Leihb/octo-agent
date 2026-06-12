@@ -20,17 +20,15 @@ var webdistFS embed.FS
 // there (i.e. after `make web-build`), otherwise falls back to the
 // legacy hand-authored static/ directory.
 func (s *Server) staticHandler() http.Handler {
-	// Prefer webdist/ (Vite output) over the legacy static/ directory when
-	// it contains a non-trivially small index.html.
+	// Prefer webdist/ (Vite output) when the assets/ directory exists inside
+	// it, which is only true after a real `make web-build` run. The placeholder
+	// index.html has no assets/ sibling, so this reliably distinguishes the two.
 	chosen := fs.FS(staticFS)
 	chosenDir := "static"
 	if sub, err2 := fs.Sub(webdistFS, "webdist"); err2 == nil {
-		if f, err3 := sub.Open("index.html"); err3 == nil {
-			if st, err4 := f.Stat(); err4 == nil && st.Size() > 2048 {
-				chosen = webdistFS
-				chosenDir = "webdist"
-			}
-			_ = f.Close()
+		if _, err3 := sub.Open("assets"); err3 == nil {
+			chosen = webdistFS
+			chosenDir = "webdist"
 		}
 	}
 
