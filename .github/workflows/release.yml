@@ -76,6 +76,37 @@ jobs:
             "/DAppVersion=$env:version" "/DSourceDir=$staging" "/O$staging" `
             packaging\windows\octo.iss
 
+      # Authenticode signing via SignPath Foundation (free for open source).
+      # Dormant until SignPath is configured: set repo variables
+      # SIGNPATH_ORGANIZATION_ID / SIGNPATH_PROJECT_SLUG /
+      # SIGNPATH_SIGNING_POLICY_SLUG and the secret SIGNPATH_API_TOKEN. Until
+      # then these steps skip and the release ships the unsigned installer.
+      # See the README "Code signing policy" section.
+      - name: Upload unsigned installer (for SignPath)
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        id: unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: octo-setup-unsigned
+          path: staging\octo-setup.exe
+
+      - name: Sign installer (SignPath)
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: SignPath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Swap in the signed installer
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        shell: pwsh
+        run: Copy-Item signed\octo-setup.exe staging\octo-setup.exe -Force
+
       - name: Attach installer to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
