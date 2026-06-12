@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -56,7 +57,7 @@ func (s *Server) initScheduler() {
 	dir := filepath.Join(home, ".octo", "tasks")
 	sch, err := scheduler.New(dir, s)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "octo serve: scheduler: %v\n", err)
+		slog.Error("scheduler", "err", err)
 		return
 	}
 	sch.Start()

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -268,7 +269,7 @@ func New(cfg Config) (*Server, error) {
 		// works for this process lifetime.
 		fileCfg.AccessKey = accessKey
 		if err := fileCfg.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "octo serve: persist access key to config.yml: %v (a new key will be generated next start)\n", err)
+			slog.Warn("could not persist access key; a new one will be generated next start", "err", err)
 		}
 	}
 
@@ -387,7 +388,7 @@ func (s *Server) enableMCP() {
 	s.mcpMu.Lock()
 	defer s.mcpMu.Unlock()
 	if err := app.SwapMCP(context.Background(), s.cwd, os.Stderr); err != nil {
-		fmt.Fprintf(os.Stderr, "octo serve: mcp: %v\n", err)
+		slog.Error("mcp setup", "err", err)
 	}
 	s.mcpCleanup = func() {
 		s.mcpMu.Lock()
@@ -1124,7 +1125,7 @@ func (s *Server) initChannels() {
 	}
 	chCfg, err := channel.LoadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "octo serve: channel config: %v\n", err)
+		slog.Error("channel config", "err", err)
 		return
 	}
 	platforms := chCfg.EnabledPlatforms()
@@ -1162,7 +1163,7 @@ func (s *Server) initChannels() {
 	s.channelCfg = chCfg
 	s.channelMgr = channel.NewManager(chCfg, factory, channel.BindByChatUser)
 
-	fmt.Fprintf(os.Stderr, "octo serve: channels enabled: %s\n", strings.Join(platforms, ", "))
+	slog.Info("channels enabled", "platforms", strings.Join(platforms, ", "))
 }
 
 // startChannels launches all enabled channel adapters in background goroutines.
@@ -1181,17 +1182,17 @@ func (s *Server) startChannels() {
 		}
 		ctor, err := channel.Find(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "octo serve: channel %s: %v\n", name, err)
+			slog.Error("channel start failed", "channel", name, "err", err)
 			continue
 		}
 		ad, err := ctor(pc)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "octo serve: channel %s adapter: %v\n", name, err)
+			slog.Error("channel adapter failed", "channel", name, "err", err)
 			continue
 		}
 		if errs := ad.ValidateConfig(pc); len(errs) > 0 {
 			for _, e := range errs {
-				fmt.Fprintf(os.Stderr, "octo serve: channel %s config: %s\n", name, e)
+				slog.Warn("channel config issue", "channel", name, "detail", e)
 			}
 			continue
 		}
@@ -1322,7 +1323,7 @@ func (s *Server) handleChannelMessage(ctx context.Context, ad channel.Adapter, e
 	if err != nil {
 		// Generic chat reply — err.Error() can leak local paths into a
 		// group chat; the operator gets the detail on the server console.
-		fmt.Fprintf(os.Stderr, "octo serve: channel %s: permission engine: %v\n", ev.Platform, err)
+		slog.Error("channel permission engine", "channel", ev.Platform, "err", err)
 		ad.SendText(ev.ChatID, "⚠️ Permission engine unavailable — message not processed. Check the server logs.", ev.MessageID)
 		return
 	}
@@ -1368,7 +1369,7 @@ func (s *Server) handleChannelMessage(ctx context.Context, ad channel.Adapter, e
 		// Persist the conversation so it survives server restarts. Failure
 		// must not eat the reply the user already got — log and move on.
 		if err := sess.Persist(); err != nil {
-			fmt.Fprintf(os.Stderr, "octo serve: channel %s: persist session: %v\n", ev.Platform, err)
+			slog.Error("channel persist session", "channel", ev.Platform, "err", err)
 		}
 	}
 

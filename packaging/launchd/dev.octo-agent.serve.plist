@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  octo serve — launchd user agent (macOS).
+
+  Install (per-user, no root):
+    cp packaging/launchd/dev.octo-agent.serve.plist ~/Library/LaunchAgents/
+    # edit the octo path + env values below, then:
+    launchctl load ~/Library/LaunchAgents/dev.octo-agent.serve.plist
+    tail -f ~/.octo/logs/serve.log      # octo logs to stderr → StandardErrorPath
+
+  octo serve runs with --no-supervisor: launchd is the supervisor. The worker
+  requests a restart by exiting 42; KeepAlive respawns it from the on-disk
+  binary, so binary upgrades / config changes take effect on restart.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.octo-agent.serve</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/octo</string>
+    <string>serve</string>
+    <string>--no-supervisor</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OCTO_LOG_LEVEL</key>
+    <string>info</string>
+    <!-- Set secrets here, or keep them in the user keychain / a sourced file.
+         ANTHROPIC_API_KEY / OPENAI_API_KEY / OCTO_ACCESS_KEY -->
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/octo-serve.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/octo-serve.log</string>
+</dict>
+</plist>

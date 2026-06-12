@@ -3,9 +3,8 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"net/http"
-	"os"
 	"time"
 )
 
@@ -37,14 +36,14 @@ func (s *Server) Restart(reason string) {
 	if !s.restartPending.CompareAndSwap(false, true) {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "octo serve: restart requested (%s)\n", reason)
+	slog.Info("restart requested", "reason", reason)
 	go func() {
 		timeout := s.drainTimeout
 		if timeout <= 0 {
 			timeout = defaultDrainTimeout
 		}
 		if clean := s.drain.drain(timeout); !clean {
-			fmt.Fprintf(os.Stderr, "octo serve: drain timed out after %s; restarting with turns in flight\n", timeout)
+			slog.Warn("drain timed out; restarting with turns in flight", "timeout", timeout)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()

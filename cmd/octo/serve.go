@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -15,6 +16,20 @@ import (
 
 	"github.com/Leihb/octo-agent/internal/server"
 )
+
+// serveLogLevel reads OCTO_LOG_LEVEL (debug|info|warn|error); defaults to info.
+func serveLogLevel() slog.Level {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("OCTO_LOG_LEVEL"))) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
 
 // runServe handles `octo serve`.
 func runServe(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -41,6 +56,11 @@ func runServe(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		defer signal.Stop(sigCh)
 		return superviseLoop(spawnServeWorker(args, stdout, stderr), sigCh, stderr)
 	}
+
+	// Structured operational logging for the serve worker: slog text handler to
+	// stderr, level from OCTO_LOG_LEVEL. Capturing this output (a file, the
+	// systemd journal) is the service manager's job — see packaging/.
+	slog.SetDefault(slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: serveLogLevel()})))
 
 	var corsOrigins []string
 	if *cors != "" {

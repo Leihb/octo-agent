@@ -1,0 +1,31 @@
+# octo serve — systemd user service.
+#
+# Install (per-user, no root):
+#   cp packaging/systemd/octo.service ~/.config/systemd/user/octo.service
+#   # edit ExecStart path + create the env file below, then:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now octo
+#   journalctl --user -u octo -f      # follow logs (octo logs to stderr → journal)
+#
+# octo serve runs with --no-supervisor here: systemd is the supervisor. The
+# worker requests a restart (binary upgrade / config change) by exiting 42;
+# Restart=always covers that, so systemd respawns it from the on-disk binary.
+[Unit]
+Description=octo agent server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/octo serve --no-supervisor
+Restart=always
+RestartSec=2
+# Secrets (API key, access key) live in an env file, not this unit. chmod 600 it.
+#   OCTO_ACCESS_KEY=...
+#   ANTHROPIC_API_KEY=...   (or OPENAI_API_KEY=..., etc.)
+#   OCTO_LOG_LEVEL=info
+EnvironmentFile=-%h/.octo/serve.env
+WorkingDirectory=%h
+
+[Install]
+WantedBy=default.target
