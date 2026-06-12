@@ -52,7 +52,7 @@ func journalsDir() (string, error) {
 
 // JournalEntry records one completed agent() call.
 type JournalEntry struct {
-	Seq          int    `json:"seq"`   // 0-based call index (tok-1)
+	Seq          int    `json:"seq"` // 0-based call index (tok-1)
 	Prompt       string `json:"prompt"`
 	Reply        string `json:"reply"`
 	InputTokens  int    `json:"input_tokens"`
