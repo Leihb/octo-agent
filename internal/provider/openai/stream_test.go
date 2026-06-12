@@ -519,3 +519,40 @@ func TestSendStream_ToolCallWithStopFinishReason(t *testing.T) {
 
 // Compile-time assertion.
 var _ provider.StreamingProvider = (*Client)(nil)
+
+// TestSendStream_MidStreamResetIsTransient verifies a connection reset mid-body
+// surfaces as a transient stream error so the agent loop re-issues the round.
+func TestSendStream_MidStreamResetIsTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Promise more body than we deliver, then close the socket mid-line: the
+		// client sees a cut stream whose truncated final SSE chunk fails to
+		// parse — the mid-line manifestation of a reset. (A reset at an event
+		// boundary instead surfaces via scanner.Err(); both are wrapped transient.)
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("server does not support hijacking")
+		}
+		conn, bufrw, err := hj.Hijack()
+		if err != nil {
+			t.Fatalf("hijack: %v", err)
+		}
+		_, _ = bufrw.WriteString("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 4096\r\n\r\n")
+		_, _ = bufrw.WriteString(`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"par`)
+		_ = bufrw.Flush()
+		_ = conn.Close()
+	}))
+	defer srv.Close()
+
+	c, _ := New("k")
+	c.BaseURL = srv.URL
+	_, err := c.SendStream(context.Background(), provider.Request{
+		Model: "m", Messages: []agent.Message{agent.NewUserMessage("hi")},
+	}, provider.StreamCallbacks{})
+	if err == nil {
+		t.Fatal("expected an error from the reset stream")
+	}
+	var ts interface{ TransientStream() bool }
+	if !errors.As(err, &ts) || !ts.TransientStream() {
+		t.Errorf("mid-stream reset should be transient, got %v", err)
+	}
+}

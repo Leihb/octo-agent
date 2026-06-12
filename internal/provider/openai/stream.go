@@ -148,7 +148,11 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 
 		var ch streamChunk
 		if err := json.Unmarshal([]byte(data), &ch); err != nil {
-			return result, fmt.Errorf("openai: parse stream chunk: %w", err)
+			// A chunk that fails to parse is, in a streaming SSE context, a
+			// truncated final line from a cut stream (a healthy server sends
+			// complete JSON per data: line). Mark it transient so the agent loop
+			// re-issues the round, same as a boundary-aligned reset caught below.
+			return result, retry.AsTransientStream(fmt.Errorf("openai: parse stream chunk: %w", err))
 		}
 
 		if result.Model == "" && ch.Model != "" {
@@ -224,7 +228,11 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return result, fmt.Errorf("openai: stream read: %w", err)
+		// A mid-stream transport failure (HTTP/2 reset, connection drop) is
+		// recoverable: mark it transient so the agent loop re-issues the round
+		// instead of failing the turn. A caller cancellation passes through
+		// untouched (see retry.AsTransientStream).
+		return result, retry.AsTransientStream(fmt.Errorf("openai: stream read: %w", err))
 	}
 
 	result.Content = contentB.String()

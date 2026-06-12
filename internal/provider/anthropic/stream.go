@@ -155,7 +155,11 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 
 		var ev streamEvent
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			return result, fmt.Errorf("anthropic: parse stream event: %w", err)
+			// A chunk that fails to parse is, in a streaming SSE context, a
+			// truncated final line from a cut stream (a healthy server sends
+			// complete JSON per data: line). Mark it transient so the agent loop
+			// re-issues the round, same as a boundary-aligned reset caught below.
+			return result, retry.AsTransientStream(fmt.Errorf("anthropic: parse stream event: %w", err))
 		}
 
 		switch ev.Type {
@@ -249,7 +253,11 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return result, fmt.Errorf("anthropic: stream read: %w", err)
+		// A mid-stream transport failure (HTTP/2 reset, connection drop) is
+		// recoverable: mark it transient so the agent loop re-issues the round
+		// instead of failing the turn. A caller cancellation passes through
+		// untouched (see retry.AsTransientStream).
+		return result, retry.AsTransientStream(fmt.Errorf("anthropic: stream read: %w", err))
 	}
 
 	// Build the final block list in order.
