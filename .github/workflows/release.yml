@@ -69,8 +69,11 @@ jobs:
       - name: Compile installer
         shell: pwsh
         run: |
+          # Source paths in the .iss resolve relative to the script's own dir,
+          # so SourceDir / OutputDir must be absolute.
+          $staging = Join-Path $PWD 'staging'
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-            /DAppVersion=$env:version /DSourceDir=staging /Ostaging `
+            "/DAppVersion=$env:version" "/DSourceDir=$staging" "/O$staging" `
             packaging\windows\octo.iss
 
       - name: Attach installer to the release

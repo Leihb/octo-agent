@@ -39,7 +39,10 @@ jobs:
       - name: Compile installer
         shell: pwsh
         run: |
+          # Source paths in the .iss resolve relative to the script's own dir,
+          # so SourceDir / OutputDir must be absolute.
+          $staging = Join-Path $PWD 'staging'
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-            /DAppVersion=0.0.0-ci /DSourceDir=staging /Ostaging `
+            /DAppVersion=0.0.0-ci "/DSourceDir=$staging" "/O$staging" `
             packaging\windows\octo.iss
-          if (-not (Test-Path staging\octo-setup.exe)) { throw "installer was not produced" }
+          if (-not (Test-Path "$staging\octo-setup.exe")) { throw "installer was not produced" }
