@@ -254,6 +254,7 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 
 	// Build the final block list in order.
 	var textB strings.Builder
+	hasToolUse := false
 	blocks := make([]agent.ContentBlock, 0, len(blockOrder))
 	for _, idx := range blockOrder {
 		acc, ok := accByIndex[idx]
@@ -276,7 +277,18 @@ func (c *Client) SendStream(ctx context.Context, req provider.Request, cb provid
 				_ = json.Unmarshal([]byte(s), &input)
 			}
 			blocks = append(blocks, agent.NewToolUseBlock(acc.id, acc.name, input))
+			hasToolUse = true
 		}
+	}
+
+	// A response carrying tool_use blocks is a tool-use turn — dispatch them
+	// regardless of stop_reason. Real Anthropic always pairs them with
+	// stop_reason "tool_use", but a misbehaving Anthropic-compatible gateway may
+	// report "end_turn" instead; trusting stop_reason alone would silently drop
+	// the call. A genuine truncation ("max_tokens") is left intact, since a
+	// partial tool call is unsafe to dispatch. Mirrors the openai adapter.
+	if hasToolUse && result.StopReason != "max_tokens" {
+		result.StopReason = "tool_use"
 	}
 
 	result.Content = textB.String()

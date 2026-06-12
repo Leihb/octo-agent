@@ -314,3 +314,55 @@ func TestSendStream_KimiNoSpaceAndDeltaCache(t *testing.T) {
 // Compile-time assertion: *Client implements provider.StreamingProvider in the
 // test package too, in case future refactors split the file layout.
 var _ provider.StreamingProvider = (*Client)(nil)
+
+// toolUseEndTurnStream streams a tool_use block but reports stop_reason
+// "end_turn" in message_delta — the Anthropic-protocol analog of a gateway
+// mislabeling a tool call.
+const toolUseEndTurnStream = "" +
+	"event: message_start\n" +
+	`data: {"type":"message_start","message":{"id":"m","model":"x","usage":{"input_tokens":1,"output_tokens":0}}}` + "\n\n" +
+	"event: content_block_start\n" +
+	`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"edit_file","input":{}}}` + "\n\n" +
+	"event: content_block_delta\n" +
+	`data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"a.go\"}"}}` + "\n\n" +
+	"event: content_block_stop\n" +
+	`data: {"type":"content_block_stop","index":0}` + "\n\n" +
+	"event: message_delta\n" +
+	`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":0,"output_tokens":3}}` + "\n\n" +
+	"event: message_stop\n" +
+	`data: {"type":"message_stop"}` + "\n\n"
+
+// TestSendStream_ToolUseWithNonToolUseStopReason verifies the streaming path
+// treats an accumulated tool_use block as a tool-use turn even when stop_reason
+// is "end_turn".
+func TestSendStream_ToolUseWithNonToolUseStopReason(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, toolUseEndTurnStream)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	c, _ := New("test-key")
+	c.BaseURL = srv.URL
+	resp, err := c.SendStream(context.Background(), provider.Request{
+		Model: "x", Messages: []agent.Message{agent.NewUserMessage("edit it")},
+	}, provider.StreamCallbacks{})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+	if resp.StopReason != "tool_use" {
+		t.Errorf("StopReason = %q, want tool_use (tool_use block present despite stop_reason end_turn)", resp.StopReason)
+	}
+	gotTool := false
+	for _, b := range resp.Blocks {
+		if b.Type == "tool_use" && b.Name == "edit_file" {
+			gotTool = true
+		}
+	}
+	if !gotTool {
+		t.Error("expected an edit_file tool_use block")
+	}
+}

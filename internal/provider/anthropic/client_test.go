@@ -405,3 +405,34 @@ func TestSend_DoesNotRetryClientError(t *testing.T) {
 		t.Errorf("400 should not be retried; attempts=%d", got)
 	}
 }
+
+// TestSend_ToolUseWithNonToolUseStopReason verifies a response carrying a
+// tool_use block is treated as a tool-use turn even when a (misbehaving)
+// compatible backend reports stop_reason "end_turn" instead of "tool_use".
+func TestSend_ToolUseWithNonToolUseStopReason(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"msg","type":"message","role":"assistant","model":"x","content":[{"type":"tool_use","id":"toolu_1","name":"edit_file","input":{"path":"a.go"}}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("test-key")
+	c.BaseURL = srv.URL
+	resp, err := c.Send(context.Background(), provider.Request{
+		Model: "x", Messages: []agent.Message{agent.NewUserMessage("edit it")},
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if resp.StopReason != "tool_use" {
+		t.Errorf("StopReason = %q, want tool_use (tool_use block present despite stop_reason end_turn)", resp.StopReason)
+	}
+	gotTool := false
+	for _, b := range resp.Blocks {
+		if b.Type == "tool_use" && b.Name == "edit_file" {
+			gotTool = true
+		}
+	}
+	if !gotTool {
+		t.Error("expected an edit_file tool_use block")
+	}
+}

@@ -186,17 +186,37 @@ func (c *Client) Send(ctx context.Context, req provider.Request) (provider.Respo
 		}
 
 		blocks := fromAPIContentBlocks(apiResp.Content)
+		stopReason := apiResp.StopReason
+		// A response carrying tool_use blocks is a tool-use turn regardless of
+		// stop_reason. Real Anthropic always pairs them with "tool_use", but a
+		// misbehaving Anthropic-compatible gateway may report "end_turn"; trusting
+		// stop_reason alone would silently drop the call. A genuine truncation
+		// ("max_tokens") is left intact. Mirrors the streaming path and the
+		// openai adapter.
+		if stopReason != "max_tokens" && hasToolUseBlock(blocks) {
+			stopReason = "tool_use"
+		}
 		return provider.Response{
 			Content:          joinTextBlocks(apiResp.Content),
 			Blocks:           blocks,
 			Model:            apiResp.Model,
-			StopReason:       apiResp.StopReason,
+			StopReason:       stopReason,
 			InputTokens:      apiResp.Usage.InputTokens,
 			OutputTokens:     apiResp.Usage.OutputTokens,
 			CacheReadTokens:  apiResp.Usage.CacheReadInputTokens,
 			CacheWriteTokens: apiResp.Usage.CacheCreationInputTokens,
 		}, retry.Decision{}, nil
 	})
+}
+
+// hasToolUseBlock reports whether any block is a tool_use block.
+func hasToolUseBlock(blocks []agent.ContentBlock) bool {
+	for _, b := range blocks {
+		if b.Type == "tool_use" {
+			return true
+		}
+	}
+	return false
 }
 
 // endpointURL returns BaseURL + MessagesPath, applying defaults and trimming
