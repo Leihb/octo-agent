@@ -141,14 +141,6 @@ const Channels = (() => {
             </svg>
             ${I18n.t("channels.btn.test")}
           </button>
-          ${platform === "weixin" && hasConfig ? `
-          <button class="btn-channel-test btn-secondary" id="btn-login-weixin">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-              <rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM21 14v3M17 21h4M14 21h.01"/>
-            </svg>
-            ${I18n.t("channels.btn.login")}
-          </button>` : ""}
           <button class="btn-channel-configure btn-primary" id="btn-configure-${_esc(platform)}">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -156,7 +148,6 @@ const Channels = (() => {
             ${hasConfig ? I18n.t("channels.btn.reconfigure") : I18n.t("channels.btn.setup")}
           </button>
         </div>
-        ${platform === "weixin" && hasConfig ? `<div class="channel-login-area" id="weixin-login-area"></div>` : ""}
       </div>
     `;
 
@@ -164,71 +155,8 @@ const Channels = (() => {
     card.querySelector(`#btn-test-${platform}`)?.addEventListener("click", () => _runTest(platform));
     card.querySelector(`#btn-configure-${platform}`)?.addEventListener("click", () => _openSetup(platform));
     card.querySelector(`#toggle-${platform}`)?.addEventListener("change", (ev) => _onToggle(platform, ev.target));
-    card.querySelector("#btn-login-weixin")?.addEventListener("click", () => _weixinLogin());
 
     return card;
-  }
-
-  // ── Weixin QR login ──────────────────────────────────────────────────────────
-
-  let _weixinPollTimer = null;
-
-  /** Drive the web QR-login flow: start it, render the QR, poll to completion. */
-  async function _weixinLogin() {
-    const area = $("weixin-login-area");
-    if (!area) return;
-    clearInterval(_weixinPollTimer);
-    area.innerHTML = `<p class="channel-status-hint hint-idle">${I18n.t("channels.weixinLogin.starting")}</p>`;
-
-    let state;
-    try {
-      const res = await fetch("/api/channels/weixin/login", { method: "POST" });
-      state = await res.json();
-    } catch (e) {
-      area.innerHTML = `<p class="channel-status-hint hint-warn">⚠ ${_esc(String(e))}</p>`;
-      return;
-    }
-    _renderWeixinLogin(area, state);
-
-    if (state.status === "already_logged_in" || state.status === "done" || state.status === "failed") return;
-
-    _weixinPollTimer = setInterval(async () => {
-      try {
-        const res = await fetch("/api/channels/weixin/login");
-        const st  = await res.json();
-        _renderWeixinLogin(area, st);
-        if (st.status === "done" || st.status === "failed" || st.status === "idle") {
-          clearInterval(_weixinPollTimer);
-          if (st.status === "done") _load({ silent: true });
-        }
-      } catch (_) { /* keep polling */ }
-    }, 3000);
-  }
-
-  function _renderWeixinLogin(area, st) {
-    switch (st.status) {
-      case "already_logged_in":
-        area.innerHTML = `<p class="channel-status-hint hint-ok">✓ ${I18n.t("channels.weixinLogin.already", { user: _esc(st.user_id || "") })}</p>`;
-        break;
-      case "pending":
-      case "scanned": {
-        const hintKey = st.status === "scanned" ? "channels.weixinLogin.scanned" : "channels.weixinLogin.scan";
-        const qr = st.qr_url
-          ? `<img class="weixin-login-qr" src="${_esc(st.qr_url)}" alt="WeChat login QR">
-             <p class="channel-status-hint hint-idle"><a href="${_esc(st.qr_url)}" target="_blank" rel="noopener">QR</a></p>`
-          : "";
-        area.innerHTML = `${qr}<p class="channel-status-hint hint-idle">${I18n.t(hintKey)}</p>`;
-        break;
-      }
-      case "done":
-        area.innerHTML = `<p class="channel-status-hint hint-ok">✓ ${I18n.t("channels.weixinLogin.done", { user: _esc(st.user_id || "") })}</p>`;
-        break;
-      case "failed":
-        area.innerHTML = `<p class="channel-status-hint hint-warn">⚠ ${I18n.t("channels.weixinLogin.failed", { msg: _esc(st.error || "") })}</p>`;
-        break;
-      default:
-        area.innerHTML = "";
-    }
   }
 
   function _toggleHtml(platform, enabled) {

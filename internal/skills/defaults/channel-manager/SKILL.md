@@ -23,7 +23,7 @@ Configure IM platform channels for octo. Supported platforms: `feishu`, `weixin`
   `--no-channel`). channels.yml is read once at serve startup, so after any config
   change the user must restart `octo serve`.
 - Weixin login state lives separately in `~/.octo/weixin-credentials.json`, written by
-  the web QR-login flow (`POST /api/channels/weixin/login` on the running serve).
+  the QR-login flow this skill drives (`POST /api/channels/weixin/login` on the running serve).
 
 `channels.yml` schema:
 
@@ -199,7 +199,8 @@ Weixin uses a QR-code login — no app credentials needed.
    - `"status":"done"` — credentials are saved to `~/.octo/weixin-credentials.json`. Continue.
    - `"status":"pending"` with a new `qr_url` — the QR expired and was refreshed; relay the new link.
    - `"status":"failed"` — show the `error` and offer to retry from step 1.
-   (The web Channels panel's weixin card offers the same flow with an inline QR image.)
+   This agent-driven flow is the only way to log in; the web Channels panel
+   intentionally has no inline QR button.
 4. Enable the platform in `~/.octo/channels.yml` (preserve other platforms), then `chmod 600`:
    ```yaml
    channels:

@@ -7799,16 +7799,6 @@ body.setup-mode {
 .mcp-oauth-success { color: #3fb950; font-size: 0.875rem; font-weight: 600; }
 .mcp-oauth-failed  { color: var(--color-danger, #e5534b); font-size: 0.875rem; font-weight: 600; }
 
-/* ── Weixin web QR login (channels panel) ─────────────────────────────── */
-.channel-login-area { margin-top: 10px; }
-.channel-login-area .weixin-login-qr {
-  display: block;
-  width: 180px;
-  height: 180px;
-  border-radius: 8px;
-  background: #fff;
-  padding: 6px;
-
 /* ─── Artifacts panel (dev-docs/web-artifacts-panel-design.md) ───────────── */
 
 #artifacts-panel {
