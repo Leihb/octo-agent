@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased — 0.20.0-dev]
+## [0.20.0] — 2026-06-12
+
+### Added
+- **Double-click Windows installer.** A new `octo-setup.exe` (built by goreleaser's release job via Inno Setup) installs octo per-user to `%LOCALAPPDATA%\Programs\octo` with no administrator prompt, adds it to the user `PATH`, and registers a Start-menu shortcut and an uninstaller — so a non-developer no longer has to unzip and hand-edit `PATH`. Per-user install keeps the directory writable, so `octo upgrade` still swaps the binary in place. Unsigned for now: Windows SmartScreen shows a "Run anyway" prompt on first launch, documented in the README. (#642)
+- **The agent now knows which developer tools are installed.** The session context reports, presence-only, which of a curated set — `git`, `gh`, `node`, `npm`, `python`, `pip`, `uv`, `go`, `docker`, `make` — resolve on `PATH`, so the agent stops discovering a missing python/node by failing a command. It pairs with the existing platform install guidance: the model knows both what's missing and how to add it. Detection is `exec.LookPath` only (no subprocess), cheap enough for the server's per-turn recompose. (#641)
 
 ## [0.19.0] — 2026-06-12
 
