@@ -44,6 +44,8 @@ WASM 路线把 Ruby 解释器编成一个平台无关的 `.wasm` 工件，用纯
 | `agent` / `parallel` / `pipeline` / `log` | ✅ 已实现（`internal/workflow/prelude.rb`） |
 | token 预算 + 取消 | ✅ 已实现（`Options.Budget` / ctx 取消哨兵） |
 | 并发上限 | ✅ 已实现（`Options.MaxConcurrent`，工具默认 8） |
+| 运行中进度透出（log() + agent 生命周期 → `EventToolProgress`） | ✅ 已实现（`WorkflowTool` 实现 `StreamingToolExecutor`，复用现有工具卡片增量渲染，无专门面板） |
+| 专门的 workflow 进度树面板（TUI/web） | ⬜ 不做（投机性 UI；待真实使用频率证明需要再议） |
 | `agent` 富 opts（tools/model/schema/read_only） | ⬜ 设计完成，未实现（ABI 仅传 prompt 字符串） |
 | worktree 隔离 | ⬜ 设计完成，未实现 |
 | resume / journal | ⬜ 设计完成，未实现 |

@@ -51,8 +51,14 @@ type AgentResult struct {
 type Options struct {
 	// Agent backs agent(). Required.
 	Agent AgentFunc
-	// Log backs log(); nil discards.
+	// Log backs the script's log() calls; nil discards.
 	Log func(string)
+	// Progress, when set, receives human-readable lifecycle lines as the
+	// workflow runs ("→ <label>" when an agent starts, "✓ <label>" when it
+	// finishes). Lets a streaming caller surface live progress. Distinct from
+	// Log, which is the script's own output. Invoked only from the single VM
+	// goroutine, so it need not be concurrency-safe.
+	Progress func(string)
 	// Budget caps total output tokens across all agent() calls; <= 0 = unlimited.
 	// When the budget is already spent, agent() raises in the script.
 	Budget int64
@@ -133,6 +139,7 @@ type backend struct {
 	mu        sync.Mutex
 	next      uint32
 	results   map[uint32]AgentResult
+	prompts   map[uint32]string // token => prompt, for progress labels
 	inTok     int
 	outTok    int
 	wasCancel bool
@@ -144,6 +151,7 @@ func newBackend(ctx context.Context, opt Options) *backend {
 		opt:     opt,
 		done:    make(chan uint32, 1024),
 		results: map[uint32]AgentResult{},
+		prompts: map[uint32]string{},
 	}
 	if opt.MaxConcurrent > 0 {
 		b.sem = make(chan struct{}, opt.MaxConcurrent)
@@ -185,7 +193,12 @@ func (b *backend) agentStart(_ context.Context, mod api.Module, ptr, length uint
 	}
 	b.next++
 	tok := b.next
+	b.prompts[tok] = prompt
 	b.mu.Unlock()
+
+	if b.opt.Progress != nil {
+		b.opt.Progress("→ " + label(prompt))
+	}
 
 	go func() {
 		if b.sem != nil {
@@ -225,6 +238,12 @@ func (b *backend) agentWaitAny(_ context.Context, _ api.Module) uint32 {
 		if b.ctx.Err() != nil {
 			return b.markCanceled()
 		}
+		if b.opt.Progress != nil {
+			b.mu.Lock()
+			p := b.prompts[tok]
+			b.mu.Unlock()
+			b.opt.Progress("✓ " + label(p))
+		}
 		return tok
 	case <-b.ctx.Done():
 		return b.markCanceled()
@@ -238,12 +257,27 @@ func (b *backend) markCanceled() uint32 {
 	return cancelToken
 }
 
+// label trims a prompt to a short single-line progress label.
+func label(prompt string) string {
+	s := prompt
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.TrimSpace(s)
+	const max = 60
+	if len(s) > max {
+		s = s[:max] + "…"
+	}
+	return s
+}
+
 // agentTake writes the result for token into the guest buffer, returning its
 // length. A failed agent surfaces its error text as the result string.
 func (b *backend) agentTake(_ context.Context, mod api.Module, token, outPtr, outCap uint32) uint32 {
 	b.mu.Lock()
 	res, ok := b.results[token]
 	delete(b.results, token)
+	delete(b.prompts, token)
 	b.mu.Unlock()
 
 	var s string

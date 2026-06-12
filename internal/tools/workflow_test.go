@@ -49,6 +49,30 @@ func TestWorkflowTool_Execute(t *testing.T) {
 	}
 }
 
+// TestWorkflowTool_ExecuteStream verifies live progress chunks flow through the
+// streaming callback: log() output plus each agent's start/finish.
+func TestWorkflowTool_ExecuteStream(t *testing.T) {
+	SetSpawner(replySpawner{})
+	t.Cleanup(func() { SetSpawner(nil) })
+
+	var chunks []string
+	res, err := WorkflowTool{}.ExecuteStream(context.Background(), "c",
+		map[string]any{"script": `log("begin"); parallel(%w[a b]) { |x| agent(x) }.join(",")`},
+		func(chunk string) { chunks = append(chunks, chunk) })
+	if err != nil {
+		t.Fatalf("ExecuteStream: %v", err)
+	}
+	if !strings.Contains(res.Text, "R[a],R[b]") {
+		t.Errorf("Text = %q", res.Text)
+	}
+	joined := strings.Join(chunks, "\n")
+	for _, want := range []string{"begin", "→ a", "→ b", "✓ a", "✓ b"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("progress chunks missing %q; got:\n%s", want, joined)
+		}
+	}
+}
+
 func TestWorkflowTool_RefusesInSubAgent(t *testing.T) {
 	SetSpawner(replySpawner{})
 	t.Cleanup(func() { SetSpawner(nil) })

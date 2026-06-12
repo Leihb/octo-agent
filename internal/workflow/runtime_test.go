@@ -150,6 +150,32 @@ func TestRun_BudgetExhausted(t *testing.T) {
 	}
 }
 
+func TestRun_ProgressLifecycle(t *testing.T) {
+	var prog []string
+	_, err := Run(context.Background(),
+		`parallel([1,2]) { |i| agent("task-#{i}") }.join`,
+		Options{
+			Agent:    echoAgent,
+			Progress: func(s string) { prog = append(prog, s) },
+		})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Two starts (→) and two finishes (✓), labels carrying the prompt.
+	var starts, dones int
+	for _, p := range prog {
+		switch {
+		case strings.HasPrefix(p, "→ "):
+			starts++
+		case strings.HasPrefix(p, "✓ "):
+			dones++
+		}
+	}
+	if starts != 2 || dones != 2 {
+		t.Errorf("progress = %v; want 2 starts + 2 dones", prog)
+	}
+}
+
 func TestRun_Log(t *testing.T) {
 	var lines []string
 	got, err := Run(context.Background(),

@@ -24,6 +24,9 @@ const defaultWorkflowConcurrency = 8
 // workflow.
 type WorkflowTool struct{}
 
+// WorkflowTool streams live progress (log() output + agent lifecycle).
+var _ agent.StreamingToolExecutor = WorkflowTool{}
+
 func (WorkflowTool) Definition() agent.ToolDefinition {
 	return agent.ToolDefinition{
 		Name: "workflow",
@@ -63,7 +66,14 @@ func (WorkflowTool) Definition() agent.ToolDefinition {
 	}
 }
 
-func (WorkflowTool) Execute(ctx context.Context, _ string, input map[string]any) (agent.ToolResult, error) {
+func (t WorkflowTool) Execute(ctx context.Context, name string, input map[string]any) (agent.ToolResult, error) {
+	return t.ExecuteStream(ctx, name, input, func(string) {})
+}
+
+// ExecuteStream runs the workflow and streams live progress — the script's
+// log() output plus each agent's start/finish — as tool-progress chunks, so the
+// UI shows what a long multi-agent run is doing instead of an opaque spinner.
+func (WorkflowTool) ExecuteStream(ctx context.Context, _ string, input map[string]any, progress func(chunk string)) (agent.ToolResult, error) {
 	if IsSubAgent(ctx) {
 		return agent.ToolResult{}, fmt.Errorf("workflow: a sub-agent cannot run a workflow")
 	}
@@ -95,10 +105,16 @@ func (WorkflowTool) Execute(ctx context.Context, _ string, input map[string]any)
 		}
 	}
 
+	// Collect log() lines for the final result, and also stream them — plus
+	// agent lifecycle — live via the progress callback.
 	var logs []string
 	res, err := workflow.Run(ctx, script, workflow.Options{
-		Agent:         af,
-		Log:           func(s string) { logs = append(logs, s) },
+		Agent: af,
+		Log: func(s string) {
+			logs = append(logs, s)
+			progress(s)
+		},
+		Progress:      progress,
 		MaxConcurrent: defaultWorkflowConcurrency,
 	})
 	if err != nil {
