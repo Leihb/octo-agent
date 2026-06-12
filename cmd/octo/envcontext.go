@@ -38,6 +38,10 @@ func buildEnvContext(cwd string) string {
 	// on Windows, sudo/PATH/CLT traps on macOS) lives in internal/tools next
 	// to the shell selection itself, shared with the server's context builder.
 	b.WriteString(tools.ShellEnvNote())
+	// Which common developer tools are actually on PATH — so the agent doesn't
+	// discover python/node is missing by failing a command. Pairs with the
+	// install guidance above.
+	b.WriteString(tools.ToolchainNote())
 	return b.String()
 }
 

@@ -923,6 +923,9 @@ func buildEnvContext(cwd string) string {
 	// Platform-shell guidance (dialect + install/PATH traps), shared with the
 	// CLI builder so web sessions get the same orientation.
 	b.WriteString(tools.ShellEnvNote())
+	// Detected toolchain — same as the CLI builder, so web sessions know which
+	// runtimes are present without probing by trial and error.
+	b.WriteString(tools.ToolchainNote())
 	return b.String()
 }
 
