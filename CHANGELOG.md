@@ -5,12 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased — 0.19.0-dev]
+## [0.19.0] — 2026-06-12
 
 ### Added
 - **octo upgrades itself.** `octo upgrade` downloads the latest GitHub release, verifies its SHA-256 against the release's `checksums.txt`, and atomically swaps the binary in place (`--check` only compares; `--force` overrides the dev-build refusal). The web UI's version badge now works end to end: `/api/version` reports update availability (1h-cached check, enabled only under `octo serve`), the upgrade button streams progress over WS, and the existing restart button boots the new binary via the supervisor. Windows uses unique `.old.<ts>` aside names since the running image stays locked. (#630)
 - **`octo -c` with no ID opens an interactive session picker.** Resuming used to mean remembering (or going to look up) a session ID. A bare `-c`/`--continue` now pops the arrow-key list of recent sessions — short ID, title, date, model, turn count — and resumes the one you pick. Headless callers (pipes, scripts) still pass an explicit ID; the bare form errors with a pointer to `octo sessions` when there's no terminal.
 - **`COMPATIBILITY.md` — the public-contract declaration ahead of 1.0.** Stable (SemVer-covered): config.yml / permissions.yml / mcp.json / channels.yml formats, the Claude-Code-compatible SKILL.md format, identity & memory files, a read guarantee on sessions and tasks, documented CLI commands + flags + exit codes (incl. serve's 42), and `OCTO_*` / vendor env vars. Best-effort: the embedded Web UI's HTTP API + WS events, default rules/skills content. Migration policy: auto-migrate on read, ≥1 minor deprecation window, removing read support = major. The policy is in force now; pre-1.0 minors may still break Stable surfaces with a CHANGELOG callout.
+- **Retry and edit-resend on the latest web chat bubbles.** Hovering the most recent exchange exposes a retry control (re-run the same prompt) and an edit-resend control (change the prompt and re-send), so a bad turn no longer needs a fresh message typed from scratch. (#621)
 
 ### Security
 - **Access-key authentication is back** (removed in v0.16.0): every API and WebSocket request from a non-loopback client must present the key (`Authorization: Bearer`, `X-Access-Key`, cookie, or `?access_key=` on `/ws` only). Loopback requests stay friction-free, but the exemption is now hardened against the browser: a foreign `Host` (DNS rebinding) or foreign/`null` `Origin` (CSRF) gets 403, and `--cors '*'` never widens those gates. The key resolves from `-access-key` / `OCTO_ACCESS_KEY` / `config.yml`, else it is auto-generated and persisted; an exposed bind prints a ready-to-open URL embedding it. `SECURITY.md` states the full threat model.
@@ -23,10 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Served uploads (`/api/uploads/{name}`) carry `X-Content-Type-Options: nosniff`.
 - **Custom base URLs are now exclusive to two catch-all vendors.** New `openai_compatible` / `anthropic_compatible` providers take — and require — a free-form `base_url`; every other vendor is pinned to its official endpoint plus declared regional variants, so the config wizard and web settings no longer offer free-text URLs for them. Existing configs with a custom `base_url` on a named vendor (and `<PROVIDER>_BASE_URL` env vars) keep working on read. An unknown endpoint saved from the web now classifies as the protocol-matching compatible vendor instead of masquerading as real `openai`/`anthropic`. (#623)
 - **Vendor registry refresh.** Added Bailian (Alibaba DashScope compatible mode, mainland/US endpoints, qwen3.5-flash lite compaction) and MiMo (Xiaomi); removed Groq and SiliconFlow. (#623)
+- **The web chat is quieter.** Thinking blocks collapse by default, tool runs render as a compact TUI-style task card, and the action icons shrank — so a long session reads as a conversation instead of a wall of machinery. (#619)
+- **Weixin QR login lives only in the agent setup flow.** The channels panel's Weixin card no longer carries an inline "Login (QR)" button — it was shown whenever a config entry existed (not whether the session was live), so it lingered after a successful login like an unfinished step. `/channel-manager setup weixin` drives the same login endpoint and relays the QR in chat. (#638)
+- The TUI recalls your last message into the input box after an Esc interrupt, so a cut-off turn can be edited and re-sent instead of retyped. (#636)
+- The session exit banner is shorter — the parting summary no longer scrolls. (#637)
 
 ### Fixed
 - The memory save-nudge no longer leaks into tool cards. The `<system-reminder>` the tool-result hook appends after `gh pr create`/`merge` is model-facing, but every UI surface rendered it verbatim — the TUI card, the headless one-shot output, the web's live `tool_result` broadcast, and the web history replay. Tool-result events and the replay now strip reminder spans for display; the persisted blocks keep them so the model still reads the nudge, including on session resume.
 - A bare `octo` with no API key no longer prints the manual export-a-key walkthrough right before auto-launching the config wizard — the wizard path shows one intro line; non-interactive runs keep the full actionable help. The help's numbered steps also no longer start at "2." for vendors without a key-management URL. (#625)
+- **Identity files load by lowercase name.** `soul.md` / `user.md` are now canonical (uppercase `SOUL.md` still reads as a legacy fallback). The onboarding-written identity was previously never injected on Linux, where the case mismatch hid it. (#628)
+- A named vendor with an empty `base_url` now resolves to its official endpoint instead of erroring — the gap surfaced after the catch-all base-url change. (#626)
+- An idle `Ctrl+Q` submits the pending input like Enter instead of swallowing the message. (#629)
 
 ## [0.18.0] — 2026-06-11
 
