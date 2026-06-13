@@ -31,10 +31,14 @@
     { value: 'zh-TW', label: '繁體中文' },
   ]
 
-  const fontSizeMap: Record<string, string> = { Small: '14px', Medium: '15px', Large: '16px' }
-  const fontSizeRevMap: Record<string, string> = { '14px': 'Small', '15px': 'Medium', '16px': 'Large' }
+  // The whole UI is sized in px, so a :root font-size has no effect. Scale the
+  // app with `zoom` instead — that visibly resizes text (and everything else),
+  // which is what "base text size" means in practice here.
+  const fontZoomMap: Record<string, string> = { Small: '0.9', Medium: '1', Large: '1.1' }
 
   onMount(async () => {
+    const savedFont = localStorage.getItem('octo.fontSize')
+    if (savedFont) fontSize = savedFont
     await Promise.all([loadConfig(), loadVersion()])
   })
 
@@ -53,8 +57,9 @@
         permMode  = capitalize(def.permission_mode ?? 'ask')
       }
       origModel = model
-      // font_size + language from config (server hardcodes "medium"/"en" for now)
-      if (cfg.font_size)  fontSize = fontSizeRevMap[cfg.font_size] ?? capitalize(cfg.font_size)
+      // Font size is a client-only preference (persisted in localStorage); the
+      // server only hardcodes a placeholder, so don't let it clobber the saved
+      // choice. Language still seeds from config when present.
       if (cfg.language)   language = cfg.language
     } catch (e: any) {
       showToast(`Failed to load config: ${e.message}`, 'error')
@@ -76,8 +81,9 @@
   }
 
   $effect(() => {
-    // Apply font size to :root
-    document.documentElement.style.fontSize = fontSizeMap[fontSize] ?? '15px'
+    // Apply font size via zoom and remember it across reloads.
+    ;(document.documentElement.style as any).zoom = fontZoomMap[fontSize] ?? '1'
+    localStorage.setItem('octo.fontSize', fontSize)
   })
 
   $effect(() => {

@@ -116,6 +116,76 @@ func (s *Server) listSessionsBrief() []wsSessionInfo {
 // SetSubscribed records the active session subscription for a connection.
 func (s *Server) SetSubscribed(conn *wsConn, sessionID string) {}
 
+// sendContextUsage pushes a session_update carrying the context-window fill %
+// to a freshly-subscribed tab. Without it, opening or reloading an existing
+// conversation leaves the composer's "Context" bar stuck at 0% until the next
+// turn runs (the session list reports 0 and nothing else repopulates it).
+//
+// When a turn has already run in this process the live Agent is cached, so its
+// real last-input-token count is exact. For a resumed session (cold process,
+// or one never run here) we fall back to a chars/4 estimate over the persisted
+// transcript — approximate, but far better than a misleading 0%.
+func (s *Server) sendContextUsage(sessionID string, conn *wsConn) {
+	pct := 0
+	s.sessionAgentsMu.Lock()
+	a := s.sessionAgents[sessionID]
+	s.sessionAgentsMu.Unlock()
+	if a != nil {
+		if used, window := a.ContextUsage(); window > 0 && used > 0 {
+			pct = used * 100 / window
+		}
+	}
+	if pct == 0 {
+		if sess, err := agent.LoadSession(sessionID); err == nil {
+			pct = estimateContextPct(sess)
+		}
+	}
+	if pct <= 0 {
+		return
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	wd, pm, re, _ := s.sessionStatusFields()
+	b, err := json.Marshal(map[string]any{
+		"type":             "session_update",
+		"session_id":       sessionID,
+		"context_usage":    pct,
+		"working_dir":      wd,
+		"permission_mode":  pm,
+		"reasoning_effort": re,
+	})
+	if err == nil {
+		conn.send <- b
+	}
+}
+
+// estimateContextPct approximates how full the model's context window a
+// persisted transcript occupies, using a coarse chars/4 token heuristic. Used
+// only when no live token count is available.
+func estimateContextPct(sess *agent.Session) int {
+	window := agent.ContextWindow(sess.Model)
+	if window <= 0 {
+		return 0
+	}
+	chars := 0
+	for _, m := range sess.Messages {
+		chars += len(m.Content)
+		for _, b := range m.Blocks {
+			chars += len(b.Text) + len(b.Result) + len(b.Thinking) + len(b.Reasoning) + len(b.Name)
+			for k, v := range b.Input {
+				chars += len(k)
+				if str, ok := v.(string); ok {
+					chars += len(str)
+				} else {
+					chars += 16
+				}
+			}
+		}
+	}
+	return (chars / 4) * 100 / window
+}
+
 // replayLiveState replays in-progress agent state (progress + stdout) to a
 // newly-subscribing browser tab so it catches up with what it missed.
 func (s *Server) replayLiveState(sessionID string, conn *wsConn) {

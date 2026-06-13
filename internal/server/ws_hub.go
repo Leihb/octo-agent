@@ -271,6 +271,8 @@ func (c *wsConn) dispatch(msgType string, raw []byte) {
 		c.send <- b
 		// Replay any in-progress live state for this session.
 		c.hub.s.replayLiveState(msg.SessionID, c)
+		// Seed the context-usage bar so a resumed conversation isn't stuck at 0%.
+		c.hub.s.sendContextUsage(msg.SessionID, c)
 
 	case "unsubscribe":
 		var msg wsMsgUnsubscribe
@@ -351,6 +353,7 @@ type wsHubOwner interface {
 	handleWSConfirmation(confID, result string)
 	handleWSUserQuestionAnswer(qid string, choices []string, custom string, cancelled bool)
 	replayLiveState(sessionID string, conn *wsConn)
+	sendContextUsage(sessionID string, conn *wsConn)
 	SetSubscribed(conn *wsConn, sessionID string)
 }
 

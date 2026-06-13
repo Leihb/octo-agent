@@ -131,7 +131,8 @@
         {@const icon = sessionIcon(s)}
         <div
           class="nav-row"
-          style="background:{solid ? '#1677FF' : selected ? 'rgba(22,119,255,0.06)' : 'transparent'}"
+          class:solid={solid}
+          class:selected={selected && !solid}
           onclick={() => { if ($selMode) toggleSel(s.id); else { view.set('chat'); activeSession.set(s.id); activeSessionId.set(s.id); menuFor.set(null) } }}
         >
           {#if $selMode}
@@ -197,7 +198,7 @@
           { icon: 'ant-design:api-outlined', label: 'MCP Servers', v: 'mcp', meta: '4' },
           { icon: 'ant-design:mobile-outlined', label: 'Channels', v: 'channels' },
         ] as item}
-        <div class="nav-row" style="background:{navActive(item.v) ? '#1677FF' : 'transparent'}" onclick={() => view.set(item.v as any)}>
+        <div class="nav-row" class:solid={navActive(item.v)} onclick={() => view.set(item.v as any)}>
           <iconify-icon icon={item.icon} width="14" style="color:{navActive(item.v) ? '#fff' : 'rgba(0,0,0,0.45)'}"></iconify-icon>
           <span style="font-size:13px;color:{navActive(item.v) ? '#fff' : 'rgba(0,0,0,0.65)'};">{item.label}</span>
           {#if item.meta}<span style="margin-left:auto;font-size:11px;color:{navActive(item.v) ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.45)'};">{item.meta}</span>{/if}
@@ -212,7 +213,7 @@
           { icon: 'ant-design:user-outlined', label: 'Assistant Memory', v: 'profile' },
           { icon: 'ant-design:folder-open-outlined', label: 'File Recall', v: 'files' },
         ] as item}
-        <div class="nav-row" style="background:{navActive(item.v) ? '#1677FF' : 'transparent'}" onclick={() => view.set(item.v as any)}>
+        <div class="nav-row" class:solid={navActive(item.v)} onclick={() => view.set(item.v as any)}>
           <iconify-icon icon={item.icon} width="14" style="color:{navActive(item.v) ? '#fff' : 'rgba(0,0,0,0.45)'}"></iconify-icon>
           <span style="font-size:13px;color:{navActive(item.v) ? '#fff' : 'rgba(0,0,0,0.65)'};">{item.label}</span>
         </div>
@@ -290,7 +291,11 @@
   min-height: 36px; padding: 0 6px 0 10px;
   border-radius: 9999px; cursor: pointer;
 }
-.nav-row:hover { background: rgba(0,0,0,0.04) !important; }
+.nav-row.solid { background: #1677FF; }
+.nav-row.selected { background: rgba(22,119,255,0.06); }
+/* Hover never overrides the active (solid) row — that washed the blue pill out
+   to grey with near-invisible white text. */
+.nav-row:hover:not(.solid) { background: rgba(0,0,0,0.04); }
 .checkbox {
   width: 16px; height: 16px; flex: 0 0 16px;
   border-radius: 4px; border: 1.5px solid;
