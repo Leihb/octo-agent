@@ -178,6 +178,7 @@
         name: (ev as any).name ?? '',
         args: (ev as any).args ?? '',
         summary: (ev as any).summary ?? '',
+        startedAt: Date.now(),
         done: false,
         error: null,
         result: null,

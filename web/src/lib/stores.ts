@@ -138,7 +138,11 @@ export function updateToolResult(sessionId: string, toolId: string | undefined, 
     if (lastGroup >= 0) {
       const tools = [...msgs[lastGroup].tools]
       const idx = pickToolIndex(tools, toolId)
-      if (idx >= 0) tools[idx] = { ...tools[idx], result, ui_payload: uiPayload, done: true }
+      if (idx >= 0) {
+        const started = tools[idx].startedAt
+        const elapsed = started ? (Date.now() - started) / 1000 : tools[idx].elapsed
+        tools[idx] = { ...tools[idx], result, ui_payload: uiPayload, done: true, elapsed }
+      }
       msgs[lastGroup] = { ...msgs[lastGroup], tools }
     }
     return { ...m, [sessionId]: msgs }
@@ -152,7 +156,11 @@ export function setToolError(sessionId: string, toolId: string | undefined, erro
     if (lastGroup >= 0) {
       const tools = [...msgs[lastGroup].tools]
       const idx = pickToolIndex(tools, toolId)
-      if (idx >= 0) tools[idx] = { ...tools[idx], error, done: true }
+      if (idx >= 0) {
+        const started = tools[idx].startedAt
+        const elapsed = started ? (Date.now() - started) / 1000 : tools[idx].elapsed
+        tools[idx] = { ...tools[idx], error, done: true, elapsed }
+      }
       msgs[lastGroup] = { ...msgs[lastGroup], tools }
     }
     return { ...m, [sessionId]: msgs }

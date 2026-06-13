@@ -91,6 +91,75 @@
       url: r.url ?? r.link ?? '',
     })).filter((r: any) => r.title || r.url)
   }
+
+  // Per-tool right-aligned meta count ("12 matches" / "64 lines" / …), derived
+  // from the result/payload since the server sends no explicit counter.
+  function nonEmptyLines(s: string): number {
+    return s ? s.split('\n').filter(l => l.trim() !== '').length : 0
+  }
+  function toolMeta(tool: any): string {
+    if (!tool.done || tool.error) return ''
+    const res = typeof tool.result === 'string' ? tool.result : ''
+    switch (tool.name) {
+      case 'web_search': {
+        const r = searchResults(tool)
+        return r ? `${r.length} results` : ''
+      }
+      case 'grep':       return res ? `${nonEmptyLines(res)} matches` : ''
+      case 'read_file':  return res ? `${nonEmptyLines(res)} lines` : ''
+      case 'bash': case 'terminal': {
+        const out = (tool.stdout && tool.stdout.length) ? tool.stdout.join('\n') : res
+        return out ? `${nonEmptyLines(out)} lines` : ''
+      }
+      case 'edit_file': {
+        if (!tool.diff) return ''
+        const changes = tool.diff.split('\n').filter((l: string) => l.startsWith('+') || l.startsWith('-')).length
+        return changes ? `${changes} changes` : ''
+      }
+      case 'write_file': {
+        const bytes = res ? new Blob([res]).size : 0
+        if (!bytes) return ''
+        return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
+      }
+      default: return ''
+    }
+  }
+
+  // Group elapsed = sum of per-tool durations (only known for live calls; a
+  // replayed history transcript has no timing so this stays empty there).
+  function groupElapsed(ts: any[]): string {
+    const total = ts.reduce((s, t) => s + (typeof t.elapsed === 'number' ? t.elapsed : 0), 0)
+    return total > 0 ? `${total.toFixed(1)}s` : ''
+  }
+
+  // Read/write-style tools collapse by default — their output is bulky and
+  // rarely the point. Everything else (and any error or in-flight tool) opens.
+  const COLLAPSED_BY_DEFAULT = new Set(['read_file', 'write_file', 'glob', 'list_dir', 'ls'])
+  function defaultOpen(tool: any): boolean {
+    if (tool.error || !tool.done) return true
+    return !COLLAPSED_BY_DEFAULT.has(tool.name)
+  }
+
+  // todo_write renders its checklist from the tool args.
+  function todoItems(tool: any): Array<{ status: string; content: string }> | null {
+    if (tool.name !== 'todo_write' && tool.name !== 'todowrite') return null
+    let a = tool.args
+    if (typeof a === 'string') { try { a = JSON.parse(a) } catch { return null } }
+    const list = a?.todos ?? a?.items ?? (Array.isArray(a) ? a : null)
+    if (!Array.isArray(list)) return null
+    return list.map((t: any) => ({ status: t.status ?? 'pending', content: t.content ?? t.text ?? String(t) }))
+  }
+
+  // Long output folding: show the first FOLD_LINES, reveal the rest on click.
+  const FOLD_LINES = 14
+  let expanded = $state<Record<string, boolean>>({})
+  function foldInfo(id: string, text: string) {
+    const lines = text.split('\n')
+    if (lines.length <= FOLD_LINES || expanded[id]) {
+      return { shown: text, hidden: 0 }
+    }
+    return { shown: lines.slice(0, FOLD_LINES).join('\n'), hidden: lines.length - FOLD_LINES }
+  }
 </script>
 
 {#if tools !== null && tools.length > 0}
@@ -111,21 +180,27 @@
           <iconify-icon icon="ant-design:loading-outlined" width="13" style="animation:octo-spin 0.8s linear infinite"></iconify-icon>
           running
         </span>
+      {:else}
+        {@const elapsed = groupElapsed(tools)}
+        {#if elapsed}<span class="hdr-time mono" style="margin-left:auto">{elapsed}</span>{/if}
       {/if}
     </div>
 
     {#each tools as tool (tool.id)}
-      <details open class="tool-item">
+      {@const meta = toolMeta(tool)}
+      {@const todos = todoItems(tool)}
+      <details open={defaultOpen(tool)} class="tool-item">
         <summary class="tool-summary">
-          <iconify-icon icon="lucide:chevron-down" width="13" style="color:rgba(0,0,0,0.35)"></iconify-icon>
-          <iconify-icon icon={toolIcon(tool.name)} width="14" style="color:rgba(0,0,0,0.45)"></iconify-icon>
+          <iconify-icon icon="lucide:chevron-right" width="13" class="chev" style="color:rgba(0,0,0,0.35)"></iconify-icon>
+          <iconify-icon icon={toolIcon(tool.name)} width="14" style="color:rgba(0,0,0,0.45);flex:0 0 auto"></iconify-icon>
           <span class="tool-name mono">{tool.name}</span>
           {#if tool.summary}
             <span class="tool-arg mono">{tool.summary}</span>
           {:else if tool.args}
             <span class="tool-arg mono">{argSummary(tool.name, tool.args)}</span>
           {/if}
-          <span style="margin-left:auto;flex:0 0 auto">
+          {#if meta}<span class="tool-meta" style="margin-left:auto">{meta}</span>{/if}
+          <span style="{meta ? '' : 'margin-left:auto;'}flex:0 0 auto;display:flex;align-items:center">
             {#if tool.error}
               <span style="display:flex;align-items:center;gap:4px;font-size:12px;color:#FF4D4F">
                 <iconify-icon icon="ant-design:close-circle-outlined" width="14"></iconify-icon>
@@ -144,6 +219,23 @@
 
         {#if tool.error}
           <div class="error-output mono">{tool.error}</div>
+        {:else if todos}
+          <div class="todo-list">
+            {#each todos as step}
+              <div class="todo-step">
+                {#if step.status === 'completed'}
+                  <iconify-icon icon="ant-design:check-circle-outlined" width="14" style="color:#52C41A"></iconify-icon>
+                  <span class="todo-done">{step.content}</span>
+                {:else if step.status === 'in_progress'}
+                  <iconify-icon icon="ant-design:loading-outlined" width="14" style="color:#1677FF;animation:octo-spin 0.8s linear infinite"></iconify-icon>
+                  <span>{step.content}</span>
+                {:else}
+                  <iconify-icon icon="lucide:circle" width="14" style="color:rgba(0,0,0,0.25)"></iconify-icon>
+                  <span class="todo-pending">{step.content}</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
         {:else if tool.diff}
           <div class="diff-block">
             {#each tool.diff.split('\n') as line}
@@ -159,7 +251,18 @@
             {/each}
           </div>
         {:else if tool.stdout && tool.stdout.length > 0}
-          <pre class="terminal-output">{tool.stdout.join('\n')}{#if !tool.done}<span class="blink-caret"></span>{/if}</pre>
+          {@const full = tool.stdout.join('\n')}
+          {@const fold = foldInfo(tool.id, full)}
+          <div class="term-wrap">
+            <pre class="terminal-output">{#each fold.shown.split('\n') as line}{#if line.startsWith('$ ') || line === '$'}<span class="term-prompt">$</span>{line.slice(1)}{:else}{line}{/if}
+{/each}{#if !tool.done}<span class="blink-caret"></span>{/if}</pre>
+            {#if fold.hidden > 0}
+              <button class="fold-btn" onclick={() => expanded[tool.id] = true}>
+                <iconify-icon icon="lucide:chevron-down" width="13"></iconify-icon>
+                Show {fold.hidden} more lines
+              </button>
+            {/if}
+          </div>
         {:else if tool.name === 'web_search' && searchResults(tool)}
           {@const results = searchResults(tool)}
           <div class="search-results">
@@ -175,7 +278,17 @@
             {/each}
           </div>
         {:else if tool.result}
-          <pre class="tool-output">{prettyResult(tool.result)}</pre>
+          {@const pretty = prettyResult(tool.result)}
+          {@const fold = foldInfo(tool.id, pretty)}
+          <div>
+            <pre class="tool-output">{fold.shown}</pre>
+            {#if fold.hidden > 0}
+              <button class="fold-btn light" onclick={() => expanded[tool.id] = true}>
+                <iconify-icon icon="lucide:chevron-down" width="13"></iconify-icon>
+                Show {fold.hidden} more lines
+              </button>
+            {/if}
+          </div>
         {/if}
       </details>
     {/each}
@@ -207,8 +320,25 @@
   margin: 0; padding: 10px 14px; border-top: 1px solid #F0F0F0;
   background: #FBFBFB; font-size: 12px; line-height: 1.7;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: rgba(0,0,0,0.65); overflow: auto; max-height: 320px;
+  color: rgba(0,0,0,0.65); overflow-x: auto; white-space: pre-wrap; word-break: break-word;
 }
+/* Chevron rotates from ▸ (collapsed) to ▾ (open). */
+.chev { transition: transform 0.15s ease; flex: 0 0 auto; }
+details[open] > summary .chev { transform: rotate(90deg); }
+/* todo_write checklist */
+.todo-list { border-top: 1px solid #F0F0F0; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.todo-step { display: flex; align-items: center; gap: 8px; font-size: 13px; color: rgba(0,0,0,0.88); }
+.todo-done { color: rgba(0,0,0,0.35); text-decoration: line-through; }
+.todo-pending { color: rgba(0,0,0,0.45); }
+/* Long-output fold button */
+.term-wrap { display: flex; flex-direction: column; }
+.fold-btn {
+  width: 100%; padding: 8px 12px; border: none; border-top: 1px solid #F0F0F0;
+  background: #FAFAFA; display: flex; align-items: center; justify-content: center;
+  gap: 6px; font-size: 12px; color: #1677FF; cursor: pointer; font-family: inherit;
+}
+.fold-btn:hover { background: rgba(22,119,255,0.06); }
+.term-prompt { color: #52C41A; }
 .search-results {
   border-top: 1px solid #F0F0F0; padding: 10px 14px;
   display: flex; flex-direction: column; gap: 10px;
