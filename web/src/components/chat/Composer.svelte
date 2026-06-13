@@ -29,6 +29,14 @@
     return s ? s[0].toUpperCase() + s.slice(1) : s
   }
 
+  // Show only the last two path segments so a long working dir doesn't push
+  // the chip row onto a second line. Full path is in the title tooltip.
+  function shortDir(p: string): string {
+    if (!p) return ''
+    const parts = p.split('/').filter(Boolean)
+    return parts.length <= 2 ? p : '…/' + parts.slice(-2).join('/')
+  }
+
   function send() {
     if (!text.trim()) return
     const v = text.trim()
@@ -63,7 +71,7 @@
       <iconify-icon icon="lucide:chevron-down" width="12"></iconify-icon>
     </button>
     {#if workingDir}
-      <span class="chip static"><span class="mono">{workingDir}</span></span>
+      <span class="chip static" title={workingDir}><span class="mono">{shortDir(workingDir)}</span></span>
     {/if}
     <span class="chip static context-chip">
       <span>{tr('chat.context')}</span>

@@ -59,6 +59,15 @@ export const profileUser = writable<any | null>(null)
 export const memTab = writable<'soul' | 'user' | 'memories'>('soul')
 export const recallFiles = writable<any[]>([])
 
+// Monotonic id generator — Date.now() collides when called many times in the
+// same millisecond (e.g. rendering a page of history synchronously), which
+// produces duplicate {#each} keys and crashes the list with each_key_duplicate.
+let _idSeq = 0
+export function uid(prefix = 'm'): string {
+  _idSeq += 1
+  return `${prefix}-${_idSeq}`
+}
+
 // Helper functions
 export function showToast(msg: string, type = 'success') {
   toast.set({ msg, type })
@@ -102,7 +111,7 @@ export function addToolCallToGroup(sessionId: string, toolCall: any) {
     if (lastGroup >= 0 && msgs[lastGroup].streaming) {
       msgs[lastGroup] = { ...msgs[lastGroup], tools: [...msgs[lastGroup].tools, toolCall] }
     } else {
-      msgs.push({ id: Date.now() + '', type: 'tool_group', content: '', streaming: true, tools: [toolCall], todos: [], createdAt: Date.now() })
+      msgs.push({ id: uid('grp'), type: 'tool_group', content: '', streaming: true, tools: [toolCall], todos: [], createdAt: Date.now() })
     }
     return { ...m, [sessionId]: msgs }
   })

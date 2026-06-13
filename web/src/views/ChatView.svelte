@@ -23,6 +23,7 @@
     appendToLastAssistant,
     addToolCallToGroup,
     updateLastToolResult,
+    uid,
   } from '../lib/stores'
   import { ws, wsState } from '../lib/ws'
   import * as api from '../lib/api'
@@ -56,17 +57,21 @@
     if (!sid) return
     if (ev.type === 'history_user_message') {
       addChatMsg(sid, {
-        id: String(ev.created_at ?? Date.now()),
+        id: uid('u'),
         type: 'user',
         content: ev.content ?? '',
         createdAt: ev.created_at ?? Date.now(),
         streaming: false,
+        pending: false,
         tools: [],
         todos: [],
       })
     } else if (ev.type === 'assistant_message') {
+      // Skip empty assistant turns (thinking-only / tool-only rounds) so they
+      // don't render as blank bubbles.
+      if (!(ev.content ?? '').trim()) return
       addChatMsg(sid, {
-        id: String(Date.now()),
+        id: uid('a'),
         type: 'assistant',
         content: ev.content ?? '',
         createdAt: Date.now(),
@@ -76,7 +81,7 @@
       })
     } else if (ev.type === 'tool_call') {
       addToolCallToGroup(sid, {
-        id: String(Date.now()),
+        id: uid('t'),
         name: ev.name ?? '',
         args: ev.args ?? '',
         summary: ev.summary ?? '',
@@ -106,6 +111,15 @@
       for (const ev of events) {
         handleHistoryEvent(ev)
       }
+      // History is a completed transcript — close any tool groups so they
+      // don't show a perpetual "running" spinner (there's no complete event
+      // in the replayed history to close them).
+      chatMessages.update(m => {
+        const msgs = (m[sid] || []).map((x: any) =>
+          x.type === 'tool_group' ? { ...x, streaming: false } : x
+        )
+        return { ...m, [sid]: msgs }
+      })
     }).catch(() => {/* silently ignore history load errors */})
 
     // ── WS event handlers ───────────────────────────────────────────────────
@@ -129,7 +143,7 @@
         })
       } else {
         addChatMsg(sid, {
-          id: String(Date.now()),
+          id: uid('a'),
           type: 'assistant',
           content: (ev as any).content ?? '',
           createdAt: Date.now(),
@@ -150,9 +164,9 @@
         // text, replace it in place (de-dup). Otherwise append a fresh one.
         const lastPending = msgs.findLastIndex((x: any) => x.type === 'user' && x.pending)
         if (lastPending >= 0 && msgs[lastPending].content === content) {
-          msgs[lastPending] = { ...msgs[lastPending], id: String(createdAt), createdAt, pending: false }
+          msgs[lastPending] = { ...msgs[lastPending], id: uid('u'), createdAt, pending: false }
         } else {
-          msgs.push({ id: String(createdAt), type: 'user', content, createdAt, streaming: false, pending: false, tools: [], todos: [] })
+          msgs.push({ id: uid('u'), type: 'user', content, createdAt, streaming: false, pending: false, tools: [], todos: [] })
         }
         return { ...m, [sid]: msgs }
       })
@@ -161,7 +175,7 @@
     cleanups.push(ws.on('tool_call', (ev) => {
       if ((ev as any).session_id && (ev as any).session_id !== sid) return
       addToolCallToGroup(sid, {
-        id: String(Date.now()),
+        id: uid('t'),
         name: (ev as any).name ?? '',
         args: (ev as any).args ?? '',
         summary: (ev as any).summary ?? '',
@@ -295,17 +309,41 @@
   })
 
   // ── auto-scroll ────────────────────────────────────────────────────────────
-  $effect(() => {
-    // read msgs length to trigger on change
-    void msgs.length
-    void streaming
+  // Streaming appends text to the SAME message, so msgs.length doesn't change
+  // and a length-only effect never re-fires. A ResizeObserver on the inner
+  // content keeps us pinned to the bottom while the user is already there, and
+  // backs off the moment they scroll up to read.
+  let innerEl = $state<HTMLElement | null>(null)
+  let stick = true
 
-    if (!messagesEl) return
-    const el = messagesEl
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (distFromBottom < 100) {
-      el.scrollTop = el.scrollHeight
+  $effect(() => {
+    const scroller = messagesEl
+    const content = innerEl
+    if (!scroller || !content) return
+
+    const onScroll = () => {
+      stick = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80
     }
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+
+    const ro = new ResizeObserver(() => {
+      if (stick) scroller.scrollTop = scroller.scrollHeight
+    })
+    ro.observe(content)
+
+    // Initial pin to bottom after history loads.
+    scroller.scrollTop = scroller.scrollHeight
+
+    return () => {
+      scroller.removeEventListener('scroll', onScroll)
+      ro.disconnect()
+    }
+  })
+
+  // When the active session changes, re-pin to the bottom.
+  $effect(() => {
+    void $activeSessionId
+    stick = true
   })
 
   // ── markdown copy buttons setup ────────────────────────────────────────────
@@ -387,7 +425,7 @@
     <div class="conversation">
       <!-- Messages scroll area -->
       <div class="messages" bind:this={messagesEl}>
-        <div class="messages-inner">
+        <div class="messages-inner" bind:this={innerEl}>
 
           {#each msgs as msg (msg.id)}
             {#if msg.type === 'user'}
