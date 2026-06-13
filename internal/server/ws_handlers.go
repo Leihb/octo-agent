@@ -1039,6 +1039,7 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			"session_id": w.sessionID,
 			"name":       ev.ToolName,
 			"args":       ev.Input,
+			"tool_id":    ev.ToolID,
 		}
 		w.hub.broadcast(w.sessionID, evt)
 
@@ -1063,6 +1064,7 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			"type":       "tool_result",
 			"session_id": w.sessionID,
 			"result":     ev.Output,
+			"tool_id":    ev.ToolID,
 		}
 		if ev.UI != nil {
 			toolResult["ui_payload"] = ev.UI
@@ -1088,6 +1090,7 @@ func (w *wsStreamWriter) handleEvent(ev agent.AgentEvent) {
 			"type":       "tool_error",
 			"session_id": w.sessionID,
 			"error":      ev.Err,
+			"tool_id":    ev.ToolID,
 		}
 		w.hub.broadcast(w.sessionID, evt)
 		w.bufferTurnEvent(evt)

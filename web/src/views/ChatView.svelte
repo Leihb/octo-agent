@@ -22,7 +22,9 @@
     clearMsgs,
     appendToLastAssistant,
     addToolCallToGroup,
-    updateLastToolResult,
+    updateToolResult,
+    setToolError,
+    finishAllTools,
     uid,
   } from '../lib/stores'
   import { ws, wsState } from '../lib/ws'
@@ -82,6 +84,7 @@
     } else if (ev.type === 'tool_call') {
       addToolCallToGroup(sid, {
         id: uid('t'),
+        toolId: ev.tool_id ?? '',
         name: ev.name ?? '',
         args: ev.args ?? '',
         summary: ev.summary ?? '',
@@ -92,7 +95,7 @@
         diff: null,
       })
     } else if (ev.type === 'tool_result') {
-      updateLastToolResult(sid, ev.result, ev.ui_payload)
+      updateToolResult(sid, ev.tool_id, ev.result, ev.ui_payload)
     }
   }
 
@@ -111,15 +114,10 @@
       for (const ev of events) {
         handleHistoryEvent(ev)
       }
-      // History is a completed transcript — close any tool groups so they
-      // don't show a perpetual "running" spinner (there's no complete event
-      // in the replayed history to close them).
-      chatMessages.update(m => {
-        const msgs = (m[sid] || []).map((x: any) =>
-          x.type === 'tool_group' ? { ...x, streaming: false } : x
-        )
-        return { ...m, [sid]: msgs }
-      })
+      // History is a completed transcript — mark all tools done so nothing
+      // shows a perpetual "running" spinner (there's no complete event in the
+      // replayed history to close them).
+      finishAllTools(sid)
     }).catch(() => {/* silently ignore history load errors */})
 
     // ── WS event handlers ───────────────────────────────────────────────────
@@ -176,6 +174,7 @@
       if ((ev as any).session_id && (ev as any).session_id !== sid) return
       addToolCallToGroup(sid, {
         id: uid('t'),
+        toolId: (ev as any).tool_id ?? '',
         name: (ev as any).name ?? '',
         args: (ev as any).args ?? '',
         summary: (ev as any).summary ?? '',
@@ -189,22 +188,12 @@
 
     cleanups.push(ws.on('tool_result', (ev) => {
       if ((ev as any).session_id && (ev as any).session_id !== sid) return
-      updateLastToolResult(sid, (ev as any).result, (ev as any).ui_payload)
+      updateToolResult(sid, (ev as any).tool_id, (ev as any).result, (ev as any).ui_payload)
     }))
 
     cleanups.push(ws.on('tool_error', (ev) => {
       if ((ev as any).session_id && (ev as any).session_id !== sid) return
-      chatMessages.update(m => {
-        const msgs = [...(m[sid] || [])]
-        const lastGroup = msgs.findLastIndex((x: any) => x.type === 'tool_group')
-        if (lastGroup >= 0) {
-          const tools = [...msgs[lastGroup].tools]
-          const lastTool = tools.length - 1
-          if (lastTool >= 0) tools[lastTool] = { ...tools[lastTool], error: (ev as any).error ?? 'error', done: true }
-          msgs[lastGroup] = { ...msgs[lastGroup], tools }
-        }
-        return { ...m, [sid]: msgs }
-      })
+      setToolError(sid, (ev as any).tool_id, (ev as any).error ?? 'error')
     }))
 
     cleanups.push(ws.on('tool_stdout', (ev) => {
@@ -236,15 +225,10 @@
       if ((ev as any).session_id && (ev as any).session_id !== sid) return
       chatStreaming.update(s => ({ ...s, [sid]: false }))
       chatProgress.update(p => ({ ...p, [sid]: null }))
-      // Close open tool groups
-      chatMessages.update(m => {
-        const msgs = (m[sid] || []).map((msg: any) =>
-          msg.type === 'tool_group' && msg.streaming
-            ? { ...msg, streaming: false }
-            : msg
-        )
-        return { ...m, [sid]: msgs }
-      })
+      // Close open tool groups AND mark any still-spinning tools done — a
+      // finished turn must never leave a tool on "running" (e.g. parallel
+      // results that never matched a tool, or a dropped result event).
+      finishAllTools(sid)
     }))
 
     cleanups.push(ws.on('session_update', (ev) => {

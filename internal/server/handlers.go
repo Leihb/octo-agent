@@ -391,8 +391,9 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 					// hook (memory save-nudge) — strip them for display,
 					// matching the live EventToolDone path.
 					ev := map[string]any{
-						"type":   "tool_result",
-						"result": agent.StripRemindersForDisplay(b.Result),
+						"type":    "tool_result",
+						"result":  agent.StripRemindersForDisplay(b.Result),
+						"tool_id": b.ToolUseID,
 					}
 					if b.UI != nil {
 						ev["ui_payload"] = b.UI
@@ -458,9 +459,10 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 			for _, b := range m.Blocks {
 				if b.Type == "tool_use" {
 					events = append(events, map[string]any{
-						"type": "tool_call",
-						"name": b.Name,
-						"args": b.Input,
+						"type":    "tool_call",
+						"name":    b.Name,
+						"args":    b.Input,
+						"tool_id": b.ID,
 					})
 				}
 			}

@@ -117,16 +117,62 @@ export function addToolCallToGroup(sessionId: string, toolCall: any) {
   })
 }
 
-export function updateLastToolResult(sessionId: string, result: any, uiPayload: any) {
+// Find the tool to update: prefer an exact toolId match (correct for parallel
+// tool calls whose results arrive out of order), else the first not-yet-done
+// tool, else the last one. Parallel tool_use returns N calls then N results, so
+// "last tool" alone mis-assigns every result to the final call.
+function pickToolIndex(tools: any[], toolId: string | undefined): number {
+  if (toolId) {
+    const byId = tools.findIndex((t: any) => t.toolId && t.toolId === toolId)
+    if (byId >= 0) return byId
+  }
+  const pending = tools.findIndex((t: any) => !t.done && !t.error)
+  if (pending >= 0) return pending
+  return tools.length - 1
+}
+
+export function updateToolResult(sessionId: string, toolId: string | undefined, result: any, uiPayload: any) {
   chatMessages.update(m => {
     const msgs = [...(m[sessionId] || [])]
     const lastGroup = msgs.findLastIndex((x: any) => x.type === 'tool_group')
     if (lastGroup >= 0) {
       const tools = [...msgs[lastGroup].tools]
-      const lastTool = tools.length - 1
-      if (lastTool >= 0) tools[lastTool] = { ...tools[lastTool], result, ui_payload: uiPayload, done: true }
+      const idx = pickToolIndex(tools, toolId)
+      if (idx >= 0) tools[idx] = { ...tools[idx], result, ui_payload: uiPayload, done: true }
       msgs[lastGroup] = { ...msgs[lastGroup], tools }
     }
+    return { ...m, [sessionId]: msgs }
+  })
+}
+
+export function setToolError(sessionId: string, toolId: string | undefined, error: string) {
+  chatMessages.update(m => {
+    const msgs = [...(m[sessionId] || [])]
+    const lastGroup = msgs.findLastIndex((x: any) => x.type === 'tool_group')
+    if (lastGroup >= 0) {
+      const tools = [...msgs[lastGroup].tools]
+      const idx = pickToolIndex(tools, toolId)
+      if (idx >= 0) tools[idx] = { ...tools[idx], error, done: true }
+      msgs[lastGroup] = { ...msgs[lastGroup], tools }
+    }
+    return { ...m, [sessionId]: msgs }
+  })
+}
+
+// Mark every still-running tool in the session as done — called on `complete`
+// so a finished turn never leaves tools spinning (parallel results that never
+// matched, or a tool whose result event was dropped).
+export function finishAllTools(sessionId: string) {
+  chatMessages.update(m => {
+    const msgs = (m[sessionId] || []).map((msg: any) =>
+      msg.type === 'tool_group'
+        ? {
+            ...msg,
+            streaming: false,
+            tools: msg.tools.map((t: any) => (t.done || t.error ? t : { ...t, done: true })),
+          }
+        : msg
+    )
     return { ...m, [sessionId]: msgs }
   })
 }
