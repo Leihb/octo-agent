@@ -35,7 +35,10 @@ export interface CreateSessionOpts {
 }
 
 export async function createSession(opts: CreateSessionOpts): Promise<Session> {
-  return request<Session>('/api/sessions', { method: 'POST', ...json(opts) })
+  // The create endpoint wraps the record as { session: {...} }; unwrap so
+  // callers get a Session with a usable .id (sidebar push + activeSessionId).
+  const d = await request<{ session?: Session } & Session>('/api/sessions', { method: 'POST', ...json(opts) })
+  return (d.session ?? d) as Session
 }
 
 export async function deleteSession(id: string): Promise<void> {
@@ -63,8 +66,13 @@ export async function getSessionMessages(id: string, opts?: MessagesOpts): Promi
   return request<unknown>(`/api/sessions/${id}/messages${qs ? `?${qs}` : ''}`)
 }
 
-export async function updateSessionModel(id: string, model: string): Promise<void> {
-  await request<unknown>(`/api/sessions/${id}/model`, { method: 'PATCH', ...json({ model }) })
+// The server keys session model by the named entry id (or "default" / a raw
+// model string), read from the `model_id` field — not `model`.
+export async function updateSessionModel(id: string, modelId: string): Promise<{ model: string; model_id: string }> {
+  return request<{ model: string; model_id: string }>(`/api/sessions/${id}/model`, {
+    method: 'PATCH',
+    ...json({ model_id: modelId }),
+  })
 }
 
 export async function updateSessionReasoningEffort(id: string, effort: string): Promise<void> {
@@ -273,8 +281,19 @@ export async function emptyTrash(opts?: EmptyTrashOpts): Promise<void> {
 
 // Config & Version
 
-export async function getConfig(): Promise<unknown> {
-  return request<unknown>('/api/config')
+export interface ModelEntry {
+  id: string
+  model: string
+  type?: string
+  provider?: string
+}
+export interface ConfigResponse {
+  models?: ModelEntry[]
+  default_model_idx?: number
+}
+
+export async function getConfig(): Promise<ConfigResponse> {
+  return request<ConfigResponse>('/api/config')
 }
 
 export async function getVersion(): Promise<unknown> {

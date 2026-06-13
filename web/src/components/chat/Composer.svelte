@@ -1,10 +1,12 @@
 <script lang="ts">
   import { get } from 'svelte/store'
+  import { onMount } from 'svelte'
   import {
     running, activeSessionId, chatStreaming, sessions,
-    chatContextUsage, chatWorkingDir, chatPermMode, chatReasoningEffort,
+    chatContextUsage, chatWorkingDir, chatPermMode, chatReasoningEffort, showToast,
   } from '../../lib/stores'
   import { ws } from '../../lib/ws'
+  import * as api from '../../lib/api'
   import { t as tr } from '../../lib/i18n'
   import StatusTag from '../ui/StatusTag.svelte'
 
@@ -66,6 +68,40 @@
     return s ? s[0].toUpperCase() + s.slice(1) : s
   }
 
+  // ── model + reasoning pickers ──────────────────────────────────────────────
+  let models = $state<api.ModelEntry[]>([])
+  let modelMenu = $state(false)
+  let reasonMenu = $state(false)
+  const reasoningLevels = ['low', 'medium', 'high']
+
+  onMount(async () => {
+    try { models = (await api.getConfig()).models ?? [] } catch { /* leave empty */ }
+  })
+
+  async function pickModel(m: api.ModelEntry) {
+    modelMenu = false
+    if (!sid) return
+    try {
+      const res = await api.updateSessionModel(sid, m.id)
+      sessions.update(list => list.map((s: any) => s.id === sid ? { ...s, model: res.model, model_id: res.model_id } : s))
+    } catch (e: any) {
+      showToast(e.message ?? 'Failed to switch model', 'error')
+    }
+  }
+
+  async function pickReasoning(level: string) {
+    reasonMenu = false
+    if (!sid) return
+    try {
+      await api.updateSessionReasoningEffort(sid, level)
+      chatReasoningEffort.update(r => ({ ...r, [sid]: level }))
+    } catch (e: any) {
+      showToast(e.message ?? 'Failed to set reasoning', 'error')
+    }
+  }
+
+  function closeMenus() { modelMenu = false; reasonMenu = false }
+
   // Show only the last two path segments so a long working dir doesn't push
   // the chip row onto a second line. Full path is in the title tooltip.
   function shortDir(p: string): string {
@@ -98,17 +134,46 @@
   }
 </script>
 
+<svelte:window onclick={closeMenus} />
+
 <div class="composer">
   <div class="chips">
-    <button class="chip">
-      <iconify-icon icon="ant-design:robot-outlined" width="12"></iconify-icon>
-      <span>{modelName}</span>
-      <iconify-icon icon="lucide:chevron-down" width="12"></iconify-icon>
-    </button>
-    <button class="chip">
-      <span>Reasoning: {cap(reasoning)}</span>
-      <iconify-icon icon="lucide:chevron-down" width="12"></iconify-icon>
-    </button>
+    <div class="picker">
+      <button class="chip" onclick={(e) => { e.stopPropagation(); reasonMenu = false; modelMenu = !modelMenu }}>
+        <iconify-icon icon="ant-design:robot-outlined" width="12"></iconify-icon>
+        <span>{modelName}</span>
+        <iconify-icon icon="lucide:chevron-down" width="12"></iconify-icon>
+      </button>
+      {#if modelMenu}
+        <div class="menu" onclick={(e) => e.stopPropagation()}>
+          {#if models.length === 0}
+            <div class="menu-empty">No models configured</div>
+          {:else}
+            {#each models as m (m.id)}
+              <button class="menu-item" onclick={() => pickModel(m)}>
+                <span class="mi-name">{m.id}</span>
+                <span class="mi-model mono">{m.model}</span>
+              </button>
+            {/each}
+          {/if}
+        </div>
+      {/if}
+    </div>
+    <div class="picker">
+      <button class="chip" onclick={(e) => { e.stopPropagation(); modelMenu = false; reasonMenu = !reasonMenu }}>
+        <span>Reasoning: {cap(reasoning)}</span>
+        <iconify-icon icon="lucide:chevron-down" width="12"></iconify-icon>
+      </button>
+      {#if reasonMenu}
+        <div class="menu" onclick={(e) => e.stopPropagation()}>
+          {#each reasoningLevels as lvl}
+            <button class="menu-item" class:active={lvl === reasoning} onclick={() => pickReasoning(lvl)}>
+              <span class="mi-name">{cap(lvl)}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
     {#if workingDir}
       <span class="chip static" title={workingDir}><span class="mono">{shortDir(workingDir)}</span></span>
     {/if}
@@ -194,6 +259,23 @@
 .chip:hover { border-color: #4096FF; color: #4096FF; }
 .chip.static { cursor: default; background: #FAFAFA; border-color: #EEEFF1; }
 .chip.static:hover { border-color: #EEEFF1; color: rgba(0,0,0,0.65); }
+.picker { position: relative; }
+.menu {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 50;
+  min-width: 200px; max-width: 320px; max-height: 280px; overflow-y: auto;
+  background: #fff; border: 1px solid #EEEFF1; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15,23,42,0.14); padding: 4px;
+}
+.menu-item {
+  width: 100%; display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+  padding: 7px 10px; border: none; background: transparent; border-radius: 6px;
+  cursor: pointer; font-family: inherit; text-align: left;
+}
+.menu-item:hover { background: rgba(22,119,255,0.08); }
+.menu-item.active { background: rgba(22,119,255,0.06); }
+.mi-name { font-size: 13px; color: rgba(0,0,0,0.88); }
+.mi-model { font-size: 11px; color: rgba(0,0,0,0.45); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+.menu-empty { padding: 8px 10px; font-size: 12px; color: rgba(0,0,0,0.45); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .context-chip { gap: 8px; }
 .ctx-bar { width: 56px; height: 4px; background: #F0F0F0; border-radius: 9999px; overflow: hidden; display: inline-block; }
